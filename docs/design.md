@@ -10682,10 +10682,20 @@ to 12 are reordered and nothing else changes.
   **Check:** the tests that compare the skip with a walk of one octet at a time, from every
   offset of seeded texts, for one, two and three ranges; callgrind's count of the search at the
   base and with the turn; two paired runs of the `bench` workflow on each runner; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
-  The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container, and the
+  two paired runs on GitHub's runners.
   - `zig build test` exits 0. `zig build test-regex -Dtarget=aarch64-linux -fqemu` exits 0
     under qemu-user 8.2.2.
+  - The `bench` workflow's runs 45650411036 and 45650433238 measured `cfd8161` against
+    `a154959`, each in one job on the N2 and one on the EPYC 7763. By decision 20's rule, 16 of
+    the 284 rows ran faster in all four jobs, and none ran slower.
+    - `quotes-bounded` ran 1.12 times as fast on the N2 and 1.25 on x86-64, now at 0.80 and 0.71
+      of Rust's crate. `ip` ran 1.21 and 1.38 times as fast, at 0.87 and 1.05. `quotes` ran
+      1.07 and 1.13 times as fast, at 0.89 and 0.81.
+    - Rows that skip far on a text of one byte ran 3.7 to 5.4 times as fast:
+      `awyer-inn-busted`, `no-quadratic-backward` and `opt/reverse-suffix/no-quadratic`.
+    - The four classes of the 1 MiB search ran 1.03 to 1.49 times as fast, and
+      `14-quadratic/10x` 1.61 to 2.08 times.
   - Callgrind, built ReleaseSafe for x86-64-v3, counted one search of each row's text at
     `50831c6` and with the turn, less the cache's memset at init: `quotes-bounded` 87,348,141
     and 75,200,007 instructions, `ip` 29,767,934 and 21,930,945, `quotes` 6,152,248 and
