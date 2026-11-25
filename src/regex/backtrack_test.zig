@@ -181,3 +181,44 @@ test "a pattern of no group but the whole match takes the DFAs' span, with no ba
     try searching.expect_agree("xaab", 0);
     try testing.expectEqual(0, searching.searcher.matcher.work);
 }
+
+/// A program longer than the matcher's tests take, in bytes, whose span's bits pass
+/// `backtrack_bits_words_max` while the matcher's tables hold them: eight groups keep 16 slots a
+/// thread, and a table holds 16 words for each instruction.
+const bound_storage_len = 8192;
+const bound_slots = 16;
+const Bound = struct {
+    storage: [bound_storage_len]program_file.Instruction = undefined,
+    memory: [Matcher.memory_len(bound_storage_len, bound_slots)]u64 = undefined,
+    program: program_file.Program = undefined,
+    matcher: Matcher = undefined,
+};
+
+threadlocal var bound: Bound = .{};
+
+/// The words of the bits of a span, and of the matcher's first table.
+const Words = struct { bits: usize, table: usize };
+
+/// The words of the bits of a span of `text` under `pattern`, and of the matcher's first table.
+fn bound_words(pattern: []const u8, text: []const u8) !Words {
+    bound.program = try compiler.compile(pattern, .{ .encoding = .bytes }, &bound.storage);
+    try testing.expectEqual(@as(u32, bound_slots), bound.program.slot_count());
+    const len = Matcher.memory_len(bound.program.forward_len, bound.program.slot_count());
+    bound.matcher.init(&bound.program, .{ .captures = .groups, .anchored = true }, bound.memory[0..len]);
+    const bits = @as(usize, bound.program.forward_len) * (text.len + 1);
+    return .{ .bits = (bits + @bitSizeOf(u64) - 1) / @bitSizeOf(u64), .table = bound.matcher.seed_slots.len };
+}
+
+test "find gives way where the span's bits pass their bound, though the tables would hold them" {
+    const constants = @import("constants.zig");
+    const long = "aaaaaa" ++ "b" ** 800;
+    const words = try bound_words("(a)(a)(a)(a)(a)(a)(\\w{800})", long);
+    try testing.expect(words.bits > constants.backtrack_bits_words_max and words.bits <= words.table);
+    try testing.expectEqual(null, backtrack.find(&bound.matcher, long, 0, long.len));
+    // A shorter span of the same shape keeps the backtracker.
+    const short = "aaaaaa" ++ "b" ** 300;
+    const fits = try bound_words("(a)(a)(a)(a)(a)(a)(\\w{300})", short);
+    try testing.expect(fits.bits <= constants.backtrack_bits_words_max and fits.bits <= fits.table);
+    const span = backtrack.find(&bound.matcher, short, 0, short.len) orelse return error.TestExpectedMatch;
+    try testing.expectEqual(@as(u64, short.len), span.end);
+}

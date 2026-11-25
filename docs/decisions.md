@@ -6323,6 +6323,13 @@ last part lists what still waits on a ruling.
         fails at once either: the node's path goes on with no entry (added 2026-11-23).
       - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,
         "Regular Expression Matching in the Wild", 2010). Both give the bitmap memory of its own.
+      - A bound on the bits, ruled by the owner on 2026-11-25 (design §8 part 22q): a span whose
+        bits pass `backtrack_bits_words_max`, 32,768 words, goes to the matcher. The bound is
+        256 KiB, the capacity Rust's crate gives its bounded backtracker by default, as recalled
+        and not read from a source. On `overlapping-words`, whose program holds 148,000
+        instructions, a span of up to about 13 octets fits under it, and the row runs as before.
+        4,096 words, RE2's BitState bitmap as recalled, lost the ruling: a probe found that row's
+        groups at 6.6 to 7.1 MB/s with every span sent to the matcher.
       - A wider form, built and refused on 2026-11-25 (design §8 part 22q): where the reverse
         DFA did not start, the forward DFA's end and the backtracker from the search's start, each
         start in order with the bits kept. On rebar's `overlapping-words/english` it ran at 1.05

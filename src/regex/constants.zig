@@ -254,29 +254,29 @@ pub const dfa_run_plain_rows_max = utf8_len_max - 1;
 pub const dfa_forward_parts = 2;
 pub const dfa_cache_parts = 3;
 
-/// The least slots of the table that finds a written node of a literal trie (literal_trie.zig),
-/// and the slots a lookup reads from a hash's home. The table holds a power of two of slots, at
-/// least one for each `trie_octets_per_slot` octets of the literals, in the storage past the
-/// program. For rebar's dictionary, a table of one slot an octet took 786 kB of the storage; an
-/// eighth of it wrote 5% more instructions, 24,088 in place of 22,915, in 0.95 of the time.
+/// The table that finds a written node of a trie (literal_trie.zig), past the program: a power of
+/// two of slots, at least 64 and one for each 8 octets of the literals, and 8 read from a hash's
+/// home. For rebar's dictionary a slot an octet took 786 kB; an eighth wrote 5% more instructions.
 pub const trie_node_slots_min = 64;
 pub const trie_octets_per_slot = 8;
 pub const trie_node_probes = 8;
 
-/// Claim R15 (aho_corasick.zig): a node keeps its depth, its longest literal's length and its
-/// count of branches in one octet each, so literals and branches stop at 255. A walk of one place
-/// of a trie's program takes a split, a branch and a jump for each branch, `automaton_walk_max`
-/// instructions at most, and keeps `automaton_walk_stack` places to go to. Past them it is no trie.
+/// Claim R15 (aho_corasick.zig): a node keeps its depth, longest literal and branches in an octet
+/// each, so each stops at 255. A walk of a place of a trie takes `automaton_walk_max` instructions
+/// at most, and keeps `automaton_walk_stack` places to go to: past them the program is no trie.
 pub const automaton_depth_max = 255;
 pub const automaton_branches_max = 255;
 pub const automaton_walk_max = 1024;
 pub const automaton_walk_stack = 16;
 
 /// The splits the backtracker passes, at most, to skip alternatives that start with a range that
-/// does not take the octet before it pushes the path (backtrack.zig). A class's node of 64
-/// continuation ranges is 63 splits, so the walk passes any node's alternatives, and a push
-/// costs a bounded walk.
+/// does not take the octet (backtrack.zig). A node of 64 continuation ranges is 63 splits.
 pub const backtrack_skip_splits_max = 64;
+
+/// Claim R8's bits for a span, at most, in words: 256 KiB, as the owner ruled on 2026-11-25, the
+/// size Rust's crate gives its bounded backtracker, as recalled. A span whose bits pass it goes to
+/// the matcher: a clear for 148,000 instructions cost `overlapping-words` 3 times its time.
+pub const backtrack_bits_words_max = 1 << 15;
 
 /// The words of cache a `Searcher` takes where its caller names no other size: 4 MiB, the memory
 /// Rust's regex crate lets the two lazy DFAs of one pattern take, 2 MiB each. The owner ruled it

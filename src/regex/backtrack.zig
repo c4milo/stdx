@@ -41,8 +41,9 @@ const bits_per_word = @bitSizeOf(u64);
 /// The match that starts at `start` and ends at `end`, which the matcher finds anchored at
 /// `start`, with its groups in the matcher's slots of its best match, which the search writes
 /// as it goes. Null where the matcher's tables are too small
-/// for the span's bits or for the stack the search needs: the matcher's own search then finds the
-/// groups. The matcher must keep every group's slots.
+/// for the span's bits or for the stack the search needs, or where the bits pass
+/// `backtrack_bits_words_max`: the matcher's own search then finds the groups. The matcher must
+/// keep every group's slots.
 pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?Span {
     assert(start <= end and end <= haystack.len);
     assert(matcher.slots_len == matcher.program.slot_count());
@@ -50,6 +51,8 @@ pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?
     const bits = @as(usize, matcher.program.forward_len) * positions;
     const words = (bits + bits_per_word - 1) / bits_per_word;
     if (words > matcher.seed_slots.len) return null;
+    // Past the bound, a clear of the bits costs more than the matcher's search of the span.
+    if (words > constants.backtrack_bits_words_max) return null;
     // The bits of a span fit the matcher's tables, so its positions fit a u32 by far.
     if (positions > std.math.maxInt(u32)) return null;
     if (matcher.one_pass_table == .held) matcher.one_pass_table = .none;

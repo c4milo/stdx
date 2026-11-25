@@ -10929,6 +10929,21 @@ to 12 are reordered and nothing else changes.
     pass's turns counted by nodes. The last was NOT CAUGHT until a test passed a node of 13
     ranges, whose turns outnumber three times its nodes.
 
+  Claim R8's bound on its bits (decision 86 as amended on 2026-11-25):
+  - With both DFAs started, a probe of `overlapping-words` found the groups at 1.93 to 2.22
+    MB/s with claim R8 and 6.55 to 7.01 with it off. The backtracker clears a bit for each of
+    148,000 instructions at each offset of a span, about 35,000 words for 15 octets.
+  - A span whose bits pass `backtrack_bits_words_max`, 32,768 words, now goes to the matcher, by
+    the owner's ruling.
+  **Check:** the backtracker gives way past the bound where the matcher's tables hold the bits,
+  and keeps a span under it; the probe of the row; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` exits 0.
+  - The probe ran at 1.75 to 2.46 MB/s with the bound, and 2.00 to 2.50 without it: a span of
+    up to about 13 octets fits under 32,768 words. With claim R8 off it ran at 6.56 to 7.14.
+  - Mutations: 3, each CAUGHT, against `zig build test-regex`: no bound, twice the bound, and a
+    bound of no word.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
