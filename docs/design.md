@@ -10519,9 +10519,21 @@ to 12 are reordered and nothing else changes.
   pass the bytes before two far places with no state; the replay refuses a wrong bound,
   `before`, literal or rule; the script runs `windowOn` for each window; two paired runs of the
   `bench` workflow on each runner, by decision 20's rule; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0, and `zig build lean` exits 0, with 119 theorems pinned.
+  - The `bench` workflow's runs 45619743869 and 45619748610 measured `2aa9b12` against
+    `b643d58`, each in one job on the N2 and one on the EPYC 7763. The pair holds claim R3 over
+    the ways too, which its own pair judged above. By decision 20's rule, 4 of the 284 rows ran
+    faster in all four jobs, and one ran slower.
+    - `ing-whitespace` ran 2.59 to 2.61 times as fast, and `ing-suffix-limited-space` 2.72 to
+      2.80 times. `line-boundary-sherlock-holmes` ran 28.6 to 52.7 times as fast, from claim R3.
+    - `huge-ascii-nosuffixlit` ran 1.01 to 1.21 times as fast. It is placement: built for
+      x86-64-v3 and counted under callgrind, its count took 75,172,281,362 instructions at
+      `b643d58` and 75,172,693,073 at `2aa9b12`.
+    - `unicode/codepoints/any-all`, `(?s:.)+` over every code point, ran at 0.875 to 0.926 of
+      its base. It is placement too: its search took 218,203,319 instructions at `b643d58` and
+      217,095,258 at `2aa9b12`, 0.5% fewer.
   - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. Their dumps hold 828 `claim
     window` lines, and Lean judged each sound.
   - A filter in the container, built ReleaseSafe and not kept, counted the row's matches. On
