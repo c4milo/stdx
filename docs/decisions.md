@@ -135,6 +135,15 @@ last part lists what still waits on a ruling.
    - The alternative refused: `stdx.json` and `stdx.base64` at the top, as `std.json` and
      `std.base64` are. It matches `std`, and leaves a growing list of encodings at the top.
 
+   Amended again by the owner the same day: the old names retire. The package exports `stdx` alone,
+   and `build/modules.zig` asserts that it is the one export, so `dependency.module("gzip")` stops a
+   dependent's build. Each module stays a module of its own inside the build, so the graph of
+   design §3 still holds each codec to its imports. A dependent keeps working at the commit it pins,
+   and moves to `stdx` in the commit that bumps its pin.
+   - The alternative refused: keep the names until every dependent imports `stdx`, as the first
+     amendment planned. A pin already holds a dependent to its commit, so the names protect no
+     build, and while they stay, a new dependent can still import past `stdx`.
+
 ## Tooling and checks
 
 7. **stdx's developer tooling comes from pepegrillo, a lazy Zig package pinned by hash.** Ruled by

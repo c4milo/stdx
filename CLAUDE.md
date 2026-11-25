@@ -79,10 +79,10 @@ The architecture depends on every rule in this section.
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
 8. **One module per codec, plus the checksums, JSON, `platform`, `regex`, `unicode` and
-   `utf8`.** Each is exported by name with `b.addModule`, so a dependent reaches it with
-   `dependency.module("gzip")` (decision 6). The module `stdx` names each under its category, as
-   `stdx.compress.gzip`, and no other module imports it (decision 6 as amended). The modules' own
-   names are aliases for the move: a new dependent imports `stdx` alone. The library keeps no
+   `utf8`.** The package exports one module, `stdx`, with `b.addModule`. It names each module under
+   its category, as `stdx.compress.gzip`, and no other module imports it. A dependent imports
+   `dependency.module("stdx")` alone, and the build refuses a second export (decision 6 as amended
+   on 2026-11-25). Each module stays a module of its own inside the build. The library keeps no
    process-wide mutable state, so a dependent may run codecs on as many threads as it likes.
 9. **Invariants are code.** Every numbered invariant in `docs/invariants.md` names the check that
    proves it: a comptime assert, a runtime assertion, a lint rule or a seeded check.

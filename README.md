@@ -62,8 +62,8 @@ exe.root_module.addImport("stdx", stdx.module("stdx"));
 - stdx builds in Debug or ReleaseSafe only, because its assertions stay on
   ([decision 17](docs/decisions.md)). `.release = true` selects ReleaseSafe, and stdx takes no
   `.optimize` option.
-- Each module's own name, such as `stdx.module("gzip")`, stays exported as an alias. A later
-  release removes the aliases.
+- The package exports `stdx` alone. A module's own name, such as `stdx.module("gzip")`, stops
+  the build: use `stdx.compress.gzip`.
 
 ## Example
 

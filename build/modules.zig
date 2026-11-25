@@ -9,8 +9,10 @@
 //! No library code calls its `probe` or `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint
 //! holds that, since the graph no longer can (invariant 14).
 //!
-//! Every module here is library code and is exported by name with `b.addModule`, so a dependent
-//! reaches it with `dependency.module("gzip")` (decision 6). Nothing here imports a package: the
+//! Every module here is library code. The package exports one of them, `stdx`, which names the
+//! others under their categories, so a dependent imports `dependency.module("stdx")` and reaches
+//! `stdx.compress.gzip` (decision 6 as amended on 2026-11-25). The other modules are this build's
+//! own, so the graph below still holds each codec to its imports. Nothing here imports a package: the
 //! oracles, the corpora and pepegrillo are requested by build.zig for `tools/` and `bench/` alone,
 //! after the point a dependent's build stops (decisions 7 and 8).
 //!
@@ -84,9 +86,6 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     codec.addImport("platform", platform);
     const hash = library(b, "hash", "hash", settings);
     variants.add_levels(b, hash, "hash", settings.target, settings.optimize, &variants.checksum_levels);
-    // The name the module had before the move, which a dependent may still import (decision 6
-    // as amended): a later release removes it.
-    if (settings.visibility == .exported) b.modules.put(b.graph.arena, "checksum", hash) catch @panic("OOM");
 
     const deflate = library(b, "deflate", "compress/deflate", settings);
     deflate.addImport("codec", codec);
@@ -180,8 +179,11 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     };
 }
 
-/// A library module, exported by name so a dependent can import it (decision 6), or private to
-/// this build. `directory` is its folder under `src/`, which its category's folder holds.
+/// The one module the package exports (decision 6 as amended on 2026-11-25).
+const exported_module = "stdx";
+
+/// A library module. The package exports `stdx` alone, and every other module is this build's own.
+/// `directory` is its folder under `src/`, which its category's folder holds.
 fn library(b: *std.Build, comptime name: []const u8, comptime directory: []const u8, settings: Settings) *std.Build.Module {
     comptime std.debug.assert(std.mem.endsWith(u8, directory, name));
     const options: std.Build.Module.CreateOptions = .{
@@ -189,8 +191,10 @@ fn library(b: *std.Build, comptime name: []const u8, comptime directory: []const
         .target = settings.target,
         .optimize = settings.optimize,
     };
-    return switch (settings.visibility) {
-        .exported => b.addModule(name, options),
-        .private => b.createModule(options),
-    };
+    const exported = settings.visibility == .exported and comptime std.mem.eql(u8, name, exported_module);
+    if (!exported) return b.createModule(options);
+    const module = b.addModule(name, options);
+    // A second export would let a dependent import a module past `stdx` again.
+    std.debug.assert(b.modules.count() == 1 and b.modules.get(exported_module) == module);
+    return module;
 }
