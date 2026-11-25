@@ -10605,6 +10605,25 @@ to 12 are reordered and nothing else changes.
     - Five of the replay, against `zig build test-tools`: no compare of the ways, a bound not
       written, a bound not read, a width not written and a width not read.
 
+  The bit-parallel tier, measured and refused (decision 89, the owner's ruling of 2026-11-25):
+  - The owner asked for a tier that holds a Glushkov automaton of at most 64 positions in one
+    word, and to stop after its measurement where few slow rows qualified.
+  - A program in the container, built against the tree at `95a8570` and not kept, compiled each
+    row of `bench/regex/regex_rebar.zig` and counted its forward program's positions: each
+    `range`, and each `ranges` node once. 21 rows whose patterns are files were not counted.
+    171 of the 238 rows fit 64 positions.
+  - The N2's report of the `bench` run 45611890723, at `cec46db`, puts 59 rows behind Rust's
+    crate, and 46 of them fit. After it read 1 MiB, the searcher of each of the 46 held: a
+    claim that goes to a literal's places, for 30; claims R11 and R13, on texts of 10,000 bytes
+    or fewer, for 4; and claim R1 or none, for 12, whose DFA's cache held.
+  - The six rows that run under 10 MB/s on the N2 each hold more than 64 positions:
+    `huge-ascii-nosuffixlit` 163, `huge-unicode-nosuffixlit` 1,524, the two rows of
+    `overlapping-words` 28,508, `dictionary/search/english-10` 56,035 and
+    `word-repetition/unicode-search` 76,800. The filter showed the cause for the dictionary:
+    on `en-sampled.txt` it ran at 4.7 MB/s with the default cache of 524,288 words and at
+    159.8 MB/s with 2,097,152 words. So the tier moves none of the 46 rows, and decision 89
+    records why.
+
   The last step of claim R2's search:
   - `imported/rsc/literal`, `y` in a text of 51 bytes, ran at 0.46 of Rust's crate on the N2.
     `literal_find.search` took a text in blocks of 128 and 64 bytes, and the rest one byte at a

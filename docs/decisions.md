@@ -7115,3 +7115,45 @@ last part lists what still waits on a ruling.
       and charts on one page.
     - A page for each module under `docs/`, which a reader of a module's folder does not see.
     - Each root's doc comment alone. GitHub renders no doc comment, and a comment shows no chart.
+
+89. **No bit-parallel tier for `regex`: the slow rows it could serve need something else.** Ruled
+    by the owner on 2026-11-25, after the measurement of design §8 part 22q. The owner asked for
+    the tier, and to stop after its measurement where few slow rows qualified.
+    - What the tier serves: a pattern whose compiled forward program holds at most 64 positions,
+      the instructions that take a byte, as Glushkov's automaton has one state for each. The
+      search holds the set of positions in one word. A byte's class gives a mask, and each step
+      takes the positions that the set's members lead to, under the mask. It keeps no cache and
+      has no fallback. A search finds a match's end, and the existing reverse scan its start.
+    - Its limits: 64 positions, so a class of Unicode that UTF-8 writes as many byte sequences
+      seldom fits; a match's span alone, and no capture groups; an assertion as a mask of the
+      positions after it.
+    - The measurement, on the N2's report of the `bench` run 45611890723: 171 of rebar's 238
+      rows fit 64 positions. 59 rows trail Rust's crate, and 46 of them fit. 30 of those 46 go
+      to a literal's places, 4 are anchored at both ends on texts of 10,000 bytes or fewer, and
+      12 run the lazy DFA, whose cache holds their states.
+    - Why it does not pay: a step of the tier reads tables indexed by the set before it, as a
+      step of the DFA reads its row. So it costs a byte at least as much as a DFA whose cache
+      holds. It wins where the DFA's cache cannot hold the states a text visits. The six rows
+      that run under 10 MB/s on the N2, where that is the likely cause, hold more positions: from
+      163, `[a-q][^u-z]{80}[x\xE0-\xFF]`, to 76,800. The container showed the cause for one of
+      them: the dictionary row ran at about 160 MB/s with a cache four times the default.
+    - What the measurement points to instead: a search of a large set of literals, for
+      `dictionary/search/english-10` at 1/140 of Rust's crate; the fixed cost of a search of a
+      short text; and the skip to a byte that can start a match.
+
+    The alternatives refused:
+    - The tier, in four words: 256 positions reach `huge-ascii-nosuffixlit`, 163 positions, at
+      0.32 of Rust's crate, and no other row that trails.
+    - Hyperscan's decomposition of a pattern into literals and small automata, each in its own
+      engine (Wang and others, "Hyperscan: A Fast Multi-pattern Regex Matcher for Modern CPUs",
+      NSDI 2019). The claims of decision 86 already go to a pattern's literals first.
+    - Brzozowski's derivatives, each derivative a state of a DFA built as a text asks for it
+      (Brzozowski, "Derivatives of Regular Expressions", JACM 1964; Owens, Reppy and Turon,
+      "Regular-expression derivatives re-examined", JFP 2009). The lazy DFA already builds only
+      the states a text visits, and derivatives would bound none of them.
+
+    Sources: Glushkov, "The abstract theory of automata", Russian Mathematical Surveys, 1961;
+    Navarro and Raffinot, "Flexible Pattern Matching in Strings" (Cambridge University Press,
+    2002), whose chapter on regular expressions simulates Glushkov's automaton with bits; and
+    Navarro and Raffinot, "Fast and flexible string matching by combining bit-parallelism and
+    suffix automata", ACM Journal of Experimental Algorithmics, 2000, the method BNDM.
