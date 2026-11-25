@@ -11219,6 +11219,81 @@ to 12 are reordered and nothing else changes.
     need a clear at one given step; and `Reverses` and the start rule for a long text, which
     its answers do not need.
 
+  **Part 22h, its sixth part built: the capture groups in Lean, and the Zig groups held to
+  them (decision 86).** **Check:** `lake build` exits 0 and pins the new theorems' axioms; the
+  model gives the groups of small programs by `decide`; `tools/matcher_model_check.sh`
+  passes, with the groups of each search's match held for the matcher and each searcher.
+
+  **Check passed, part 22h, its sixth part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on
+  x86-64 Linux 6.18, in a cloud container.
+  - Before this part the model held no capture slot, and the script held a match's span
+    alone. Three paths of the Zig side give a match's groups: the matcher's threads, one
+    thread for a one-pass program (claim R6), and the backtracker (claim R8). Only
+    `differential-regex` held them, to Go's regexp.
+  - `Stdx/Regex/Captures.lean` holds the matcher of `Matcher.lean` again, with the slots of
+    each thread. A save writes the position into a slot of the path that passes it, and a
+    thread keeps the slots of the path that reached it first.
+    - `followSlots_erase`, `closureSlots_erase` and `runSlots_end`: with the slots left out,
+      the walk of one position and the whole run are the proved model's.
+    - `capturesAt_end`: the match whose slots `capturesAt` gives ends where `findAt` says,
+      which is the end a backtracking matcher finds first (`findAt_eq`).
+    - No theorem says which path of the program wrote the slots. An example holds them on
+      three small programs, with a group that takes no part in the match.
+    - `Stdx/Axioms.lean` pins 3 more theorems, 105 in all.
+  - The dump writes a `slots` line for each program. After each `find` line the vector
+    writer writes a `groups` line: the groups of the match from the answer's start, the
+    whole match first, and `-` for a group that took no part. A line that begins `differs`
+    follows where the first group is not the answer's span.
+  - The replay holds five things to each `groups` line: the matcher with a slot for each
+    group, and `captures` of each of its four searchers. A `find` line of a program with a
+    `slots` line with no `groups` line after it fails the replay.
+  - Half of the cases of the second pattern source now write each run and word as a capture
+    group.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 40 s. Seeds 1, 2 and 3 with
+    20,000 patterns each hold 139,466 searches, 23,630 of them of a match with more than one
+    group and 14,288 with a group that took no part. The first searcher found the groups of
+    3,552 by one thread. Each gave the model's groups.
+  - **The script found a fault of the library, on main since `79a10c0`.** Seed 2 with 20,000
+    patterns halted at an assertion of `Dfa.start`, in `Searcher.is_match`, for
+    `([ab]*a[ab]{5}) +(aa)[ab]?` over a text of 665 bytes.
+    - The searcher judged claim R14 after its first search had filled the forward DFA's
+      small cache. `dfa_second.start` then interned the second start in the full cache,
+      which cleared. `Dfa.build` forgets the row of the state that waits after a clear, and
+      `dfa_second.start` did not. The next `Dfa.start` found a row of the cache before the
+      clear.
+    - The fault needs no `groups` line: this part's new shapes drew the pattern. Each answer
+      before the halt was right.
+    - `dfa_second.start` now forgets that row where its intern cleared the cache.
+      `src/regex/searcher/searcher_second_test.zig` holds the case: 64 seeded texts of 700
+      bytes, each for a new searcher with the least cache at which its DFAs start. With the
+      fix off, that test ends with SIGABRT and the module's other 341 tests pass: CAUGHT.
+      The first form of the mutant did not compile, and was not counted.
+  - 22 mutations, each CAUGHT:
+    - Seven of the Zig side, against the script. A `groups` line caught five: the one
+      thread's slot written one byte late, the backtracker's slot written one byte late,
+      the backtracker with no restore of a slot, the backtracker with a split's branches in
+      the other order, and the matcher with no restore of a slot. A `find` line of the first
+      part caught the matcher with a split's branches in the other order. The replay halted
+      at an assertion of the library for `captures` with its matcher not held to the span's
+      start.
+    - Two of the vector writer, against the script: no `groups` line, and no line where the
+      first group is not the answer's span. A canary dump caught both.
+    - Five of the Lean model, against `lake build`. A split's branches in the other order and
+      a best match that a later one does not replace fail the proofs and the example. A save
+      that writes the next position, a save that writes nothing, and a group that took no
+      part left out of the list fail the example alone.
+    - Eight of the replay program and the dump, against `zig build test-tools`: no compare of
+      the matcher's groups, none of a searcher's, no failure for a `groups` line that is
+      missing, a compare of the first group alone, no compare of the count of groups, no
+      `slots` line, no compare of the slots with the program's, and no pattern with a group.
+      Three were NOT CAUGHT at first: the missing line in the middle of a file, and the two
+      compares of a searcher's groups, since the matcher's compare fails first. Two tests now
+      hold them, one of which gives a searcher another program. One mutant did not compile
+      at first, and was written again.
+  - What this part does not hold: the groups of a program drawn as instructions, which the
+    first part of the script reads; and a proof for claim R6's one thread or claim R8's
+    backtracker.
+
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
 
 ## 9. Performance

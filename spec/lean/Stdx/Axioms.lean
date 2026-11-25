@@ -10,6 +10,7 @@ import Stdx.Regex.Prefix
 import Stdx.Regex.Count
 import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
+import Stdx.Regex.Captures
 import Stdx.Regex.MatcherPaths
 import Stdx.Regex.MatcherSearch
 import Stdx.Regex.MatcherAnswer
@@ -346,5 +347,14 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.chain_none' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.chain_none
+
+/-- info: 'Stdx.Regex.Matcher.followSlots_erase' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.followSlots_erase
+
+/-- info: 'Stdx.Regex.Matcher.runSlots_end' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.runSlots_end
+
+/-- info: 'Stdx.Regex.Matcher.capturesAt_end' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.capturesAt_end
 
 end Stdx.Regex

@@ -270,6 +270,10 @@ third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. A `claim inne
 the literal of claim R14, after the instruction where the reverse program stands after it,
 and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule.
 
+A `slots` line names the slots of the program's capture groups. After each `find` line of
+such a program, a `groups` line holds the groups of the search's match, which `capturesAt` of
+`Stdx/Regex/Captures.lean` gives.
+
 The theorems of the claims take `StartsClean` in the place of `EmptyElsewhere`. So after a
 `claim` line, the lines below decide `StartsClean` for each short text too. -/
 
@@ -311,6 +315,9 @@ structure Dump where
   text : List Nat := []
   /-- Whether the program has a `claim` line. -/
   claimed : Bool := false
+  /-- The slots of the program's capture groups, from its `slots` line: two for each group,
+  the whole match first. Zero where the dump names none. -/
+  slots : Nat := 0
 
 /-- The longest text whose two hypotheses the lines below decide. `reversesOn` reads each pair
 of offsets, so a long text costs too much, and the answer of a search needs neither. -/
@@ -342,6 +349,31 @@ def spanWords : Option (Nat × Nat) → String
   | none => "none"
   | some (s, e) => s!"{s} {e}"
 
+/-- A group as a `groups` line spells it: its start and its end, or `-` where the group took
+no part in the match. -/
+def groupWord : Option (Nat × Nat) → String
+  | none => "-"
+  | some (s, e) => s!"{s}:{e}"
+
+open Stdx.Regex.Matcher in
+/-- The `groups` line of one search, for a dump that names its program's slots: the groups of
+the search's match, the whole match first. `capturesAt` gives the slots of the matcher's
+threads from the answer's start, and `capturesAt_end` proves that its match ends where the
+matcher's does. A line that begins `differs` follows where the model gives another span for
+the whole match than the answer. -/
+def groupsLines (dump : Dump) (low : Nat) (answer : Option (Nat × Nat)) : List String :=
+  if dump.slots == 0 then []
+  else
+    match answer with
+    | none => [s!"groups {low} none"]
+    | some (s, e) =>
+      match capturesAt dump.prog dump.forward dump.text s dump.slots with
+      | none => [s!"differs groups {low}"]
+      | some (_, slots) =>
+        let groups := groupsOf slots
+        let line := s!"groups {low} {groups.length} {" ".intercalate (groups.map groupWord)}"
+        if groups.head? == some (some (s, e)) then [line] else [line, s!"differs groups {low}"]
+
 open Stdx.Regex.Matcher in
 /-- The answer of one search of a dump. Where the program has a reverse half, the span comes
 from `byDfa`, the forward DFA's scan and then the reverse DFA's, and `isAnswerOf` holds it to
@@ -352,15 +384,18 @@ hold. -/
 def searchLines (dump : Dump) (low : Nat) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
   match dump.reverse with
-  | none => [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}"]
+  | none =>
+    let answer := answerFast dump.prog dump.forward dump.text starts low
+    s!"find {low} {spanWords answer}" :: groupsLines dump low answer
   | some reverse =>
     let scanned :=
       byDfa dump.prog dump.forward dump.prog reverse dump.text (mayStart dump.utf8) low
     if isAnswerOf dump.prog dump.forward dump.text starts low scanned then
-      [s!"find {low} {spanWords scanned}"]
+      s!"find {low} {spanWords scanned}" :: groupsLines dump low scanned
     else
-      [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}",
-        s!"differs dfa {low} gives {spanWords scanned}"]
+      let answer := answerFast dump.prog dump.forward dump.text starts low
+      [s!"find {low} {spanWords answer}", s!"differs dfa {low} gives {spanWords scanned}"] ++
+        groupsLines dump low answer
 
 /-- The bit that an ASCII letter's two cases differ in (`constants.case_bit`). -/
 def caseBit : Nat := 0x20
@@ -425,7 +460,8 @@ def answerLine (dump : Dump) (line : String) : List String × Dump :=
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,
-      reverse := reverse.toNat?, claimed := false })
+      reverse := reverse.toNat?, claimed := false, slots := 0 })
+  | ["slots", count] => ([line], { dump with slots := count.toNat?.getD 0 })
   | "text" :: _ :: bytes =>
     let read := { dump with text := bytes.filterMap String.toNat? }
     (line :: hypothesisLines read, read)
