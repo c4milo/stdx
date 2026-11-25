@@ -17,6 +17,9 @@ import Stdx.Regex.Dfa
 import Stdx.Regex.Reverse
 import Stdx.Regex.Hypotheses
 import Stdx.Regex.Searcher
+import Stdx.Regex.Rules
+import Stdx.Regex.RulesWide
+import Stdx.Regex.RulesSeparator
 
 /-!
 # What the proofs rest on
@@ -225,6 +228,12 @@ namespace Stdx.Regex
 /-- info: 'Stdx.Regex.Matcher.answerFast_isAnswer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.answerFast_isAnswer
 
+/-- info: 'Stdx.Regex.Matcher.search_none' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.search_none
+
+/-- info: 'Stdx.Regex.Matcher.isAnswer_of_isAnswerOf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.isAnswer_of_isAnswerOf
+
 /-- info: 'Stdx.Regex.Matcher.exact_of_isExact' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.exact_of_isExact
 
@@ -257,5 +266,38 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.emptyElsewhere_of_emptyElsewhereOn' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.emptyElsewhere_of_emptyElsewhereOn
+
+/-- info: 'Stdx.Regex.Matcher.chain_of_chainStop' depends on axioms: [propext] -/
+#guard_msgs in #print axioms Matcher.chain_of_chainStop
+
+/-- info: 'Stdx.Regex.Matcher.reach_mem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.reach_mem
+
+/-- info: 'Stdx.Regex.Matcher.noneTakes_sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.noneTakes_sound
+
+/-- info: 'Stdx.Regex.Matcher.apart_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.apart_program
+
+/-- info: 'Stdx.Regex.Matcher.fixed_of_levelsOk' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.fixed_of_levelsOk
+
+/-- info: 'Stdx.Regex.Matcher.fixed_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.fixed_program
+
+/-- info: 'Stdx.Regex.Matcher.first_separator' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.first_separator
+
+/-- info: 'Stdx.Regex.Matcher.inside_first' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.inside_first
+
+/-- info: 'Stdx.Regex.Matcher.separated_rising' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.separated_rising
+
+/-- info: 'Stdx.Regex.Matcher.separated_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.separated_program
+
+/-- info: 'Stdx.Regex.Matcher.wide_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.wide_program
 
 end Stdx.Regex

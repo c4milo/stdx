@@ -259,7 +259,13 @@ That theorem and the two DFAs' theorems take three hypotheses: `Exact`, `Reverse
 `Stdx/Regex/Hypotheses.lean` and `Stdx/Regex/Searcher.lean`, which decide them for the dump's
 program and text, and write a line that begins `differs` where one fails. Where the program has
 a reverse half, they also run the model's two scans for each search, and write such a line
-where the scans do not give the answer. -/
+where the scans do not give the answer.
+
+A `claim suffix` line holds the literal that a Zig searcher took for claim R4 by its first
+rule. The lines below decide that rule from the program, with `apartOn` of
+`Stdx/Regex/Rules.lean`, and write such a line where it does not hold. A `claim suffix-wide`
+line holds a literal that a searcher took after it read enough text, by the second rule or the
+third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. -/
 
 open Stdx.Regex.Program in
 /-- An assertion from the name `program.Look` gives it. -/
@@ -298,19 +304,26 @@ structure Dump where
   /-- The text of the searches that follow. -/
   text : List Nat := []
 
+/-- The longest text whose two hypotheses the lines below decide. `reversesOn` reads each pair
+of offsets, so a long text costs too much, and the answer of a search needs neither. -/
+def hypothesisLenMax : Nat := 16
+
 open Stdx.Regex.Matcher in
 /-- A line that begins `differs` for each hypothesis that the dump's program and text do not
-pass: `Exact` for the program, `EmptyElsewhere` for the text, and `Reverses` for the program's
-two halves on the text. With the three, `byDfa_answer` proves that the forward and the reverse
-scan of `Stdx/Regex/Searcher.lean` give each answer below. -/
+pass: `Exact` for the program, and for a text of at most `hypothesisLenMax` bytes
+`EmptyElsewhere`, and `Reverses` for the program's two halves. With the three, `byDfa_answer`
+proves that the forward and the reverse scan of `Stdx/Regex/Searcher.lean` give each answer
+below. -/
 def hypothesisLines (dump : Dump) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
+  let short := dump.text.length ≤ hypothesisLenMax
   (if isExact dump.prog then [] else ["differs exact"]) ++
-    (if emptyElsewhereOn dump.prog dump.forward dump.text starts then [] else ["differs starts"])
+    (if !short || emptyElsewhereOn dump.prog dump.forward dump.text starts then []
+      else ["differs starts"])
     ++ match dump.reverse with
     | none => []
     | some reverse =>
-      if reversesOn dump.prog dump.forward dump.prog reverse dump.text then []
+      if !short || reversesOn dump.prog dump.forward dump.prog reverse dump.text then []
       else ["differs reverses"]
 
 /-- A span as a `find` line spells it. -/
@@ -319,25 +332,54 @@ def spanWords : Option (Nat × Nat) → String
   | some (s, e) => s!"{s} {e}"
 
 open Stdx.Regex.Matcher in
-/-- The answer of one search of a dump. Where the program has a reverse half, a line that
-begins `differs` follows where `byDfa`, the forward DFA's scan and then the reverse DFA's, does
-not give the answer. `byDfa_answer` proves that it does where the text's three hypotheses
-hold, so such a line stands beside a hypothesis' own line alone. -/
+/-- The answer of one search of a dump. Where the program has a reverse half, the span comes
+from `byDfa`, the forward DFA's scan and then the reverse DFA's, and `isAnswerOf` holds it to
+the answer by two passes: `isAnswer_of_isAnswerOf` proves the line, for a program that is
+`Exact`. Where `byDfa` does not give the answer, `answerFast` gives it, and a line that begins
+`differs` follows. `byDfa_answer` proves that no such line comes where the text's hypotheses
+hold. -/
 def searchLines (dump : Dump) (low : Nat) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
-  let answer := answerFast dump.prog dump.forward dump.text starts low
-  s!"find {low} {spanWords answer}" ::
-    match dump.reverse with
-    | none => []
-    | some reverse =>
-      let scanned :=
-        byDfa dump.prog dump.forward dump.prog reverse dump.text (mayStart dump.utf8) low
-      if scanned == answer then [] else [s!"differs dfa {low} gives {spanWords scanned}"]
+  match dump.reverse with
+  | none => [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}"]
+  | some reverse =>
+    let scanned :=
+      byDfa dump.prog dump.forward dump.prog reverse dump.text (mayStart dump.utf8) low
+    if isAnswerOf dump.prog dump.forward dump.text starts low scanned then
+      [s!"find {low} {spanWords scanned}"]
+    else
+      [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}",
+        s!"differs dfa {low} gives {spanWords scanned}"]
+
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where claim R4's first rule does not hold for a literal that a
+Zig searcher took by it. `literal` holds the bytes in the text's order. `apartOn` decides the
+rule from the program, and `apart_program` proves the search from it for each text that has
+the builder's hypotheses. So a literal that fails is a wrong choice for some text. -/
+def claimLines (dump : Dump) (literal : List Nat) : List String :=
+  match dump.reverse with
+  | none => ["differs claim suffix"]
+  | some reverse =>
+    if (apartOn dump.prog reverse literal.reverse).isSome then [] else ["differs claim suffix"]
+
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where neither the second rule of claim R4 nor the third holds
+for a literal that a Zig searcher took after it read enough text. `wideOn` decides both from
+the program, and `wide_program` proves the search from it. -/
+def wideClaimLines (dump : Dump) (literal : List Nat) : List String :=
+  match dump.reverse with
+  | none => ["differs claim suffix-wide"]
+  | some reverse =>
+    if wideOn dump.prog reverse literal.reverse then [] else ["differs claim suffix-wide"]
 
 /-- The lines that answer one line of a dump, and what the dump holds after it. A line that
-holds no program, text or search is written as it is. -/
+holds no program, text, claim or search is written as it is. -/
 def answerLine (dump : Dump) (line : String) : List String × Dump :=
   match line.splitOn " " with
+  | "claim" :: "suffix" :: _ :: bytes =>
+    (line :: claimLines dump (bytes.filterMap String.toNat?), dump)
+  | "claim" :: "suffix-wide" :: _ :: bytes =>
+    (line :: wideClaimLines dump (bytes.filterMap String.toNat?), dump)
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,

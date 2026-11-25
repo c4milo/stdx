@@ -6621,8 +6621,9 @@ last part lists what still waits on a ruling.
         A Zig test requires `Matcher.find` to give each one, and
         `tools/matcher_model_check.sh` makes the same check on the programs a new seed draws.
       - The same script holds `Matcher.find` and `Searcher.find`, with every claim and with
-        none, new and after a long read, to the proved answer on the programs that `compile`
-        gives the patterns a seed draws. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
+        none, new and after a long read, and with a small cache, to the proved answer on the
+        programs that `compile` gives the patterns a seed draws, over texts of up to 1,024
+        bytes. `isAnswer_of_isAnswerOf` proves each answer of a long text from two passes. `Stdx/Regex/Hypotheses.lean` holds two functions that decide the theorems' two
         hypotheses, each with its proof: `isExact` for a program, and `reversesOn` for a
         program's two halves on one text. The script runs both on each program and text.
       - `Stdx/Regex/Searcher.lean` joins the claims to the DFAs, with no scan taken as given.
@@ -6631,6 +6632,12 @@ last part lists what still waits on a ruling.
         and `fromEnd_program` are claim R4, the wider search, the skip of claims R2, R3 and
         R5 to one literal, and claims R11 and R12, over a program's own scans. They take a
         rule of where a match starts, which a third function decides for one text.
+      - `Stdx/Regex/Rules.lean` decides claim R4's first rule from a program: `apartOn`,
+        with `apart_program`. `RulesWide.lean` and `RulesSeparator.lean` decide the second
+        rule and the third: `wideOn`, with `wide_program`. The script runs them for each
+        literal that a searcher took by a rule, so the choice is held for every text, and
+        not for the drawn one alone. Claim R14's rule is not decided yet, nor a literal with
+        a place that folds.
     - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
       claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
       things hold by a proved check for each program and text a run draws, and by no proof
