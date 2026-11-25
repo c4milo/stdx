@@ -35,6 +35,13 @@ pub const scram = chapulin.tcp.scram;
 /// The CPU a session runs on, which the program describes from its one probe, `stdx.platform`.
 pub const Cpu = chapulin.tcp.Cpu;
 
+comptime {
+    // chapulin's module exports `ch_assert_fail` from a comptime block, which Zig runs only when
+    // something references the module. A program that names this module links chapulin's objects,
+    // even one that only asks whether a name exists, so this reference keeps the hook beside them.
+    _ = chapulin;
+}
+
 const std = @import("std");
 
 test "the module names each part of chapulin's API" {

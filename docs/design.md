@@ -11749,10 +11749,11 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     module-graph rule holds `crypto` and its one import in its table.
   - `zig build readme-check` builds `tools/consumer/`'s second program, which depends on stdx with
     `.crypto = true`, runs it, and holds `src/crypto/README.md`'s blocks to it.
-  - Mutations, 4, each `CAUGHT`: a wrong digest in the consumer, against `zig build
+  - Mutations, 5, each `CAUGHT`: a wrong digest in the consumer, against `zig build
     readme-check`; chapulin given to `deflate`, against `zig build lint`; the root's `crypto`
-    switched off in stdx's own build, against `zig build test-stdx`; and `scram` taken from the
-    QUIC object, which builds no SCRAM, against `zig build test-crypto`.
+    switched off in stdx's own build, and the module's reference to chapulin's module removed,
+    against `zig build test-stdx`; and `scram` taken from the QUIC object, which builds no SCRAM,
+    against `zig build test-crypto`.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance

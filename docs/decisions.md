@@ -7116,9 +7116,9 @@ last part lists what still waits on a ruling.
         `stdx.crypto` names both, and lifts `jws`, `dnssec`, `scram` and `Cpu` beside them.
       - A dependent passes `.crypto = true`, and `.crypto_keylog = true` for tests that read a
         capture. stdx's own build passes the first.
-      - chapulin's module defines `ch_assert_fail`, and a program that reaches a name of
-        `stdx.crypto` reaches the module and its hook. A program replaces it with
-        `chapulinAssertFail` in its root file.
+      - chapulin's module defines `ch_assert_fail`, and the module `crypto` references it, so a
+        program that names `stdx.crypto` keeps the hook beside chapulin's objects. A program
+        replaces it with `chapulinAssertFail` in its root file.
       - chapulin leaves the `denied-words` list: it is the library's dependency, not a consumer.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): how a program's one CPU
       probe, `stdx.platform`, gives chapulin its `cpu` value; the hashes and MACs chapulin exports
