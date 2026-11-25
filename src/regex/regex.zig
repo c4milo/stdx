@@ -68,6 +68,8 @@ test {
     _ = @import("one_pass_table.zig");
     _ = @import("backtrack.zig");
     _ = @import("literal_trie.zig");
+    _ = @import("aho_corasick.zig");
+    _ = @import("aho_corasick_test.zig");
     _ = @import("dfa/dfa_literal.zig");
     _ = @import("dfa/dfa_reverse.zig");
     _ = @import("dfa/dfa_run.zig");

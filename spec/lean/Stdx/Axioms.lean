@@ -26,6 +26,7 @@ import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
 import Stdx.Regex.RulesWindow
 import Stdx.Regex.RulesWindowSet
+import Stdx.Regex.AhoCorasick
 
 /-!
 # What the proofs rest on
@@ -422,5 +423,17 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.capturesAt_end' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.capturesAt_end
+
+/-- info: 'Stdx.Regex.Aho.node_step' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Aho.node_step
+
+/-- info: 'Stdx.Regex.Aho.failStep_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Aho.failStep_eq
+
+/-- info: 'Stdx.Regex.Aho.search_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Aho.search_answer
+
+/-- info: 'Stdx.Regex.Aho.searchFrom_answer' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Aho.searchFrom_answer
 
 end Stdx.Regex

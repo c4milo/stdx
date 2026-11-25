@@ -6588,6 +6588,41 @@ last part lists what still waits on a ruling.
         come before its literal, and before the others. A node with a branch whose answers stand
         on both sides of its end has no order, and the parser compiles the pattern, as it does
         any other pattern. The reverse program keeps the longest match, so no order binds it.
+      - Claim R15, added 2026-11-25 (design §8 part 22q): where its DFAs cannot answer, a trie's
+        search is Aho and Corasick's, in the cache's words. rebar's
+        `dictionary/search/english-10`, 43,029 words, ran at 1/145 of Rust's crate on the N2. Its
+        reverse DFA did not start in the default cache, so each search ran the matcher, at about
+        1 MB/s.
+        - The DFAs cannot answer where one did not start, or once they gave up for good. The
+          first such search builds the automaton, at most once. It takes the DFAs' words, so it
+          turns both DFAs off for good. A count, which reads the forward DFA alone, builds none.
+        - A first walk of the program writes nothing: it checks that the program is a trie's and
+          counts its nodes. A build that the words do not hold is refused before it writes a word,
+          so the DFAs still answer.
+        - The automaton is the trie of the program's literals, one node for each start of a
+          literal, in breadth-first order, so a node's children stand together. A node keeps its
+          octet, its children, its depth, its fail node, and the longest literal that ends its
+          text, with that literal's rank.
+        - A rank is a literal's place in the order the program prefers. A walk of the trie
+          takes each node's branches and its end in the program's order, and counts the ends.
+        - The first nodes take a full row of next nodes, one for each class of octet, as many as
+          the cache's words hold after the nodes. Any other node finds its child in a list, and
+          goes to its fail node where no child takes the octet.
+        - A node's text starts at the search's offset less the node's depth. The search goes on
+          while that start is at or before the start of the best match found. Of two literals
+          at one start, the lower rank wins.
+        - It applies where the forward program past its saves holds splits, jumps, ranges of one
+          octet and `match` alone, each node goes on by an octet once, no literal passes 255
+          bytes, and the nodes and a row for the root fit the cache's words. Otherwise the matcher
+          reads the text, as before. `SearcherClaims.automaton` turns it off. It is a new public
+          field, so the next release is a MINOR one (decision 65).
+        - Refused: a larger default cache, which the owner ruled (`cache_words_default`); a full
+          row for every node, 55 MB for the dictionary; and Teddy past `literal_set_max`
+          literals, whose buckets would each hold thousands of literals.
+        - Sources: Aho and Corasick, "Efficient string matching: an aid to bibliographic
+          search", Communications of the ACM 18(6), 1975; and Rust's aho-corasick 1.1.5, read
+          for its methods by the owner's ruling of 2026-11-21: a full row for the nodes near the
+          root, and a list for the others.
 
     **What bounds a search.**
     - Time: at most m steps an octet for the matcher, with m the program's instructions, and one

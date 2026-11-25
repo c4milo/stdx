@@ -69,7 +69,52 @@ const Shape = enum {
     /// Two ways, each a bounded run and a word, then a run: the window over a set
     /// (src/regex/dfa/dfa_window_set.zig).
     window_set,
+    /// More literals than claim R5 takes and nothing else, sorted either way: the compiler takes
+    /// a trie, and a searcher whose DFAs cannot answer searches it by claim R15's automaton
+    /// (src/regex/aho_corasick.zig).
+    trie,
 };
+
+/// The trie's shape: its literals, more than claim R5's `literal_set_max`, 64, and the octets of
+/// each at most. Over two letters, many of them start one another.
+const trie_literals = 70;
+const trie_literal_len_max = 4;
+const trie_letters = "ab";
+
+/// Draws a case of the trie's shape, with a text of the literals' letters.
+fn draw_trie(generator: *Generator, case: *regex_generate.Case, text_len_max: usize) void {
+    var octets: [trie_literals][trie_literal_len_max]u8 = undefined;
+    var literals: [trie_literals][]const u8 = undefined;
+    for (&literals, &octets) |*literal, *own| {
+        const len = generator.between(1, trie_literal_len_max);
+        for (own[0..len]) |*octet| octet.* = trie_letters[generator.below(trie_letters.len)];
+        literal.* = own[0..len];
+    }
+    // Sorted either way, each literal stands before every literal it starts or after them all,
+    // which is the order a trie takes (src/regex/literal_trie.zig).
+    if (generator.below(2) == 0) {
+        std.sort.pdq([]const u8, &literals, {}, less);
+    } else {
+        std.sort.pdq([]const u8, &literals, {}, more);
+    }
+    var pattern: std.ArrayList(u8) = .initBuffer(&case.pattern.octets);
+    for (literals, 0..) |literal, index| {
+        if (index > 0) pattern.appendAssumeCapacity('|');
+        pattern.appendSliceAssumeCapacity(literal);
+    }
+    case.pattern.len = pattern.items.len;
+    var text: std.ArrayList(u8) = .initBuffer(case.text[0..text_len_max]);
+    for (0..text_len_max) |_| fit(&text, trie_letters[generator.below(trie_letters.len)..][0..1]);
+    case.text_len = text.items.len;
+}
+
+fn less(_: void, left: []const u8, right: []const u8) bool {
+    return std.mem.order(u8, left, right) == .lt;
+}
+
+fn more(_: void, left: []const u8, right: []const u8) bool {
+    return std.mem.order(u8, left, right) == .gt;
+}
 
 /// Runs of a bounded count of bytes, for the window's shape. Most take a byte of a word, so no
 /// rule of claim R14 holds for them.
@@ -159,6 +204,7 @@ pub fn draw(generator: *Generator, case: *regex_generate.Case, text_len_max: usi
     case.* = .{};
     var pattern: std.ArrayList(u8) = .initBuffer(&case.pattern.octets);
     const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
+    if (shape == .trie) return draw_trie(generator, case, text_len_max);
     // The window's shape takes a run of a bounded count of bytes before its word.
     const run = if (shape == .window or shape == .window_set) pick(generator, &bounded_runs) else pick(generator, &runs);
     const word = pick(generator, &words);
@@ -201,6 +247,7 @@ fn write_pattern(pattern: *std.ArrayList(u8), shape: Shape, run: []const u8, wor
         .ways_words => pattern.printAssumeCapacity("\\b{s}{s}|{s}{s}", .{ word, run, word, other }),
         .window => pattern.printAssumeCapacity("{s}{s}{s}", .{ run, word, second }),
         .window_set => pattern.printAssumeCapacity("(?:{s}{s}|{s}{s}){s}", .{ run, word, run, other, second }),
+        .trie => unreachable,
     }
 }
 

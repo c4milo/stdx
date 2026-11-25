@@ -29,6 +29,8 @@ const literal_file = @import("../literal.zig");
 const searcher_edge = @import("searcher_edge.zig");
 const searcher_account = @import("searcher_account.zig");
 const searcher_claim = @import("searcher_claim.zig");
+const searcher_automaton = @import("searcher_automaton.zig");
+const Automaton = @import("../aho_corasick.zig").Automaton;
 
 /// The words of the caches' memory in one word of a searcher's memory.
 const cache_words_per_word = @sizeOf(u64) / @sizeOf(u32);
@@ -96,6 +98,9 @@ pub const Claims = struct {
     /// to that many bytes before the literal's next place (dfa_window.zig). Only with
     /// `start_skip`, and judged with R14.
     window: bool = true,
+    /// Claim R15: where the DFAs cannot answer a trie's search, the automaton of Aho and Corasick
+    /// answers in their cache's words, in the matcher's place (aho_corasick.zig).
+    automaton: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -208,6 +213,10 @@ pub const Searcher = struct {
     by_claim: bool,
     /// The slots of the whole match, where it is a program's one group and the DFAs found it.
     whole: [constants.group_slots]u64,
+    /// Claim R15: the automaton of a trie's literals, which takes the cache's words where the
+    /// DFAs cannot answer (searcher_automaton.zig).
+    trie: Automaton,
+    claims_automaton: bool,
 
     /// The words of memory a searcher takes for a program of `forward_len` forward instructions
     /// and `slots_len` slots, with `cache_words` words for its two caches. A cache too small for a
@@ -243,6 +252,8 @@ pub const Searcher = struct {
             cache[forward_len..],
         );
         searcher.give_ups = 0;
+        searcher.trie = .{ .memory = cache };
+        searcher.claims_automaton = claims.automaton;
         searcher.init_claims(program, claims);
     }
 
@@ -291,6 +302,7 @@ pub const Searcher = struct {
                 .found => return true,
             }
         }
+        if (searcher_automaton.ready(searcher)) return searcher.trie.find(haystack, 0) != null;
         searcher.matcher.configure(.{ .captures = .none });
         searcher.matcher.start(null, 0);
         return searcher.matcher.search(haystack, .last).status == .match;
@@ -332,6 +344,7 @@ pub const Searcher = struct {
 
     /// The first match at or after `from` as the matcher finds it, where no faster way did.
     pub fn find_by_matcher(searcher: *Searcher, haystack: []const u8, from: usize) ?Span {
+        if (searcher_automaton.ready(searcher)) return searcher.trie.find(haystack, from);
         searcher.matcher.configure(.{ .captures = .span });
         return searcher.matcher.find(haystack, from);
     }
@@ -416,8 +429,9 @@ pub const Searcher = struct {
             span.* = .{ .start = place.start, .end = place.end };
             return .match;
         }
-        if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
-        if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
+        // Claim R15: where the DFAs cannot answer, a trie's automaton answers.
+        if (!searcher.forward_ready or !searcher.reverse_ready or searcher.give_ups >= constants.dfa_give_ups_max)
+            return searcher_automaton.find_outcome(searcher, haystack, from, span);
         const end = switch (searcher.forward.scan_forward(haystack, from, false)) {
             .gave_up => return searcher.gave_up(),
             .none => return .none,
@@ -464,4 +478,5 @@ test {
     _ = @import("searcher_window_test.zig");
     _ = @import("searcher_claim_test.zig");
     _ = @import("searcher_account.zig");
+    _ = @import("searcher_automaton_test.zig");
 }

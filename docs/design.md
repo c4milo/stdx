@@ -10700,6 +10700,58 @@ to 12 are reordered and nothing else changes.
     - Two are equivalent: a turn and a step that each stop one octet early. The octets after
       them take the walk of one octet at a time, which gives the same answer.
 
+  Claim R15, the search of a trie by Aho and Corasick (decision 86 as amended on 2026-11-25):
+  - `dictionary/search/english-10`, an alternation of 43,029 words, ran at 1/145 of Rust's
+    crate on the N2. Its program is a trie of 77,773 instructions, and its reverse DFA's lists
+    did not fit the default cache beside the forward DFA's, so each search ran the matcher. A
+    count reads the forward DFA alone, at about 330 MB/s in the container.
+  - Where the DFAs cannot answer a search, the searcher builds the automaton of the trie in
+    their cache's words, and it answers that search and every one after it
+    (`aho_corasick.zig`, `aho_corasick_build.zig`, `searcher_automaton.zig`).
+  - `spec/lean/Stdx/Regex/AhoCorasick.lean` models the search over a list of literals in the
+    order the pattern prefers. `node_step` proves that the state after one more byte depends on
+    the state before alone, `failStep_eq` that the step by fail nodes gives that state, and
+    `searchFrom_answer` that the search with its rule for stopping gives the matcher's answer,
+    `IsAnswer`.
+  **Check:** the automaton gives the matcher's match from every offset for sets of literals that
+  start one another, in bytes and in UTF-8, with any count of full rows; it refuses each
+  program that is not a trie's, and a refused build writes no word; the searcher's calls give
+  the matcher's answers where a DFA did not start, once the DFAs gave up, and while a claim
+  waits; the filter in the container; two paired runs of the `bench` workflow on each runner;
+  mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `zig build lean` exits 0, with 130 theorems pinned.
+  - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. A new shape draws 70 sorted
+    literals over two letters, and a fifth searcher of the replay starts with its DFAs given up.
+    Its automaton gave the proved answer in 104, 48 and 127 searches.
+  - A prototype in the container, not kept, built the automaton of the row's 43,029 words:
+    166,934 nodes and 83 classes of octets. Every node's list alone ran at 56 MB/s, and a full
+    row for each of the first 4,096 nodes at 139 MB/s, in 2.7 MB of nodes and 1.4 MB of rows.
+  - The filter, built ReleaseSafe against this tree, took each match of the row in
+    `en-medium.txt` by `Matches.next`. The first search built the automaton in about 22 ms.
+    After it, a pass took 0.42 ms, about 146 MB/s, where it took about 61 ms before, 1 MB/s.
+  - Mutations: 21. 20 were CAUGHT, and one is equivalent.
+    - Eleven of the automaton, against `zig build test-regex`: the stop at the best start, the
+      ranks compared the wrong way, a later literal at the best start taken whatever its rank,
+      the ends ranked with no place among the branches, a node one octet less deep, a row from
+      the root's in place of the fail node's, a root's child as its own fail node, two branches
+      by one octet, a continuation byte at the root in UTF-8, a match of no octet, and a
+      node's literal from its fail node with no length.
+    - One more NOT CAUGHT at first, a node's literal from its fail node with no rank. A test of
+      `xabcd|abc|ab` over `xabce` now holds it.
+    - Three of the searcher, against `zig build test-regex`: the DFAs left on once the
+      automaton took their words, the automaton built where a DFA did not start, and the
+      automaton built while a claim waits. The last was NOT CAUGHT at first: the test's
+      automaton was too small to reach the reverse DFA's lists. The test now requires the
+      automaton to wait.
+    - Five of the Lean side, against `lake build`: the stop one byte early, a later literal at
+      one start taken at an equal rank, the shortest literal in place of the longest, a fail
+      node one byte short, and the best kept in place of a better candidate. Each breaks a proof
+      or an example.
+    - Equivalent: no limit on the nodes `measure` counts. The words' check after it refuses
+      the same automata, so the limit only bounds the walk.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

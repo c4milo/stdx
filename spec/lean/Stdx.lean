@@ -27,6 +27,7 @@ import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
 import Stdx.Regex.Window
+import Stdx.Regex.AhoCorasick
 import Stdx.Regex.RulesWindow
 import Stdx.Regex.RulesWindowSet
 import Stdx.Axioms
