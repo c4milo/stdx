@@ -13,9 +13,14 @@ pub fn main(init: std.process.Init) !void {
     var seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
     try init.io.randomSecure(&seed);
     var csprng: std.Random.DefaultCsprng = .init(seed);
+    const probe = stdx.platform.probe();
+    // Data-independent timing on this thread where a program can set it: arm64 with FEAT_DIT.
+    // On x86-64 only the operating system sets DOITM, so this program states nothing there.
+    const set = stdx.platform.set_data_independent_timing(probe, true);
+    const timing: stdx.crypto.Timing = if (set) .data_independent else .not_stated;
     const crypto = stdx.crypto.init(.{
-        .probe = stdx.platform.probe(),
-        .timing = .not_stated,
+        .probe = probe,
+        .timing = timing,
         .random = csprng.random(),
     });
     _ = crypto;

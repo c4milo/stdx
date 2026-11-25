@@ -2843,6 +2843,32 @@ last part lists what still waits on a ruling.
       - A rule that reads a codec's tests too. A test would lose the detection that reaches every
         path of its host.
 
+    **Amended by the owner on 2026-11-25: `platform` reads and sets a thread's data-independent
+    timing.** The owner asked whether stdx can detect the timing mode, and chose a read and a set
+    when told that Linux and macOS start each thread with PSTATE.DIT clear. "It changes no CPU
+    state" above stays true of `probe`.
+    - `data_independent_timing(cpu)` reads the calling thread's PSTATE.DIT on arm64 with one
+      `mrs`. It answers `no` on a core whose `dit` is `no`, and `not_known` where `dit` is
+      `not_known`, because the read faults on a core without FEAT_DIT. On x86-64 it answers
+      `not_known`: DOITM is a bit of IA32_UARCH_MISC_CTL, which only the operating system reads.
+    - `set_data_independent_timing(cpu, enabled)` sets or clears it with one `msr`, checks the
+      mode it wrote, and returns true. It returns false where the read would answer anything but
+      `yes` or `no`, and on x86-64, where user code cannot set DOITM. A `bool` and not an error:
+      no RFC states the refusal, and a program reads the result as the timing it states.
+    - Neither call is a syscall, and each acts on the calling thread alone. The `cpu-probe` rule
+      refuses both outside `src/platform/` and the tests: a library call runs on a thread it did
+      not start, so only the program sets the mode. `stdx.crypto.init` takes the program's
+      statement, which the program makes after it sets the mode (entry 87 as amended again).
+    - Each instruction names the register by its encoding, `s3_3_c4_c2_5`, which an assembler
+      takes for any CPU model. The name `DIT` needs the target feature `dit`.
+    - The alternatives refused:
+      - A read alone. On a thread the program has not set, it answers `no`, so a program would
+        still write the `msr` itself.
+      - `init` that sets the mode. It would set it on the calling thread alone, and the rule above
+        keeps library code from it.
+      - A read of DOITM through `/dev/cpu/*/msr`. It is a file read, which non-negotiable 1
+        refuses, and it needs root.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves

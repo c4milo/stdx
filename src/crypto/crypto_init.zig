@@ -14,8 +14,9 @@ const platform = @import("platform");
 /// The timing mode of the threads that run chapulin's code. Arm's A64 reference lists the AES
 /// instructions, PMULL and the widening multiplies as taking a time independent of their data
 /// while PSTATE.DIT is 1. Intel's list of data operand independent timing instructions names their
-/// x86-64 forms while the operating system has set DOITM. Only the program can state either mode:
-/// stdx and chapulin set neither and read neither.
+/// x86-64 forms while the operating system has set DOITM. Only the program can state either mode.
+/// chapulin sets and reads neither. On arm64 a program sets PSTATE.DIT on each thread with
+/// `platform.set_data_independent_timing`, which no library code calls.
 pub const Timing = enum {
     /// The program states nothing about its threads' mode. chapulin then runs no instruction whose
     /// timing the statement covers on a secret.

@@ -31,7 +31,9 @@
 //!   the build target guarantees, and `not_known` otherwise.
 //! - Any other architecture: `not_known`.
 //!
-//! `probe` only reads. It changes no CPU state, and sets no PSTATE.DIT.
+//! `probe` only reads. It changes no CPU state, and sets no PSTATE.DIT. A program that wants the
+//! mode calls `set_data_independent_timing` on each thread, and `data_independent_timing` reads
+//! it: one instruction each on arm64, and no syscall (platform_timing.zig).
 //!
 //! The module imports nothing, so a codec that imports it reaches no other module through it.
 //!
@@ -49,10 +51,17 @@ const platform_linux = @import("platform_linux.zig");
 const answer_file = @import("platform_answer.zig");
 const memset_file = @import("platform_memset.zig");
 const cpu_features_file = @import("platform_cpu_features.zig");
+const timing_file = @import("platform_timing.zig");
 
 /// The CPU features a codec's SIMD paths may use: a program calls `CpuFeatures.detect()` once and
 /// passes the value to each codec's `init` (decision 21 as amended on 2026-11-24).
 pub const CpuFeatures = cpu_features_file.CpuFeatures;
+
+/// The calling thread's mode of data-independent timing: PSTATE.DIT on arm64, and `not_known`
+/// elsewhere (decision 40 as amended on 2026-11-25).
+pub const data_independent_timing = timing_file.data_independent_timing;
+/// Sets or clears the calling thread's PSTATE.DIT on arm64, and returns false where it cannot.
+pub const set_data_independent_timing = timing_file.set_data_independent_timing;
 
 /// A vector `memset`, which a program exports as `memset` where `memset_applies` holds.
 pub const memset = memset_file.memset;
@@ -270,6 +279,7 @@ test {
     _ = platform_linux;
     _ = memset_file;
     _ = cpu_features_file;
+    _ = timing_file;
 }
 
 /// A `Cpu` with every SHA answer `sha`: the tests of `aes_clmul` and `dit` vary those alone.

@@ -22,9 +22,14 @@ value holds the answers of the program's one probe, its statement of its threads
 cryptographically secure random source:
 
 ```zig
+const probe = stdx.platform.probe();
+// Data-independent timing on this thread where a program can set it: arm64 with FEAT_DIT.
+// On x86-64 only the operating system sets DOITM, so this program states nothing there.
+const set = stdx.platform.set_data_independent_timing(probe, true);
+const timing: stdx.crypto.Timing = if (set) .data_independent else .not_stated;
 const crypto = stdx.crypto.init(.{
-    .probe = stdx.platform.probe(),
-    .timing = .not_stated,
+    .probe = probe,
+    .timing = timing,
     .random = csprng.random(),
 });
 ```
@@ -33,7 +38,9 @@ const crypto = stdx.crypto.init(.{
 states that each thread that runs chapulin's code has set PSTATE.DIT on arm64, or runs on an
 x86-64 part whose operating system has set DOITM. Under it, chapulin runs AES-GCM and the widening
 multiplies on the CPU's instructions where the probe found them. `.not_stated` keeps chapulin's code
-that needs no such mode. A program passes the value's `cpu` to the TCP object's sessions and
+that needs no such mode. `stdx.platform.set_data_independent_timing` sets PSTATE.DIT on the calling
+thread alone, so a program calls it on each thread that runs chapulin's code, and
+`stdx.platform.data_independent_timing` reads it ([`stdx.platform`](../platform/README.md)). A program passes the value's `cpu` to the TCP object's sessions and
 calls, its `quic_cpu` to the QUIC object's, and its `random` to both. It is a value and not a
 global, so no call runs before it exists, and no two threads race to set it.
 

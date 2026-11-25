@@ -91,3 +91,8 @@ pub const sysctl_sha256 = "hw.optional.arm.FEAT_SHA256";
 pub const sysctl_sha512 = "hw.optional.arm.FEAT_SHA512";
 pub const sysctl_sha3 = "hw.optional.arm.FEAT_SHA3";
 pub const sysctl_sve2 = "hw.optional.arm.FEAT_SVE2";
+
+/// PSTATE.DIT's place in the value of the DIT register that `mrs` reads and `msr` writes: bit 24,
+/// as Arm's A64 reference states for the register DIT. Every other bit reads as 0, and a write
+/// ignores it.
+pub const dit_bit: u64 = 1 << 24;

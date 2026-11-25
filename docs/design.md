@@ -11778,6 +11778,27 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     statement, the multiply's bit set always, the hash bits stated on x86-64, FEAT_DIT not read,
     and `avx2` and `sve2` set on the other architecture.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 25: a thread's data-independent timing (decision 40 as amended on 2026-11-25).** The
+  owner asked for a read and a set of the mode that `stdx.crypto.init`'s `timing` states.
+  `platform_timing.zig` reads and writes PSTATE.DIT on arm64, one instruction each, and answers
+  `not_known` or refuses on x86-64. The consumer's crypto program sets the mode and states
+  `data_independent` where the set succeeds.
+  New public names: `stdx.platform.data_independent_timing` and `set_data_independent_timing`.
+  **Check:**
+  - `zig build test-platform` holds PSTATE.DIT to bit 24 of the register, refuses a core whose
+    `dit` is `no` or `not_known` without the instruction, and on an arm64 host with FEAT_DIT sets
+    and clears the mode and reads each back, then restores it.
+  - `zig test src/platform/platform.zig -target aarch64-linux --test-no-exec`, and the same for
+    `aarch64-macos`, compile; `llvm-objdump --mattr=+dit` reads `mrs x8, DIT` and `msr DIT, x9`.
+    This x86-64 host runs no arm64 code. CI's arm64 Linux and macOS jobs run the tests.
+  - `zig build test-tools` holds the `cpu-probe` rule to both calls, as written and through a
+    name.
+  - Mutations, 5, each `CAUGHT`: bit 23 for PSTATE.DIT, the register read whatever `dit` says,
+    and x86-64 let through the check that needs no read, against `zig build test-platform`; each
+    call left out of the rule, against `zig build test-tools`. The set's own use of that check
+    runs on arm64 alone, where the test of a core whose `dit` is `no` would catch its removal.
+    This host could not measure it.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 
