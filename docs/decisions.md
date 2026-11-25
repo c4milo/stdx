@@ -5983,6 +5983,11 @@ last part lists what still waits on a ruling.
       - The DFA learns the octets that can start a match once, from that state's own answers.
         Where 3 ranges hold them, a step judges 16 octets with vector compares. Otherwise, and
         for the first 8 octets after a visit, a step judges one octet by a table of 256 answers.
+      - A turn judges 4 steps, 64 octets, and takes one branch, as claim R2's search does
+        (added 2026-11-25, design §8 part 22q). A set of one or two ranges judges those alone. A
+        step finds its first lane as claim R2's search does, by PMOVMSKB on x86-64 and SHRN on
+        NEON (`lane_places.zig`). Before, each step of 16 octets took a branch, judged 3 ranges
+        and found its lane by a reduce.
       - The DFA reads its table from the octet it stopped at, so the answer is the one it gives
         with no skip. A skip reads each octet it passes once, so a search stays linear in the
         text.
@@ -6616,7 +6621,7 @@ last part lists what still waits on a ruling.
     `literal_fork_len_max`, 8; `literal_compare_max`, 8; `teddy_count_min`, 4;
     `teddy_buckets`, 8; and `literal_set_slots`, 128. Claim R6's: `one_pass_instructions_max`,
     1,024. The program's: `ranges_scan_len`, 4. Claim R7's: `pair_classes_max`, 32; `pair_states_max`, 64; and `pair_memory_parts`,
-    4. Claim R1's: `skip_lanes`, 16;
+    4. Claim R1's: `skip_lanes`, 16; `skip_steps`, 4;
     `skip_ranges_max`, 3; `skip_scalar_run`, 8; `skip_trial_visits`, 256;
     `skip_octets_per_visit_min`, 8; `skip_rest_octets`, 2^16; and `skip_rest_doublings_max`, 4.
     Claim R9's: `stay_records`, 8; and `stay_octets_per_visit_min`, 32. Claim R4's:
