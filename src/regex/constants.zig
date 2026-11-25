@@ -263,6 +263,15 @@ pub const trie_node_slots_min = 64;
 pub const trie_octets_per_slot = 8;
 pub const trie_node_probes = 8;
 
+/// Claim R15 (aho_corasick.zig): a node keeps its depth, its longest literal's length and its
+/// count of branches in one octet each, so literals and branches stop at 255. A walk of one place
+/// of a trie's program takes a split, a branch and a jump for each branch, `automaton_walk_max`
+/// instructions at most, and keeps `automaton_walk_stack` places to go to. Past them it is no trie.
+pub const automaton_depth_max = 255;
+pub const automaton_branches_max = 255;
+pub const automaton_walk_max = 1024;
+pub const automaton_walk_stack = 16;
+
 /// The splits the backtracker passes, at most, to skip alternatives that start with a range that
 /// does not take the octet before it pushes the path (backtrack.zig). A class's node of 64
 /// continuation ranges is 63 splits, so the walk passes any node's alternatives, and a push
@@ -411,9 +420,8 @@ pub const literal_ways_free_max = 32;
 /// A set of more ranges is skipped one octet at a time.
 pub const skip_ranges_max = 3;
 
-/// The steps of `skip_lanes` octets that a skip judges before one branch: 64 octets. A text whose
-/// start octets are far apart then costs one branch for each 64 octets, not one for each 16, as
-/// claim R2's `literal_steps` does.
+/// The steps of `skip_lanes` octets that a skip judges before one branch, as claim R2's
+/// `literal_steps`: a text whose start octets stand far apart costs a branch for each 64 octets.
 pub const skip_steps = 4;
 
 /// The octets a skip judges one at a time before it steps by `skip_lanes`. A step costs about as

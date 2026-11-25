@@ -302,7 +302,7 @@ test "some cases of a dump take a long text, each with its searches" {
 test "a dump names the literal that a searcher took, after the program and before its text" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const cases = 64;
+    const cases = 96;
     const text = try dump(arena_state.allocator(), 1, cases);
     var claims: usize = 0;
     var inner: usize = 0;

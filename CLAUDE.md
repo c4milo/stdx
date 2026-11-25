@@ -314,7 +314,9 @@ Change this section when a step adds or renames a command.
   builds the program that replays both (`tools/matcher_replay.zig`, with its pieces in
   `tools/matcher_replay/`): for a compiled pattern it asks the matcher, a
   searcher with every claim, one with none, one with every claim that read a long text first,
-  and one with every claim and a small cache, for the match and for its groups. One case in
+  one with every claim and a small cache, and one whose DFAs gave up, which claim R15's
+  automaton answers for a trie (`spec/lean/Stdx/Regex/AhoCorasick.lean` proves its search),
+  for the match and for its groups. One case in
   eight takes a text of up to 1,024 bytes. With no seed, the seed is the time in seconds, and a
   seed that fails is printed.
   `PROGRAMS` and `PATTERNS` set what a seed draws, 4096 each by default. It needs lake, and

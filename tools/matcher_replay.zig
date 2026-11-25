@@ -47,9 +47,13 @@ const pattern_len_max = 2048;
 const span_slots = 2;
 
 /// The searchers a compiled pattern's searches run: one with every claim, one with none, one
-/// with every claim that read `long_read_len` bytes before its first search, and one with
-/// every claim and a small cache.
-pub const searcher_count = 4;
+/// with every claim that read `long_read_len` bytes before its first search, one with every
+/// claim and a small cache, and one with every claim whose DFAs gave up for good.
+pub const searcher_count = 5;
+
+/// The searcher whose DFAs gave up for good before its first search. Where the program is a
+/// trie's, claim R15's automaton answers its searches (src/regex/aho_corasick.zig).
+pub const automaton_searcher = 4;
 
 /// The searcher with a small cache. Its cache holds the least words, of the powers of two
 /// from `small_cache_shift_min`, at which both its DFAs start. Such a cache fills on a long
@@ -123,7 +127,7 @@ pub fn no_claims() regex.SearcherClaims {
 const Expected = ?struct { start: u64, end: u64 };
 
 /// The cause for each searcher whose `captures` does not give a line's groups.
-pub const group_causes = [searcher_count]anyerror{ error.SearcherGroupsDiffer, error.SearcherWithNoClaimGroupsDiffer, error.SearcherAfterLongReadGroupsDiffer, error.SearcherWithSmallCacheGroupsDiffer };
+pub const group_causes = [searcher_count]anyerror{ error.SearcherGroupsDiffer, error.SearcherWithNoClaimGroupsDiffer, error.SearcherAfterLongReadGroupsDiffer, error.SearcherWithSmallCacheGroupsDiffer, error.SearcherWithAutomatonGroupsDiffer };
 
 pub fn same(found: ?regex.Span, expected: Expected) bool {
     const span = found orelse return expected == null;
@@ -174,6 +178,8 @@ pub const Replay = struct {
     /// The searches that the searcher which read a long text ran from the places of claim
     /// R14's literal: it held the literal, and its account was not at rest.
     finds_by_inner: usize = 0,
+    /// The searches that claim R15's automaton answered.
+    finds_by_automaton: usize = 0,
     /// The slots of the program's capture groups, from its `slots` line, and the `groups`
     /// lines of the file so far.
     slots: ?u32 = null,
@@ -326,11 +332,12 @@ pub const Replay = struct {
         // The matcher keeps a slot for each group: a `groups` line asks for them, and a `find`
         // line for the whole match alone.
         replay.matcher.init(program, .{ .captures = .groups }, replay.matcher_memory);
-        const claims = [searcher_count]regex.SearcherClaims{ .{}, no_claims(), .{}, .{} };
+        const claims = [searcher_count]regex.SearcherClaims{ .{}, no_claims(), .{}, .{}, .{} };
         const words = Searcher.memory_len(program.forward_len, program.slot_count(), regex.constants.cache_words_default);
         for (&replay.searchers, replay.searcher_memory, claims) |*searcher, memory, claim| {
             searcher.init(program, &.{ .features = replay.features, .claims = claim }, memory[0..words]);
         }
+        replay.searchers[automaton_searcher].give_ups = regex.constants.dfa_give_ups_max;
         try replay.expect_claim(&replay.searchers[0], false);
         try replay.prefix.expect(&replay.searchers[0]);
         replay.read_long_text();
@@ -389,7 +396,7 @@ pub const Replay = struct {
     /// Requires each searcher's `find` to give a search's answer, and for a search from 0 its
     /// `is_match` too: a text holds a match exactly where a search from its start finds one.
     fn expect_searchers(replay: *Replay, text: []const u8, low: usize, expected: Expected) !void {
-        const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers, error.SearcherWithSmallCacheDiffers };
+        const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers, error.SearcherWithSmallCacheDiffers, error.SearcherWithAutomatonDiffers };
         const long_read = &replay.searchers[long_read_searcher];
         replay.finds_by_inner += @intFromBool(long_read.inner != null and long_read.account.rest == 0);
         for (&replay.searchers, causes) |*searcher, cause| {
@@ -400,6 +407,7 @@ pub const Replay = struct {
         const cleared = small.forward_ready and small.reverse_ready and small.forward.cache.clears + small.reverse.cache.clears > 0;
         replay.finds_after_clear += @intFromBool(cleared);
         replay.finds_after_give_up += @intFromBool(small.give_ups > 0);
+        replay.finds_by_automaton += @intFromBool(replay.searchers[automaton_searcher].trie.state == .ready);
         if (low != 0) return;
         for (&replay.searchers) |*searcher| {
             replay.is_matches += 1;
@@ -457,7 +465,7 @@ pub fn main(init: std.process.Init) !void {
         if (replay.compiled) std.debug.print("matcher_replay: the pattern is \"{f}\", read as {s}\n", .{ std.zig.fmtString(replay.pattern[0..replay.pattern_len]), @tagName(replay.encoding) });
         std.process.exit(1);
     }
-    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up; {d} from the places of claim R14's literal; {d} with more than one group, {d} of them by one thread\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up, replay.finds_by_inner, replay.groups_by_one_thread + replay.groups_by_others, replay.groups_by_one_thread });
+    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up; {d} from the places of claim R14's literal; {d} by claim R15's automaton; {d} with more than one group, {d} of them by one thread\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up, replay.finds_by_inner, replay.finds_by_automaton, replay.groups_by_one_thread + replay.groups_by_others, replay.groups_by_one_thread });
 }
 
 test {
