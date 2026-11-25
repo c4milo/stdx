@@ -1,15 +1,21 @@
-"""Writes what the README and docs/benchmarks.md say of each chart, from the chart itself.
+"""Writes what the READMEs and docs/benchmarks.md say of each chart, from the chart itself.
 
 charts.py calls it after it draws the charts, and `--check` fails where a page differs:
-- Each image of a chart takes the chart's title as its alt text.
+- Each image of a chart takes the chart's title as its alt text: in the README, in the README of
+  each module's folder that shows a chart (decision 88), and in docs/benchmarks.md.
 - docs/benchmarks.md holds each chart's verdicts, a line for each panel, between the markers
   `<!-- claims of <chart> -->` and `<!-- end of claims -->`. Each chart that bench/charts.txt
   names has one such block, so no count is written by hand.
 """
 import re
 
+# The folders of src/ whose README shows a chart.
+CHART_MODULES = ("base64", "brotli", "checksum", "deflate", "json", "regex", "zstd")
+
 # The pages charts.py keeps, each with the path from the page to docs/images/.
-PAGES = (("README.md", "docs/images/"), ("docs/benchmarks.md", "images/"))
+PAGES = (("README.md", "docs/images/"), ("docs/benchmarks.md", "images/")) + tuple(
+    (f"src/{module}/README.md", "../../docs/images/") for module in CHART_MODULES
+)
 
 # The page that holds the claims.
 CLAIMS_PAGE = "docs/benchmarks.md"

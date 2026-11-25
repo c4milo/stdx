@@ -1,16 +1,37 @@
-//! `zig build readme-check`: the README's code, shown to work. It builds `tools/consumer/`, a
+//! `zig build readme-check`: the READMEs' code, shown to work. It builds `tools/consumer/`, a
 //! project of its own that depends on this tree the way the README says, with a nested `zig build`,
 //! and runs the program it built, which exits 0 when each example gives its answer. Then it
-//! requires every Zig block of the README to be an excerpt of that project's files
-//! (`tools/readme_examples.zig`). `zig build test` runs it.
+//! requires every Zig block of the README, and of the README in each module's folder, to be an
+//! excerpt of that project's files. It requires the README to link each of those, and each
+//! module that the module `stdx` names to have one (`tools/readme_examples.zig`, decision 88).
+//! `zig build test` runs it.
 //!
 //! The nested build takes an empty package folder of its own through `--system`. The consumer
 //! needs no package, and without it Zig copies every package of stdx's manifest, some 340 MB, into
 //! `tools/consumer/zig-pkg`, which the lint would read.
 const std = @import("std");
 
-/// Every file `tools/readme_examples.zig` reads: the README and the files its blocks excerpt.
-const excerpted_files = [_][]const u8{ "README.md", "tools/consumer/build.zig", "tools/consumer/main.zig" };
+/// Every file `tools/readme_examples.zig` reads: the README, the README of each module's folder,
+/// the root of the module `stdx`, and the files that a block is an excerpt of.
+const excerpted_files = [_][]const u8{
+    "README.md",
+    "src/base64/README.md",
+    "src/brotli/README.md",
+    "src/checksum/README.md",
+    "src/codec/README.md",
+    "src/deflate/README.md",
+    "src/gzip/README.md",
+    "src/json/README.md",
+    "src/platform/README.md",
+    "src/regex/README.md",
+    "src/unicode/README.md",
+    "src/utf8/README.md",
+    "src/zlib/README.md",
+    "src/zstd/README.md",
+    "src/stdx/stdx.zig",
+    "tools/consumer/build.zig",
+    "tools/consumer/main.zig",
+};
 
 pub fn add(b: *std.Build) *std.Build.Step {
     const check = b.step("readme-check", "Build and run the README's examples, and hold its Zig blocks to them");
