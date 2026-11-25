@@ -10419,6 +10419,24 @@ to 12 are reordered and nothing else changes.
     - The answer: a program with no match given lengths; the pass's verdict not read; the
       lists not set before the pass; and the sets not emptied.
 
+  A fault in claim R14's second start, found after the landing:
+  - `tools/matcher_model_check.sh` drew the case on 2026-11-25 (part 22h):
+    `([ab]*a[ab]{5}) +(aa)[ab]?`, a searcher with the least cache at which both its DFAs start,
+    and a text of some 700 bytes. A search after the judgment halted at an assertion of
+    `Dfa.start`. Each answer before the halt was right. Main held the fault from `79a10c0` to
+    `4a2f1b5`, and no release holds it.
+  - `dfa_second.start` interned the second start in a full cache, which cleared, and the DFA
+    kept the row of the state that waits. `Dfa.build` forgets that row after a clear, and
+    `dfa_second.start` now does too.
+  - `Dfa.start` interns a state too, and cannot clear the cache while that row is known. A
+    program with an assertion never knows the row. For any other program, the state that
+    waits is the first start, so the cache holds it and takes no new state.
+  - This part's tests ran claim R14 in a cache of each size, and none filled the cache before
+    the judgment. `searcher_second_test.zig` does: 64 seeded texts, each for a new searcher.
+  **Check passed, 2026-11-25.** The same container. `zig build test` exits 0, and `zig build
+  test-regex` runs 345 tests. Mutation: the fix switched off. The new test ends with SIGABRT,
+  and 344 other tests pass: CAUGHT.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
