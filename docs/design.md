@@ -10792,8 +10792,8 @@ to 12 are reordered and nothing else changes.
   finds no match; the replay refuses a count that the program does not hold; the script runs
   `leastOn` for each count; callgrind's count of a compile at the base and with the change;
   mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not run.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0, and `zig build lean` pins 133 theorems.
   - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13 over the tree with claim R15. The
     dump of seed 7 holds 3,268 `least` lines, and Lean judged each sound.
@@ -10803,6 +10803,27 @@ to 12 are reordered and nothing else changes.
     cost 82 fewer to 731 more, 109 for `Pharaoh` and 731 for the UUID, 0.43% of each.
   - The filter counted 364 instructions a search of `too-small-ascii` at `805e10e` and 119 with
     the count, its loop and its timer included.
+  - The `bench` workflow's runs 45668109003 and 45668114712 measured `15a3c35` against
+    `6370426`, each in one job on the N2 and one on the EPYC 7763. By decision 20's rule, 13 of
+    the 284 rows ran faster in all four jobs, and one ran slower.
+    - `opt/fixed-length/too-small-ascii` ran 4.57 and 4.42 times as fast on the N2, and 3.71
+      and 3.62 times on x86-64. It now runs at 2.12 of Rust's crate on the N2 and 1.72 on
+      x86-64.
+    - `too-big-ascii` and the three `go33484` rows match the whole text. `count` now refuses
+      such a text once, before its loop, so they ran 3.24 to 3.37 times as fast on the N2 and
+      2.33 to 2.69 times on x86-64. They run at 1.98 to 1.99 of Rust's crate on the N2, and
+      at 1.79 on x86-64.
+    - `09-aws-keys/full`, whose lines are shorter than its least match, ran 2.13 to 2.25 times
+      as fast, and now runs at 2.04 of Rust's crate on the N2.
+    - `(?m)^[A-Z][a-z]+:` over `world192.txt` ran 3% to 4% slower in all four jobs. In both
+      jobs of one runner, 26 rows ran slower on the N2 and 10 on x86-64, by 1% to 8%, and
+      `leipzig/math-symbols` by 25% on x86-64.
+    - Callgrind, built ReleaseSafe for x86-64-v3, counted a search of 7 of those rows at both
+      commits. `math-symbols`, `bounded-strings-ending-z`, `reallyhard0-1mb`,
+      `no-quadratic-forward` and `holmes-coword-watson` took the same instructions, and
+      `(?m)^[A-Z][a-z]+:` 0.6% fewer: placement. `quotes-bounded` took 2.6% more. Its count
+      calls `find_end` for each match, and the check of the least length there changed how
+      the compiler built the DFA's loop inlined below it.
   - Mutations: 24. 23 were CAUGHT, and 1 was NOT CAUGHT by the script alone.
     - Twelve of the count and the searcher, against `zig build test-regex`, each CAUGHT: a sum
       as a maximum, an alternation's maximum, `+` counted as none, a trie's first literal
