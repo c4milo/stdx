@@ -10661,6 +10661,36 @@ to 12 are reordered and nothing else changes.
     vector; the literal's second compared octet read at its first; and the step taken where the
     text holds no whole step.
 
+  The turn of claim R1's skip:
+  - `imported/leipzig/quotes-bounded`, `imported/mariomka/ip` and `imported/sherlock/quotes` ran
+    at 0.69, 0.72 and 0.81 of Rust's crate on the N2, in the runs at `2aa9b12`. Each takes claim
+    R1's skip and no literal. Under callgrind, `Ranges.first` took 37% of the search of
+    `quotes-bounded`.
+  - Each step of 16 octets judged 3 ranges, a repeated range among them for a set of one or two,
+    took a branch, and found its first lane by a reduce. A turn now judges 4 steps and takes one
+    branch, a set of one or two ranges judges those alone, and a step finds its first lane as
+    claim R2's search does (`lane_places.zig`). Claim R9's states that stay take the same turn.
+  **Check:** the tests that compare the skip with a walk of one octet at a time, from every
+  offset of seeded texts, for one, two and three ranges; callgrind's count of the search at the
+  base and with the turn; two paired runs of the `bench` workflow on each runner; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  The paired runs are not recorded yet.
+  - `zig build test` exits 0. `zig build test-regex -Dtarget=aarch64-linux -fqemu` exits 0
+    under qemu-user 8.2.2.
+  - Callgrind, built ReleaseSafe for x86-64-v3, counted one search of each row's text at
+    `50831c6` and with the turn, less the cache's memset at init: `quotes-bounded` 87,348,141
+    and 75,200,007 instructions, `ip` 29,767,934 and 21,930,945, `quotes` 6,152,248 and
+    5,809,588. `[0-9]+` and `[A-Z][a-z]+ [A-Z][a-z]+` over `sherlock.txt` took 0.534 and 0.944
+    of their base, and `[a-q][^u-z]{13}x`, which takes no skip, the same.
+  - Mutations: 8. 6 were CAUGHT, and 2 are equivalent.
+    - Five against `zig build test-regex`: two ranges judged as one, three as two, a turn of
+      three steps, a lane one place late, and the count of ranges not kept.
+    - One against `zig build test-regex -Dtarget=aarch64-linux -fqemu` alone: a hit written as
+      1 in place of all ones. On x86-64 the mask reads any lane that is not zero, and SHRN on
+      NEON reads only the top nibble.
+    - Two are equivalent: a turn and a step that each stop one octet early. The octets after
+      them take the walk of one octet at a time, which gives the same answer.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

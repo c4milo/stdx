@@ -411,6 +411,11 @@ pub const literal_ways_free_max = 32;
 /// A set of more ranges is skipped one octet at a time.
 pub const skip_ranges_max = 3;
 
+/// The steps of `skip_lanes` octets that a skip judges before one branch: 64 octets. A text whose
+/// start octets are far apart then costs one branch for each 64 octets, not one for each 16, as
+/// claim R2's `literal_steps` does.
+pub const skip_steps = 4;
+
 /// The octets a skip judges one at a time before it steps by `skip_lanes`. A step costs about as
 /// much as these, so a skip that ends within them, as most do where the start octets are dense,
 /// never pays for one.
