@@ -39,18 +39,33 @@ def test_missing_block():
         raise AssertionError(f"no error for {page!r}")
 
 
+def write_module_pages(root, text):
+    """Writes `text` as the README of each module's folder that shows a chart."""
+    for module in chart_docs.CHART_MODULES:
+        os.makedirs(f"{root}/src/{module}", exist_ok=True)
+        open(f"{root}/src/{module}/README.md", "w").write(text)
+
+
 def test_stale_and_write():
     with tempfile.TemporaryDirectory() as root:
         os.makedirs(f"{root}/docs")
         readme = "![old](docs/images/zstd-aarch64.svg)\n"
+        module_page = "![old](../../docs/images/zstd-aarch64.svg)\n"
         claims_page = "![old](images/zstd-aarch64.svg)\n<!-- claims of zstd-aarch64 -->\n<!-- end of claims -->\n"
         open(f"{root}/README.md", "w").write(readme)
         open(f"{root}/docs/benchmarks.md", "w").write(claims_page)
+        write_module_pages(root, module_page)
+        module_pages = [f"{root}/src/{module}/README.md" for module in chart_docs.CHART_MODULES]
         titles, claims = {"zstd-aarch64": "t"}, {"zstd-aarch64": ["one"]}
-        assert chart_docs.stale(root, titles, claims) == [f"{root}/README.md", f"{root}/docs/benchmarks.md"]
+        assert chart_docs.stale(root, titles, claims) == [f"{root}/README.md", f"{root}/docs/benchmarks.md"] + module_pages
         chart_docs.write(root, titles, claims)
         assert chart_docs.stale(root, titles, claims) == []
         assert open(f"{root}/README.md").read() == "![t](docs/images/zstd-aarch64.svg)\n"
+        assert open(module_pages[0]).read() == "![t](../../docs/images/zstd-aarch64.svg)\n"
+        # An alt text written by hand in one module's README makes that page stale, and no other.
+        open(module_pages[-1], "w").write(module_page)
+        assert chart_docs.stale(root, titles, claims) == [module_pages[-1]]
+        chart_docs.write(root, titles, claims)
         # A line outside a block is the page's own, and leaves it current.
         open(f"{root}/docs/benchmarks.md", "a").write("- two\n")
         assert chart_docs.stale(root, titles, claims) == []
@@ -60,24 +75,28 @@ def test_stale_and_write():
 
 
 def test_charts_check_reads_the_pages():
-    """charts.py --check fails on a tree whose README holds an alt text written by hand."""
+    """charts.py --check fails on a tree where a module's README holds an alt text written by hand."""
     import charts
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    page = "src/zstd/README.md"
     with tempfile.TemporaryDirectory() as copy:
         for folder in ("bench/results", "docs/images"):
             shutil.copytree(f"{root}/{folder}", f"{copy}/{folder}")
-        for page in ("bench/charts.txt", "README.md", "docs/benchmarks.md"):
-            shutil.copy(f"{root}/{page}", f"{copy}/{page}")
+        for kept in ("bench/charts.txt",) + tuple(name for name, _ in chart_docs.PAGES):
+            os.makedirs(os.path.dirname(f"{copy}/{kept}"), exist_ok=True)
+            shutil.copy(f"{root}/{kept}", f"{copy}/{kept}")
         saved_root, saved_argv = charts.ROOT, sys.argv
         charts.ROOT, sys.argv = copy, ["charts.py", "--check"]
         try:
             charts.main()
-            readme = open(f"{copy}/README.md", encoding="utf-8").read()
-            open(f"{copy}/README.md", "w", encoding="utf-8").write(re.sub(r"!\[[^\]]*\]\(docs/images/zstd-aarch64", "![by hand](docs/images/zstd-aarch64", readme))
+            shown = open(f"{copy}/{page}", encoding="utf-8").read()
+            by_hand = re.sub(r"!\[[^\]]*\]\(\.\./\.\./docs/images/zstd-aarch64", "![by hand](../../docs/images/zstd-aarch64", shown)
+            assert by_hand != shown, f"{page} shows no chart of zstd"
+            open(f"{copy}/{page}", "w", encoding="utf-8").write(by_hand)
             try:
                 charts.main()
             except SystemExit as stop:
-                assert f"{copy}/README.md" in str(stop), stop
+                assert f"{copy}/{page}" in str(stop), stop
             else:
                 raise AssertionError("charts.py --check passed a README with an alt text written by hand")
         finally:
