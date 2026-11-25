@@ -6310,6 +6310,12 @@ last part lists what still waits on a ruling.
         fails at once either: the node's path goes on with no entry (added 2026-11-23).
       - RE2's BitState and Rust's crate's `BoundedBacktracker` search the same way (Cox,
         "Regular Expression Matching in the Wild", 2010). Both give the bitmap memory of its own.
+      - A wider form, built and refused on 2026-11-25 (design §8 part 22q): where the reverse
+        DFA did not start, the forward DFA's end and the backtracker from the search's start, each
+        start in order with the bits kept. On rebar's `overlapping-words/english` it ran at 1.05
+        to 1.19 MB/s, and the matcher at 1.25 to 1.53. One `\p{L}` takes 1,345 forward
+        instructions, so a search cleared about 165 KB of bits. The owner ruled for smaller
+        programs of a class in its place.
     - Claim R9, added 2026-11-23 (design §8 part 22n): a forward scan goes past the octets over
       which its state stays where it is, `skip_lanes` octets a step (`dfa_stay.zig`).
       - Each search of rebar's `.*[^A-Z]|[A-Z]` reads to the text's end in a state that stays
