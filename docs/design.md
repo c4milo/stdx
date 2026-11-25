@@ -10457,10 +10457,19 @@ to 12 are reordered and nothing else changes.
   bytes before a far place with no state; the replay holds the `prefix` line, refuses a wrong
   one and keeps none into the next program; the script runs `leadsOn` for each literal; two
   paired runs of the `bench` workflow on each runner, by decision 20's rule; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  **Check passed, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container, and the two paired runs on GitHub's runners.
   - `zig build test` exits 0. `zig build lean` exits 0, with 110 theorems pinned to their
     axioms.
+  - The `bench` workflow's runs 45611885169 and 45611890723 measured `cec46db` against
+    `8daceb0`, each in one job a runner. `line-boundary-sherlock-holmes` ran 29.4 and 28.7
+    times as fast on the N2, and 60.7 and 51.4 times as fast on the EPYC 9V74 and the EPYC
+    7763. Of the 284 rows, nine ran slower in both jobs on the N2 and one on x86-64, by 1.4%
+    to 4.5%. Each is placement by decision 20's rule. Built for x86-64-v3 and counted under
+    callgrind, the search of each row took the same instructions at both commits, to within 3
+    in 1,452,554, on its own text or, where the container lacks it, on a text of its kind. Each compile of the three
+    compile rows took 12 instructions fewer or 9 more, of about 80,000 and 124,000. The walk
+    runs in `Searcher.init` alone, and no search of those rows reads a literal.
   - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13, and seeds 1, 2 and 3 with
     20,000 patterns each in 5 minutes. The three large seeds gave 16,188 `prefix` lines: 7,328
     of patterns with an assertion and an alternation, and 2,942 with a place that folds. Lean
