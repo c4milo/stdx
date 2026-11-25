@@ -198,7 +198,6 @@ test "a replay requires its new searcher's forward DFA to go to the literal of a
     try testing.expectEqual(@as(usize, 2), third.programs);
 }
 
-
 test "a replay holds the matcher and each searcher to the groups of a line" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
