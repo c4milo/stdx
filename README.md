@@ -17,17 +17,17 @@ Each module's folder holds a README with its examples, its options, its limits a
 
 | Module | What it holds |
 | --- | --- |
-| [`stdx.compress.deflate`](src/deflate/README.md) | DEFLATE ([RFC 1951](https://www.rfc-editor.org/rfc/rfc1951)): an encoder and a decoder |
-| [`stdx.compress.zlib`](src/zlib/README.md) | The zlib container ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)): HTTP's `deflate` coding |
-| [`stdx.compress.gzip`](src/gzip/README.md) | The gzip container ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): HTTP's `gzip` coding |
-| [`stdx.compress.zstd`](src/zstd/README.md) | Zstandard ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP): HTTP's `zstd` coding |
-| [`stdx.compress.brotli`](src/brotli/README.md) | brotli ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)): HTTP's `br` coding |
-| [`stdx.hash`](src/checksum/README.md) | CRC-32, Adler-32 and XXH64, with SIMD paths that the CPU selects at run time |
-| [`stdx.json`](src/json/README.md) | JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with JSON text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)): an encoder and a pull decoder |
-| [`stdx.base64`](src/base64/README.md) | Base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)): an encoder and a decoder |
+| [`stdx.compress.deflate`](src/compress/deflate/README.md) | DEFLATE ([RFC 1951](https://www.rfc-editor.org/rfc/rfc1951)): an encoder and a decoder |
+| [`stdx.compress.zlib`](src/compress/zlib/README.md) | The zlib container ([RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)): HTTP's `deflate` coding |
+| [`stdx.compress.gzip`](src/compress/gzip/README.md) | The gzip container ([RFC 1952](https://www.rfc-editor.org/rfc/rfc1952)): HTTP's `gzip` coding |
+| [`stdx.compress.zstd`](src/compress/zstd/README.md) | Zstandard ([RFC 8878](https://www.rfc-editor.org/rfc/rfc8878), with [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)'s limits for HTTP): HTTP's `zstd` coding |
+| [`stdx.compress.brotli`](src/compress/brotli/README.md) | brotli ([RFC 7932](https://www.rfc-editor.org/rfc/rfc7932)): HTTP's `br` coding |
+| [`stdx.hash`](src/hash/README.md) | CRC-32, Adler-32 and XXH64, with SIMD paths that the CPU selects at run time |
+| [`stdx.encoding.json`](src/encoding/json/README.md) | JSON ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)) with JSON text sequences ([RFC 7464](https://www.rfc-editor.org/rfc/rfc7464)): an encoder and a pull decoder |
+| [`stdx.encoding.base64`](src/encoding/base64/README.md) | Base 64 ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)): an encoder and a decoder |
 | [`stdx.regex`](src/regex/README.md) | Regular expressions in [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485)'s grammar with RE2's syntax, matched in time linear in the text |
 | [`stdx.unicode`](src/unicode/README.md) | Unicode 17.0.0's categories, scripts and case folding |
-| [`stdx.unicode.utf8`](src/utf8/README.md) | UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)), with a validator proved in Lean |
+| [`stdx.unicode.utf8`](src/unicode/utf8/README.md) | UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)), with a validator proved in Lean |
 | [`stdx.platform`](src/platform/README.md) | What the CPU offers, which a program probes once when it starts |
 | [`stdx.codec`](src/codec/README.md) | The streaming contract that every codec shares |
 
@@ -81,7 +81,7 @@ fn gunzip(features: stdx.platform.CpuFeatures, body: []const u8, output: []u8) !
 ```
 
 Each module's README holds its own examples. Every example comes from
-[`tools/consumer/`](tools/consumer/), a program that `zig build test` builds against this tree and
+[`tools/consumer/`](tools/consumer), a program that `zig build test` builds against this tree and
 runs.
 
 ## Performance
@@ -89,15 +89,15 @@ runs.
 The benchmarks compare stdx with other libraries on GitHub's hosted runners. Every library of a
 row runs in the same job ([decision 20](docs/decisions.md)). On the Arm Neoverse N2 runner:
 
-- [brotli](src/brotli/README.md#performance) decodes faster than Google's decoder on all 39 corpus
+- [brotli](src/compress/brotli/README.md#performance) decodes faster than Google's decoder on all 39 corpus
   files, at 1.10 to 3.36 times its speed.
-- [gzip](src/deflate/README.md#performance) decodes faster than libdeflate on 31 of the 39 files.
-- [`json`](src/json/README.md#performance)'s `TextWriter` writes JSON at 1.64 to 16.35 times
+- [gzip](src/compress/deflate/README.md#performance) decodes faster than libdeflate on 31 of the 39 files.
+- [`json`](src/encoding/json/README.md#performance)'s `TextWriter` writes JSON at 1.64 to 16.35 times
   serde_json's speed.
 - [`regex`](src/regex/README.md#performance) was tuned on each set that measures it. On rebar's
   benchmarks outside its curated set it runs 125 of 181 searches faster than Rust's regex crate,
   and 55 slower, the slowest by about 140 times.
-- [Zstandard](src/zstd/README.md#performance) decodes slower than libzstd on 25 of the 39 files,
+- [Zstandard](src/compress/zstd/README.md#performance) decodes slower than libzstd on 25 of the 39 files,
   and libzstd's level 3 is both faster and smaller than stdx's levels 1 and 3.
 
 Each module's README shows its chart. [`docs/benchmarks.md`](docs/benchmarks.md) shows every

@@ -15,23 +15,23 @@ const passing_build: [:0]const u8 =
     \\    const platform = library(b, "platform", target, optimize);
     \\    const codec = library(b, "codec", target, optimize);
     \\    codec.addImport("platform", platform);
-    \\    const checksum = library(b, "checksum", target, optimize);
+    \\    const checksum = library(b, "hash", target, optimize);
     \\    const deflate = library(b, "deflate", target, optimize);
     \\    deflate.addImport("codec", codec);
     \\    deflate.addImport("platform", platform);
     \\    const zlib = library(b, "zlib", target, optimize);
     \\    zlib.addImport("codec", codec);
-    \\    zlib.addImport("checksum", checksum);
+    \\    zlib.addImport("hash", checksum);
     \\    zlib.addImport("deflate", deflate);
     \\    zlib.addImport("platform", platform);
     \\    const gzip = library(b, "gzip", target, optimize);
     \\    gzip.addImport("codec", codec);
-    \\    gzip.addImport("checksum", checksum);
+    \\    gzip.addImport("hash", checksum);
     \\    gzip.addImport("deflate", deflate);
     \\    gzip.addImport("platform", platform);
     \\    const zstd = library(b, "zstd", target, optimize);
     \\    zstd.addImport("codec", codec);
-    \\    zstd.addImport("checksum", checksum);
+    \\    zstd.addImport("hash", checksum);
     \\    zstd.addImport("platform", platform);
     \\    const brotli = library(b, "brotli", target, optimize);
     \\    brotli.addImport("codec", codec);
@@ -54,7 +54,7 @@ const passing_build: [:0]const u8 =
     \\    regex.addImport("platform", platform);
     \\    const stdx = library(b, "stdx", target, optimize);
     \\    stdx.addImport("codec", codec);
-    \\    stdx.addImport("checksum", checksum);
+    \\    stdx.addImport("hash", checksum);
     \\    stdx.addImport("deflate", deflate);
     \\    stdx.addImport("zlib", zlib);
     \\    stdx.addImport("gzip", gzip);
@@ -74,7 +74,7 @@ const passing_check: [:0]const u8 =
     \\    .{ .name = "codec", .root = "codec/codec.zig", .imports = &.{"platform"} },
     \\    .{ .name = "platform", .root = "platform/platform.zig" },
     \\};
-    \\const forbidden = [_][]const u8{ "checksum", "zlib", "gzip", "zstd", "brotli", "json" };
+    \\const forbidden = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json" };
 ;
 
 /// Runs the comparison over two in-memory sources and returns the findings sorted.
@@ -134,10 +134,10 @@ test "module-graph flags an edge design §3 gives and the build does not add" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const build = try build_with(arena, "    zstd.addImport(\"checksum\", checksum);\n", "");
+    const build = try build_with(arena, "    zstd.addImport(\"hash\", checksum);\n", "");
     const findings = try compare_sources(arena, build, passing_check);
     try harness.expect_messages(findings, &.{
-        "zstd does not receive \"checksum\", which design §3 gives it",
+        "zstd does not receive \"hash\", which design §3 gives it",
     });
     try testing.expectEqual(1, findings[0].line);
 }
@@ -148,12 +148,12 @@ test "module-graph flags a module design §3 does not name, and one the build do
     const arena = arena_state.allocator();
     const build = try build_with(
         arena,
-        "    const checksum = library(b, \"checksum\", target, optimize);\n",
+        "    const checksum = library(b, \"hash\", target, optimize);\n",
         "    const oracle = library(b, \"oracle\", target, optimize);\n",
     );
     const findings = try compare_sources(arena, build, passing_check);
     try harness.expect_messages(findings, &.{
-        "design §3 names \"checksum\", which build/modules.zig does not create",
+        "design §3 names \"hash\", which build/modules.zig does not create",
         "build/modules.zig creates \"oracle\", which design §3 does not name (invariant 14)",
     });
 }
@@ -181,11 +181,11 @@ test "module-graph flags a check list that drifts from the build" {
         \\const deflate_imports = [_]Import{
         \\    .{ .name = "codec", .root = "codec/codec.zig" },
         \\    .{ .name = "platform", .root = "platform/platform.zig" },
-        \\    .{ .name = "checksum", .root = "checksum/checksum.zig" },
+        \\    .{ .name = "hash", .root = "hash/hash.zig" },
         \\};
     );
     try harness.expect_messages(findings, &.{
-        "deflate_imports names \"checksum\", which build/modules.zig does not give deflate",
+        "deflate_imports names \"hash\", which build/modules.zig does not give deflate",
     });
     try testing.expectEqual(4, findings[0].line);
 }
@@ -233,7 +233,7 @@ test "module-graph runs on build/modules.zig and on nothing else" {
     try testing.expect(module_graph.applies("build/modules.zig"));
     try testing.expect(module_graph.applies("./build/modules.zig"));
     try testing.expect(!module_graph.applies("build/lint.zig"));
-    try testing.expect(!module_graph.applies("src/deflate/deflate.zig"));
+    try testing.expect(!module_graph.applies("src/compress/deflate/deflate.zig"));
     try testing.expect(!module_graph.applies("tools/graph_check.zig"));
 }
 
@@ -244,15 +244,15 @@ test "the expected graph is design §3's table" {
         .{ "deflate", "codec" },
         .{ "deflate", "platform" },
         .{ "zlib", "codec" },
-        .{ "zlib", "checksum" },
+        .{ "zlib", "hash" },
         .{ "zlib", "deflate" },
         .{ "zlib", "platform" },
         .{ "gzip", "codec" },
-        .{ "gzip", "checksum" },
+        .{ "gzip", "hash" },
         .{ "gzip", "deflate" },
         .{ "gzip", "platform" },
         .{ "zstd", "codec" },
-        .{ "zstd", "checksum" },
+        .{ "zstd", "hash" },
         .{ "zstd", "platform" },
         .{ "brotli", "codec" },
         .{ "brotli", "platform" },
@@ -268,7 +268,7 @@ test "the expected graph is design §3's table" {
         .{ "regex", "platform" },
         .{ "unicode", "utf8" },
         .{ "stdx", "codec" },
-        .{ "stdx", "checksum" },
+        .{ "stdx", "hash" },
         .{ "stdx", "deflate" },
         .{ "stdx", "zlib" },
         .{ "stdx", "gzip" },

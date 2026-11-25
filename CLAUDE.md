@@ -1,8 +1,8 @@
 # stdx rules
 
 stdx extends Zig's standard library, written from the RFCs, and groups its modules as `std` groups
-its own (decision 6 as amended): `stdx.compress`, `stdx.hash`, `stdx.unicode`, `stdx.json`,
-`stdx.base64`, `stdx.regex` and `stdx.platform`. It began as compression codecs: DEFLATE with its
+its own (decision 6 as amended): `stdx.compress`, `stdx.hash`, `stdx.unicode`, `stdx.encoding`,
+`stdx.regex` and `stdx.platform`. `stdx.encoding` holds `json` and `base64`. It began as compression codecs: DEFLATE with its
 zlib and gzip containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it
 holds a JSON encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and
 `platform`, which a program calls once when it starts to learn what its CPU offers (decision 40). It
@@ -111,7 +111,7 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   after the file it came from: `zstd.zig` becomes `zstd_frame.zig`, `zstd_block.zig`, and so on,
   keeping the original name as the entry point.
 - Four or more files sharing a prefix move into a subdirectory named for it, the pieces keeping
-  their full names: `src/zstd/block/block_header.zig`.
+  their full names: `src/compress/zstd/block/block_header.zig`.
 - All parsing goes through the checked reader and all output through the checked writer of the
   `codec` module. A hot loop may leave them only where decision 16 allows it, and only with the
   measurement that decision asks for. Never assume host endianness. DEFLATE and brotli pack bits
@@ -165,7 +165,10 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build/modules.zig` with its imports listed. A
+- Each folder of a module is one Zig module, declared in `build/modules.zig` with its imports
+  listed. A module's folder sits under its category's, as its name under the module `stdx` does:
+  `src/compress/gzip/`, `src/encoding/json/`, `src/unicode/utf8/`. A module with no category
+  sits at `src/<module>/`, as `src/regex/` (decision 6 as amended). A
   module can only `@import` what the build gives it, so the dependency direction is enforced by
   the build and not by review. The graph is design §3; `tools/lint/module_graph.zig` pins it and
   `zig build graph-check` proves the compiler holds it.
@@ -185,15 +188,15 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
 - `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
   (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
-- `README.md` is an index, and `src/<module>/README.md` holds each module's details: its
+- `README.md` is an index, and the `README.md` of each module's folder holds its details: its
   examples, its options, its limits and its chart (decision 88). A README shows only code that
   is an excerpt of `tools/consumer/`, and a size that it states was measured. A new module brings
   its README, and the README links it.
 - `docs/` is the design set. `docs/rfcs/` holds the RFCs, and `docs/specs/` the other
   specifications stdx is written from, each a document a person reads.
 - `spec/lean/` holds the Lean proofs of decisions 28 and 86, a Lake package pepegrillo's `lean`
-  engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/utf8/`,
-  `src/json/` and `src/regex/` replay.
+  engine builds. Its `Vectors.lean` writes the vector files the unit tests of `src/unicode/utf8/`,
+  `src/encoding/json/` and `src/regex/` replay.
 
 ## Performance
 
@@ -277,11 +280,11 @@ Change this section when a step adds or renames a command.
   other host only compiles them. `zig build test-avx512` builds every module's tests with LLVM in
   Debug for an x86-64 CPU with AVX-512, and runs none: LLVM's Debug build there cannot pass a
   vector of bool across a call.
-- brotli tables: `zig build brotli-tables` writes `src/brotli/dictionary.bin` and
-  `src/brotli/rfc_tables.zig` from RFC 7932's Appendices A and B with
+- brotli tables: `zig build brotli-tables` writes `src/compress/brotli/dictionary.bin` and
+  `src/compress/brotli/rfc_tables.zig` from RFC 7932's Appendices A and B with
   `tools/brotli_tables.zig`; `zig build brotli-tables-check` fails when the committed files differ
   from what it writes. `zig build brotli-table-budget-check` fails when a lookup table budget
-  `src/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
+  `src/compress/brotli/constants.zig` pins differs from the worst table `tools/brotli_table_budget.zig`
   finds for its alphabet (decision 12).
 - Unicode tables: `zig build unicode-tables` writes `src/unicode/unicode_tables.zig` from the data
   files of Unicode 17.0.0 in `tools/unicode/ucd/` with `tools/unicode/unicode_tables.zig`; `zig
@@ -289,7 +292,7 @@ Change this section when a step adds or renames a command.
   as amended). The file-length and magic-numbers rules leave the file out by its basename, and
   the file-length rule leaves out `bench/regex/regex_rebar.zig` the same way.
 - Lean proofs: `zig build lean` builds `spec/lean/` with lake through pepegrillo's `lean` engine,
-  then checks `src/utf8/utf8_vectors.txt`, `src/json/number_vectors.txt`,
+  then checks `src/unicode/utf8/utf8_vectors.txt`, `src/encoding/json/number_vectors.txt`,
   `src/regex/utf8_split_vectors.txt` and `src/regex/matcher_vectors.txt` are what the proved
   definitions give; `zig build lean -- write` rewrites them. `zig build test` replays them against the Zig code, with no Lean
   needed. The step needs lake, from elan or a Lean release;
@@ -321,7 +324,7 @@ Change this section when a step adds or renames a command.
   reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints
   the table the build gives.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
-  `json`, `base64`, `regex`, `utf8`, a package or the oracle bindings from inside `src/deflate/`,
+  `json`, `base64`, `regex`, `utf8`, a package or the oracle bindings from inside `src/compress/deflate/`,
   and requires each compile to fail. It first compiles the controls, which import `codec` and
   `platform`, the two modules `deflate` has, and requires each to compile. A module that
   `deflate` must not reach has a fixture in `tools/fixtures/`, and the check fails when one is

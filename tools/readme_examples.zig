@@ -21,19 +21,19 @@ const readme: Document = .{ .name = "README.md", .text = @embedFile("README.md")
 
 /// The README of each module's folder, by the path that the README links.
 const module_readmes = [_]Document{
-    embedded("src/base64/README.md"),
-    embedded("src/brotli/README.md"),
-    embedded("src/checksum/README.md"),
+    embedded("src/encoding/base64/README.md"),
+    embedded("src/compress/brotli/README.md"),
+    embedded("src/hash/README.md"),
     embedded("src/codec/README.md"),
-    embedded("src/deflate/README.md"),
-    embedded("src/gzip/README.md"),
-    embedded("src/json/README.md"),
+    embedded("src/compress/deflate/README.md"),
+    embedded("src/compress/gzip/README.md"),
+    embedded("src/encoding/json/README.md"),
     embedded("src/platform/README.md"),
     embedded("src/regex/README.md"),
     embedded("src/unicode/README.md"),
-    embedded("src/utf8/README.md"),
-    embedded("src/zlib/README.md"),
-    embedded("src/zstd/README.md"),
+    embedded("src/unicode/utf8/README.md"),
+    embedded("src/compress/zlib/README.md"),
+    embedded("src/compress/zstd/README.md"),
 };
 
 /// The root of the module `stdx`, which names each module that a program imports through it.
@@ -149,12 +149,13 @@ fn next_import(text: []const u8) ?struct { name: []const u8, rest: []const u8 } 
     return .{ .name = text[start .. start + len], .rest = text[start + len ..] };
 }
 
-/// True when `module_readmes` holds the README of the folder `src/<module>`.
+/// True when `module_readmes` holds the README of the folder of `module`, which is `src/<module>`
+/// or `src/<category>/<module>` (decision 6 as amended).
 fn has_readme(module: []const u8) bool {
     var buffer: [path_len_max]u8 = undefined;
-    const path = std.fmt.bufPrint(&buffer, "src/{s}/README.md", .{module}) catch return false;
+    const ending = std.fmt.bufPrint(&buffer, "/{s}/README.md", .{module}) catch return false;
     for (module_readmes) |module_readme| {
-        if (std.mem.eql(u8, module_readme.name, path)) return true;
+        if (std.mem.endsWith(u8, module_readme.name, ending)) return true;
     }
     return false;
 }
@@ -187,7 +188,7 @@ test "each module that the module stdx names has a README in its folder" {
         if (std.mem.eql(u8, import.name, zig_standard_library)) continue;
         modules += 1;
         if (!has_readme(import.name)) {
-            std.debug.print("src/{s}/ holds no README that this check reads\n", .{import.name});
+            std.debug.print("the folder of {s} holds no README that this check reads\n", .{import.name});
             return error.ModuleHasNoReadme;
         }
     }

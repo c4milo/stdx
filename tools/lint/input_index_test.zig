@@ -27,7 +27,7 @@ const length_fixture: [:0]const u8 =
 ;
 
 test "input-index passes literal indexes, lengths, and values no reader produced" {
-    try expect_findings("src/deflate/stored.zig",
+    try expect_findings("src/compress/deflate/stored.zig",
         \\pub fn copy_stored(reader: *codec.Reader, output: *Writer, window: []u8) !void {
         \\    const octets = try reader.take(4);
         \\    var value: u32 = octets[0];
@@ -50,11 +50,11 @@ test "input-index passes literal indexes, lengths, and values no reader produced
 }
 
 test "input-index flags a length a Reader parameter produced, at a slice end" {
-    try expect_findings("src/deflate/stored.zig", length_fixture, &.{message("len")});
+    try expect_findings("src/compress/deflate/stored.zig", length_fixture, &.{message("len")});
 }
 
 test "input-index flags an index, a slice start and a sentinel from a BitReader" {
-    try expect_findings("src/deflate/huffman.zig",
+    try expect_findings("src/compress/deflate/huffman.zig",
         \\pub fn decode(bits: *BitReader, table: [:0]u16) !u16 {
         \\    const code = bits.peek(9);
         \\    _ = table[code];
@@ -66,7 +66,7 @@ test "input-index flags an index, a slice start and a sentinel from a BitReader"
 }
 
 test "input-index follows a local reader, an assignment and each kind of capture" {
-    try expect_findings("src/gzip/header.zig",
+    try expect_findings("src/compress/gzip/header.zig",
         \\pub fn parse(input: []const u8, table: []const u8) !void {
         \\    var reader = Reader.init(input);
         \\    var total: usize = 0;
@@ -95,7 +95,7 @@ test "input-index follows a local reader, an assignment and each kind of capture
 }
 
 test "input-index reads each function, a nested one too, with only its own names" {
-    try expect_findings("src/deflate/stored.zig",
+    try expect_findings("src/compress/deflate/stored.zig",
         \\pub fn parse(reader: *Reader, table: []u8) !u16 {
         \\    const len = try reader.take_int(u16, .little);
         \\    const Local = struct {
@@ -114,9 +114,9 @@ test "input-index reads each function, a nested one too, with only its own names
 }
 
 test "input-index reads src/ but not the reader, the bit reader, the writer, the fast paths or the tools" {
-    try expect_findings("src/zstd/frame.zig", length_fixture, &.{message("len")});
-    try expect_findings("src/deflate/decoder/decoder.zig", length_fixture, &.{message("len")});
-    try expect_findings("src/deflate/fast/fast.zig", length_fixture, &.{});
+    try expect_findings("src/compress/zstd/frame.zig", length_fixture, &.{message("len")});
+    try expect_findings("src/compress/deflate/decoder/decoder.zig", length_fixture, &.{message("len")});
+    try expect_findings("src/compress/deflate/fast/fast.zig", length_fixture, &.{});
     try expect_findings("src/codec/split.zig", length_fixture, &.{message("len")});
     try expect_findings("src/codec/reader.zig", length_fixture, &.{});
     try expect_findings("src/codec/bit_reader.zig", length_fixture, &.{});

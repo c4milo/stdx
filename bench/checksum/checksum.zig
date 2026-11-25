@@ -24,7 +24,7 @@ const oracle = @import("oracle");
 const baselines = @import("baselines");
 const codec = @import("codec");
 const platform = @import("platform");
-const checksum = @import("checksum");
+const checksum = @import("hash");
 
 /// The sizes timed, in octets.
 const sizes = [_]usize{ 64, 1024, 16 * 1024, 1024 * 1024 };

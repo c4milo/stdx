@@ -21,14 +21,16 @@
 const std = @import("std");
 const variants = @import("variants.zig");
 
-/// Each module's root is the file named after its directory (`src/gzip/gzip.zig`), which lists the
-/// module's API as `pub const` declarations and imports every file that has tests.
+/// Each module's root is the file named after its directory (`src/compress/gzip/gzip.zig`), which
+/// lists the module's API as `pub const` declarations and imports every file that has tests. A
+/// module's directory sits under its category's, as `std` groups its own (decision 6 as amended).
 pub const Modules = struct {
     /// The streaming contract every codec shares: the status a call ends with, the counts it
     /// reports, and the checked reader and writer (decision 11). Imports `platform` alone.
     codec: *std.Build.Module,
     /// CRC-32 (RFC 1952 §8), Adler-32 (RFC 1950 §9) and XXH64 (RFC 8878 §3.1.1). Imports nothing.
-    checksum: *std.Build.Module,
+    /// It is also exported as `checksum`, its name before the move (decision 6 as amended).
+    hash: *std.Build.Module,
     /// The raw DEFLATE format of RFC 1951.
     deflate: *std.Build.Module,
     /// The zlib container of RFC 1950 around a DEFLATE stream, with its Adler-32. HTTP's
@@ -75,52 +77,55 @@ pub const Settings = struct {
 
 pub fn add(b: *std.Build, settings: Settings) Modules {
     // `CpuFeatures`, which every codec's `init` takes (decision 21 as amended on 2026-11-24).
-    const platform = library(b, "platform", settings);
+    const platform = library(b, "platform", "platform", settings);
 
-    const codec = library(b, "codec", settings);
+    const codec = library(b, "codec", "codec", settings);
     // The type `IoReader.init` and `IoWriter.init` take and hand to their codec (decision 56).
     codec.addImport("platform", platform);
-    const checksum = library(b, "checksum", settings);
-    variants.add_levels(b, checksum, "checksum", settings.target, settings.optimize, &variants.checksum_levels);
+    const hash = library(b, "hash", "hash", settings);
+    variants.add_levels(b, hash, "hash", settings.target, settings.optimize, &variants.checksum_levels);
+    // The name the module had before the move, which a dependent may still import (decision 6
+    // as amended): a later release removes it.
+    if (settings.visibility == .exported) b.modules.put(b.graph.arena, "checksum", hash) catch @panic("OOM");
 
-    const deflate = library(b, "deflate", settings);
+    const deflate = library(b, "deflate", "compress/deflate", settings);
     deflate.addImport("codec", codec);
     deflate.addImport("platform", platform);
 
-    const zlib = library(b, "zlib", settings);
+    const zlib = library(b, "zlib", "compress/zlib", settings);
     zlib.addImport("codec", codec);
-    zlib.addImport("checksum", checksum);
+    zlib.addImport("hash", hash);
     zlib.addImport("deflate", deflate);
     zlib.addImport("platform", platform);
 
-    const gzip = library(b, "gzip", settings);
+    const gzip = library(b, "gzip", "compress/gzip", settings);
     gzip.addImport("codec", codec);
-    gzip.addImport("checksum", checksum);
+    gzip.addImport("hash", hash);
     gzip.addImport("deflate", deflate);
     gzip.addImport("platform", platform);
 
-    const zstd = library(b, "zstd", settings);
+    const zstd = library(b, "zstd", "compress/zstd", settings);
     zstd.addImport("codec", codec);
-    zstd.addImport("checksum", checksum);
+    zstd.addImport("hash", hash);
     zstd.addImport("platform", platform);
 
-    const brotli = library(b, "brotli", settings);
+    const brotli = library(b, "brotli", "compress/brotli", settings);
     brotli.addImport("codec", codec);
     brotli.addImport("platform", platform);
 
-    const base64 = library(b, "base64", settings);
+    const base64 = library(b, "base64", "encoding/base64", settings);
     base64.addImport("codec", codec);
     base64.addImport("platform", platform);
     // Decision 68's AVX2 kernels: the nibble tables through vpshufb, and the encoder's shuffles.
-    variants.add_levels(b, base64, "base64", settings.target, settings.optimize, &variants.base64_levels);
+    variants.add_levels(b, base64, "encoding/base64", settings.target, settings.optimize, &variants.base64_levels);
 
-    const utf8 = library(b, "utf8", settings);
+    const utf8 = library(b, "utf8", "unicode/utf8", settings);
 
-    const unicode = library(b, "unicode", settings);
+    const unicode = library(b, "unicode", "unicode", settings);
     // `unicode.utf8`, so a program finds UTF-8 under `stdx.unicode` (decision 6 as amended).
     unicode.addImport("utf8", utf8);
 
-    const json = library(b, "json", settings);
+    const json = library(b, "json", "encoding/json", settings);
     json.addImport("codec", codec);
     // `TextWriter.base64`'s letters (decision 73).
     json.addImport("base64", base64);
@@ -128,9 +133,9 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     json.addImport("utf8", utf8);
     json.addImport("platform", platform);
     // Claim J7's kernels: AVX2's and AVX-512's widths of the scans (decision 30).
-    variants.add_levels(b, json, "json", settings.target, settings.optimize, &variants.json_levels);
+    variants.add_levels(b, json, "encoding/json", settings.target, settings.optimize, &variants.json_levels);
 
-    const regex = library(b, "regex", settings);
+    const regex = library(b, "regex", "regex", settings);
     // The checked reader a pattern is read through, and the classes of a refusal (decision 11).
     regex.addImport("codec", codec);
     // A pattern's characters, and the octets a program takes for each (decision 86).
@@ -142,9 +147,9 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     // The root a program imports, which names each module under its category (decision 6 as
     // amended). No codec imports it.
-    const stdx = library(b, "stdx", settings);
+    const stdx = library(b, "stdx", "stdx", settings);
     stdx.addImport("codec", codec);
-    stdx.addImport("checksum", checksum);
+    stdx.addImport("hash", hash);
     stdx.addImport("deflate", deflate);
     stdx.addImport("zlib", zlib);
     stdx.addImport("gzip", gzip);
@@ -159,7 +164,7 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 
     return .{
         .codec = codec,
-        .checksum = checksum,
+        .hash = hash,
         .deflate = deflate,
         .zlib = zlib,
         .gzip = gzip,
@@ -176,10 +181,11 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
 }
 
 /// A library module, exported by name so a dependent can import it (decision 6), or private to
-/// this build.
-fn library(b: *std.Build, comptime name: []const u8, settings: Settings) *std.Build.Module {
+/// this build. `directory` is its folder under `src/`, which its category's folder holds.
+fn library(b: *std.Build, comptime name: []const u8, comptime directory: []const u8, settings: Settings) *std.Build.Module {
+    comptime std.debug.assert(std.mem.endsWith(u8, directory, name));
     const options: std.Build.Module.CreateOptions = .{
-        .root_source_file = b.path("src/" ++ name ++ "/" ++ name ++ ".zig"),
+        .root_source_file = b.path("src/" ++ directory ++ "/" ++ name ++ ".zig"),
         .target = settings.target,
         .optimize = settings.optimize,
     };

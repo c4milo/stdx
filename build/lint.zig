@@ -129,7 +129,7 @@ fn add_rules_run(b: *std.Build, rules: *std.Build.Step.Compile) *std.Build.Step.
 
 fn add_canary_tree(b: *std.Build) std.Build.LazyPath {
     const tree = b.addWriteFiles();
-    _ = tree.add("src/deflate/canary.zig", canary_source);
+    _ = tree.add("src/compress/deflate/canary.zig", canary_source);
     _ = tree.add("docs/canary.md", canary_markdown);
     _ = tree.add("build/modules.zig", canary_modules);
     return tree.getDirectory();

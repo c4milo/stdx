@@ -117,14 +117,14 @@ const failing_fixture: [:0]const u8 =
 test "unbounded-loop passes loops a named limit bounds" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/header.zig", passing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/header.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
 test "unbounded-loop flags an input length read and a while (true) with no break" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/header.zig", failing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/header.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
         "the condition reads reader.remaining against a literal and the loop names no limit (invariant 9)",
         "while (true) has no break; nothing ends the loop (invariant 9)",
@@ -136,7 +136,7 @@ test "unbounded-loop flags an input length read and a while (true) with no break
 test "unbounded-loop flags a while (true) whose break rests on no named limit" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/zstd/frame.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/zstd/frame.zig",
         \\pub fn skip(self: *Decoder, reader: *Reader) void {
         \\    while (true) {
         \\        const frame = reader.next() orelse break;
@@ -152,7 +152,7 @@ test "unbounded-loop flags a while (true) whose break rests on no named limit" {
 test "unbounded-loop flags a length field compared to a literal" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/brotli/meta_block.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/brotli/meta_block.zig",
         \\pub fn decode(self: *Decoder, chunk: []const u8) void {
         \\    while (chunk.len != 0) {
         \\        chunk = self.command(chunk);
@@ -188,7 +188,7 @@ test "unbounded-loop leaves every other condition alone" {
 test "unbounded-loop accepts a constants.zig value whose name does not end in _max" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig",
         \\pub fn fill(self: *Decoder, reader: *Reader) void {
         \\    while (true) {
         \\        if (self.depth == constants.table_bits) break;
@@ -202,7 +202,7 @@ test "unbounded-loop accepts a constants.zig value whose name does not end in _m
 test "unbounded-loop accepts a _max name reached without the constants root" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/deflate.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/deflate.zig",
         \\pub fn drain(self: *Decoder, reader: *Reader) void {
         \\    var read: u32 = 0;
         \\    while (reader.remaining() > 0) : (read = @min(read + 1, symbols_max)) {
@@ -217,7 +217,7 @@ test "unbounded-loop reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(config.scope.applies("src/deflate/deflate.zig"));
+    try testing.expect(config.scope.applies("src/compress/deflate/deflate.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));
     try harness.expect_messages(try findings_of(arena, "tools/lint/main.zig", failing_fixture), &.{});
@@ -226,7 +226,7 @@ test "unbounded-loop reads src/ alone" {
 test "unbounded-loop reads every length reader name on its list" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/header.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/header.zig",
         \\pub fn drain(self: *Header, reader: *Reader, chunk: []const u8) void {
         \\    while (reader.remaining() > 0) self.step();
         \\    while (chunk.len != 0) self.step();

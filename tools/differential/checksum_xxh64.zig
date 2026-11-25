@@ -13,7 +13,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const oracle = @import("oracle");
 const codec = @import("codec");
-const checksum = @import("checksum");
+const checksum = @import("hash");
 
 /// The XXH64 seed of a Zstandard frame's Content_Checksum (RFC 8878 §3.1.1).
 const zstd_seed = 0;

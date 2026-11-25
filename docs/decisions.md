@@ -122,6 +122,19 @@ last part lists what still waits on a ruling.
      program the objects of the other categories, which the same amendment made small, and asks
      a program for one import for each category.
 
+   Amended by the owner on 2026-11-25: JSON and base 64 move under a category of their own,
+   `stdx.encoding`, which will hold more encodings beside them, as Go's `encoding` does. The
+   folders follow the categories (https://github.com/c4milo/stdx/issues/41):
+   `src/compress/<codec>/`, `src/encoding/json/`, `src/encoding/base64/`, `src/hash/` and
+   `src/unicode/utf8/`. The module `checksum` is `hash` now, as `stdx.hash` names it.
+   - Every module keeps its own name as an export, `checksum` too, so a dependent that imports
+     one keeps working. `stdx.json` and `stdx.base64` are gone from the module `stdx`, which no
+     dependent imports yet.
+   - The `relative-import` rule reads each category's folder as a folder of modules, so a gzip
+     file that reaches into `deflate` by path is still a finding.
+   - The alternative refused: `stdx.json` and `stdx.base64` at the top, as `std.json` and
+     `std.base64` are. It matches `std`, and leaves a growing list of encodings at the top.
+
 ## Tooling and checks
 
 7. **stdx's developer tooling comes from pepegrillo, a lazy Zig package pinned by hash.** Ruled by
@@ -916,7 +929,7 @@ last part lists what still waits on a ruling.
       runs with `@setRuntimeSafety(false)`: no bounds, overflow or `unreachable` check, the loop's
       own assertions among them. The margins and the per-write checks of this entry and decision 32
       stay, as does the checked path, which every refusal still reaches.
-    - The claim `unchecked_loop` of `src/brotli/claims.zig` holds it, on by default. Off, the checks
+    - The claim `unchecked_loop` of `src/compress/brotli/claims.zig` holds it, on by default. Off, the checks
       return: bench-brotli prices them in each run, and the tests and the fuzzer compare both
       settings with the checked path.
     - Decision 24's measures, once ruled, cover this loop as they cover the assembly loops.
@@ -1889,7 +1902,7 @@ last part lists what still waits on a ruling.
 
 28. **The `json` module's state machines, proved in Lean.** Ruled by the owner on 2026-09-28, who
     asked for the proofs design §10 had left open after entry 27. The UTF-8 machine of
-    `src/json/utf8.zig` and the number machine of `src/json/number.zig` each have a twin in
+    `src/encoding/json/utf8.zig` and the number machine of `src/encoding/json/number.zig` each have a twin in
     `spec/lean/`, a Lake package built with Lean's core alone, and each twin is proved against its
     RFC's grammar, transcribed one ABNF rule to one definition:
     - `Utf8.accepts_iff`: from the start, the UTF-8 machine ends between characters exactly on the
@@ -1905,8 +1918,8 @@ last part lists what still waits on a ruling.
       refuses, no number goes on at all.
 
     **What ties a proof to the Zig code.** `spec/lean/Vectors.lean` writes every step of each proved
-    machine, from every state and for every octet, into `src/json/utf8_vectors.txt` and
-    `src/json/number_vectors.txt`. A unit test of each Zig machine replays every line: the same
+    machine, from every state and for every octet, into `src/encoding/json/utf8_vectors.txt` and
+    `src/encoding/json/number_vectors.txt`. A unit test of each Zig machine replays every line: the same
     verdict, and the same state after it, and for UTF-8 an unchanged state after a refused octet. The
     number machine has nine states, and the UTF-8 machine reaches eight from its start, so the
     replay covers every step either Zig machine can take, and what is proved of the Lean machines
@@ -1921,9 +1934,9 @@ last part lists what still waits on a ruling.
       GitHub records for the release, and `tools/ci.sh` builds the proofs where lake is on the path.
 
     **As entry 86 moved it, 2026-11-21.** The UTF-8 machine is `utf8.Validator` in
-    `src/utf8/validator.zig`, which `json` and `regex` both import. Its twin is
+    `src/unicode/utf8/validator.zig`, which `json` and `regex` both import. Its twin is
     `spec/lean/Stdx/Utf8.lean`, its theorems are `Stdx.Utf8.accepts_iff` and `refuses_iff`, and its
-    vectors are `src/utf8/utf8_vectors.txt`. The machine, the proofs and the steps are the same.
+    vectors are `src/unicode/utf8/utf8_vectors.txt`. The machine, the proofs and the steps are the same.
 
     The alternatives refused:
     - A Zig tool that writes the Zig machines' tables into Lean, with the proofs about those tables.
@@ -2649,7 +2662,7 @@ last part lists what still waits on a ruling.
       `src/` refuses `sysctlbyname` as before (invariant 2).
     - No module imports `platform`, and `platform` imports nothing (invariant 14). The module-graph
       rule's table gives no module an edge to it, and `zig build graph-check` requires an import of
-      it from `src/deflate/` to fail.
+      it from `src/compress/deflate/` to fail.
 
     **It only reads.** `platform` changes no CPU state. It offers no call that sets PSTATE.DIT for
     the calling thread (`msr dit, #1`). The owner revisits this only if [chapulin issue
@@ -2807,7 +2820,7 @@ last part lists what still waits on a ruling.
       reads neither.
     - `getauxval` joins `sysctlbyname` as a call that `src/platform/` alone may make (entry 21 as
       amended).
-    - `zig build graph-check` compiles `@import("platform")` from `src/deflate/` as a second
+    - `zig build graph-check` compiles `@import("platform")` from `src/compress/deflate/` as a second
       control, which must compile. It no longer requires that compile to fail.
     - "Its own CPUID" above: `platform` now holds two CPUID functions, the probe's in
       `platform_x86.zig` and the detection's in `platform_cpu_features.zig`. The move kept each
@@ -4734,7 +4747,7 @@ last part lists what still waits on a ruling.
 
     **What the runners measured.** Two pairs on each hosted runner held the series and its base in
     one job (runs 42850737740 and 42850753063). The base was the series' programs with main's
-    `src/json`. The N2 ran both jobs, and the x86-64 jobs drew an AMD EPYC 9V74 and an EPYC 7763.
+    `src/encoding/json`. The N2 ran both jobs, and the x86-64 jobs drew an AMD EPYC 9V74 and an EPYC 7763.
     Each figure below is the series' speed over the base's.
     - `TextWriter`'s methods: 29 rows faster in both jobs on each runner, and none slower. CLDR's
       texts ran at 2.84 and 2.83 on the N2, and at 2.44 and 2.54 on x86-64. qlog's records ran at

@@ -1,7 +1,7 @@
 /-!
 # A number's text, RFC 8259 §6
 
-The grammar of a number, transcribed from RFC 8259 §6, and the machine `src/json/number.zig`'s
+The grammar of a number, transcribed from RFC 8259 §6, and the machine `src/encoding/json/number.zig`'s
 `Number` runs, one octet at a time. The theorems hold the machine to the grammar (decision 28):
 
 - `accepts_iff`: from the start, the machine takes every octet and ends in a whole number exactly
@@ -11,7 +11,7 @@ The grammar of a number, transcribed from RFC 8259 §6, and the machine `src/jso
   number at the first octet the machine does not take.
 
 `Vectors.lean` writes every verdict of the machine, from every state, into
-`src/json/number_vectors.txt`, which a Zig test replays against `Number.accept`.
+`src/encoding/json/number_vectors.txt`, which a Zig test replays against `Number.accept`.
 -/
 namespace Stdx.Json.Number
 

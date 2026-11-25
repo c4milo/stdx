@@ -5,7 +5,7 @@
 //! what a mutation is measured against.
 //!
 //! `zig build graph-check` is step 0's own check: it compiles sources that import a wrapper or
-//! another codec from inside `src/deflate/` and requires each compile to fail, which shows the
+//! another codec from inside `src/compress/deflate/` and requires each compile to fail, which shows the
 //! module graph of design §3 is enforced by the build rather than by review.
 //!
 //! `zig build lint-commits` checks the commit messages this branch adds and `zig build hooks`
@@ -108,7 +108,7 @@ pub fn build(b: *std.Build) void {
 
     const unit_test_modules = [_]struct { name: []const u8, module: *std.Build.Module }{
         .{ .name = "codec", .module = graph.codec },
-        .{ .name = "checksum", .module = graph.checksum },
+        .{ .name = "hash", .module = graph.hash },
         .{ .name = "deflate", .module = graph.deflate },
         .{ .name = "zlib", .module = graph.zlib },
         .{ .name = "gzip", .module = graph.gzip },
@@ -248,7 +248,7 @@ fn add_graph_check_step(b: *std.Build) *std.Build.Step {
     // Re-run the check when the graph it checks changes, not only when the tool does.
     check_run.addFileInput(b.path("build/modules.zig"));
 
-    const step = b.step("graph-check", "Require that src/deflate/ cannot import a wrapper or codec");
+    const step = b.step("graph-check", "Require that src/compress/deflate/ cannot import a wrapper or codec");
     step.dependOn(&check_run.step);
     return step;
 }

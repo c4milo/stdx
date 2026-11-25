@@ -55,20 +55,20 @@ const failing_fixture: [:0]const u8 = fixture_line ** (max_lines + 1);
 test "file-length passes a file at the limit" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try harness.run(arena_state.allocator(), Rule, "src/deflate/deflate.zig", passing_fixture);
+    const findings = try harness.run(arena_state.allocator(), Rule, "src/compress/deflate/deflate.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
 test "file-length flags one line over the limit, at that line" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try harness.run(arena_state.allocator(), Rule, "src/deflate/deflate.zig", failing_fixture);
+    const findings = try harness.run(arena_state.allocator(), Rule, "src/compress/deflate/deflate.zig", failing_fixture);
     try harness.expect_messages(findings, &.{"501 lines, over the 500-line limit; split the file"});
     try testing.expectEqual(max_lines + 1, findings[0].line);
 }
 
 test "file-length reads .zig and .sh under src, tools, build and bench" {
-    try testing.expect(config.scope.applies("src/deflate/deflate.zig"));
+    try testing.expect(config.scope.applies("src/compress/deflate/deflate.zig"));
     try testing.expect(config.scope.applies("./tools/lint/main.zig"));
     try testing.expect(config.scope.applies("build/modules.zig"));
     try testing.expect(config.scope.applies("tools/corpus.sh"));

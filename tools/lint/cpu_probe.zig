@@ -182,7 +182,7 @@ const reading_fixture: [:0]const u8 =
 test "cpu-probe flags the probe and the detection, as written and through a name" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/decoder.zig", reading_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/decoder.zig", reading_fixture);
     try harness.expect_messages(findings, &.{
         "reference to platform.probe: " ++ reason,
         "reference to platform.probe: " ++ reason,
@@ -211,7 +211,7 @@ const passing_fixture: [:0]const u8 =
 test "cpu-probe passes a codec that takes its features, and its own probe" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/deflate/encoder.zig", passing_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/encoder.zig", passing_fixture);
     try harness.expect_messages(findings, &.{});
 }
 
@@ -234,7 +234,7 @@ const test_block_fixture: [:0]const u8 =
 test "cpu-probe leaves out a test block, and keeps the line of the code below it" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/brotli/decoder/lengths.zig", test_block_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/brotli/decoder/lengths.zig", test_block_fixture);
     try harness.expect_messages(findings, &.{"reference to platform.CpuFeatures.detect: " ++ reason});
     try testing.expectEqual(11, findings[0].line);
     try testing.expectEqual(12, findings[0].column);
@@ -276,7 +276,7 @@ const import_fixture: [:0]const u8 =
 test "cpu-probe requires each import of platform to be named platform" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/decoder.zig", import_fixture);
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/decoder.zig", import_fixture);
     try harness.expect_messages(findings, &.{ import_message, import_message, import_message });
     try testing.expectEqual(5, findings[0].line);
     try testing.expectEqual(13, findings[0].column);
@@ -291,16 +291,16 @@ test "cpu-probe reads src/ but platform and the test files, and nothing outside 
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    for ([_][]const u8{ "src/json/json.zig", "./src/codec/io_reader.zig", "src/regex/literal.zig" }) |path| {
+    for ([_][]const u8{ "src/encoding/json/json.zig", "./src/codec/io_reader.zig", "src/regex/literal.zig" }) |path| {
         try testing.expect(config.scope.applies(path));
         try testing.expectEqual(5, (try findings_of(arena, path, reading_fixture)).len);
     }
     const left_out = [_][]const u8{
         "src/platform/platform.zig",
         "src/platform/platform_cpu_features.zig",
-        "src/deflate/decoder/decoder_test.zig",
-        "src/zstd/decoder/decoder_fuzz_test.zig",
-        "src/json/decoder/decoder_test_support.zig",
+        "src/compress/deflate/decoder/decoder_test.zig",
+        "src/compress/zstd/decoder/decoder_fuzz_test.zig",
+        "src/encoding/json/decoder/decoder_test_support.zig",
         "tools/differential/checksum.zig",
         "bench/deflate/deflate.zig",
     };

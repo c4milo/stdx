@@ -9,12 +9,26 @@ charts.py calls it after it draws the charts, and `--check` fails where a page d
 """
 import re
 
-# The folders of src/ whose README shows a chart.
-CHART_MODULES = ("base64", "brotli", "checksum", "deflate", "json", "regex", "zstd")
+# The folders of src/ whose README shows a chart, each under its category's folder (decision 6).
+CHART_MODULES = (
+    "encoding/base64",
+    "compress/brotli",
+    "hash",
+    "compress/deflate",
+    "encoding/json",
+    "regex",
+    "compress/zstd",
+)
+
+
+def images_from(module):
+    """The path from the README of `src/<module>/` to docs/images/."""
+    return "../" * (module.count("/") + 2) + "docs/images/"
+
 
 # The pages charts.py keeps, each with the path from the page to docs/images/.
 PAGES = (("README.md", "docs/images/"), ("docs/benchmarks.md", "images/")) + tuple(
-    (f"src/{module}/README.md", "../../docs/images/") for module in CHART_MODULES
+    (f"src/{module}/README.md", images_from(module)) for module in CHART_MODULES
 )
 
 # The page that holds the claims.

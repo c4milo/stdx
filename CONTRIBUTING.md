@@ -56,7 +56,7 @@ Some checks need more:
   loop is bounded.
 - **Every RFC rule is cited.** A check that exists because an RFC requires it carries the RFC and
   the section in a comment on the line that makes it. Read the copies in
-  [`docs/rfcs/`](docs/rfcs/). Other implementations are test oracles and benchmark baselines.
+  [`docs/rfcs/`](docs/rfcs). Other implementations are test oracles and benchmark baselines.
   Their source may be read for its methods, and none of it is copied (decision 67).
 - **Hostile input fails closed.** A corrupt stream returns an error value, with one value for
   each cause. Assertions are for programmer error, at contract points, and stay on in production.

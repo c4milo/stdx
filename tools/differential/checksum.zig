@@ -28,7 +28,7 @@ const oracle = @import("oracle");
 const corpus = @import("corpus");
 const codec = @import("codec");
 const platform = @import("platform");
-const checksum = @import("checksum");
+const checksum = @import("hash");
 const host_features = @import("host_features");
 const checksum_xxh64 = @import("checksum_xxh64.zig");
 

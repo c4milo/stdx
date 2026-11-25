@@ -143,7 +143,7 @@ pub fn add(b: *std.Build, options: Options) void {
     checksum_module.addImport("corpus", corpus_names);
     checksum_module.addImport("codec", graph.codec);
     checksum_module.addImport("platform", graph.platform);
-    checksum_module.addImport("checksum", graph.checksum);
+    checksum_module.addImport("hash", graph.hash);
     checksum_module.addOptions("host_features", host_features(b));
     const checksum_check = b.addExecutable(.{ .name = "differential_checksum", .root_module = checksum_module });
     const checksum_run = b.addRunArtifact(checksum_check);
@@ -281,7 +281,7 @@ pub fn add(b: *std.Build, options: Options) void {
     bench_checksum_module.addImport("baselines", baselines_module);
     bench_checksum_module.addImport("codec", graph.codec);
     bench_checksum_module.addImport("platform", graph.platform);
-    bench_checksum_module.addImport("checksum", graph.checksum);
+    bench_checksum_module.addImport("hash", graph.hash);
     const bench_checksum = b.addExecutable(.{ .name = "bench_checksum", .root_module = bench_checksum_module });
     b.installArtifact(bench_checksum);
     const bench_checksum_run = b.addRunArtifact(bench_checksum);
@@ -348,7 +348,7 @@ fn deflate_bench_module(b: *std.Build, inputs: BenchInputs, graph: modules.Modul
     });
     module.addImport("oracle", inputs.oracle);
     module.addImport("timing", timing_module(b, graph));
-    inline for (.{ "codec", "platform", "deflate", "gzip", "checksum" }) |name| module.addImport(name, @field(graph, name));
+    inline for (.{ "codec", "platform", "deflate", "gzip", "hash" }) |name| module.addImport(name, @field(graph, name));
     module.addOptions("bench_options", bench_options(b, mode));
     return module;
 }

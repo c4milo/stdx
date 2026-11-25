@@ -2,7 +2,7 @@
 //! with that level's features, and linked into its library module. Zig 0.16 cannot compile one
 //! function for more CPU features than its module's target, so a level is an object of its own.
 //!
-//! A module's variants root is `src/<module>/variants.zig`, which reads its level from the
+//! A module's variants root is `src/<directory>/variants.zig`, which reads its level from the
 //! `variant_level` option and exports that level's kernels alone. A caller's `platform.CpuFeatures`
 //! decides at run time which kernels the module calls.
 const std = @import("std");
@@ -63,20 +63,20 @@ fn level_target(b: *std.Build, target: std.Build.ResolvedTarget, level: Level) s
     return b.resolveTargetQuery(query);
 }
 
-/// Compiles `src/<name>/variants.zig` once for each level of `wanted` that the target's
+/// Compiles `src/<directory>/variants.zig` once for each level of `wanted` that the target's
 /// architecture has, and links each object into `module`: a module whose kernels need few levels
 /// builds no empty object for the others.
 pub fn add_levels(
     b: *std.Build,
     module: *std.Build.Module,
-    comptime name: []const u8,
+    comptime directory: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     wanted: []const Level,
 ) void {
     for (levels_of(target.result.cpu.arch)) |level| {
         if (std.mem.indexOfScalar(Level, wanted, level) == null) continue;
-        module.addObject(object(b, name, target, optimize, level));
+        module.addObject(object(b, directory, target, optimize, level));
     }
 }
 
@@ -91,18 +91,18 @@ fn add_imports(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    if (!comptime (std.mem.eql(u8, name, "json") or std.mem.eql(u8, name, "regex"))) return;
+    if (!comptime (std.mem.endsWith(u8, name, "json") or std.mem.eql(u8, name, "regex"))) return;
     root.addImport("utf8", b.createModule(.{
-        .root_source_file = b.path("src/utf8/utf8.zig"),
+        .root_source_file = b.path("src/unicode/utf8/utf8.zig"),
         .target = target,
         .optimize = optimize,
     }));
 }
 
-/// The object of one level: `src/<name>/variants.zig` compiled for the level's target.
+/// The object of one level: `src/<directory>/variants.zig` compiled for the level's target.
 pub fn object(
     b: *std.Build,
-    comptime name: []const u8,
+    comptime directory: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     level: Level,
@@ -110,16 +110,16 @@ pub fn object(
     const options = b.addOptions();
     options.addOption(Level, "level", level);
     const root = b.createModule(.{
-        .root_source_file = b.path("src/" ++ name ++ "/variants.zig"),
+        .root_source_file = b.path("src/" ++ directory ++ "/variants.zig"),
         .target = level_target(b, target, level),
         .optimize = optimize,
     });
     root.addOptions("variant_level", options);
-    add_imports(b, root, name, level_target(b, target, level), optimize);
+    add_imports(b, root, directory, level_target(b, target, level), optimize);
     // LLVM, in every mode: Zig's own x86-64 backend, which Debug builds use on Linux, cannot
     // place a 512-bit operand of inline assembly.
     return b.addObject(.{
-        .name = b.fmt("{s}_{t}", .{ name, level }),
+        .name = b.fmt("{s}_{t}", .{ std.fs.path.basename(directory), level }),
         .root_module = root,
         .use_llvm = true,
     });

@@ -14,8 +14,8 @@ pub fn add(b: *std.Build, tool_module: *std.Build.Module) *std.Build.Step {
     if (b.args) |args| run.addArgs(args);
     for (architectures) |arch| {
         const target = b.resolveTargetQuery(.{ .cpu_arch = arch, .os_tag = .linux });
-        add_levels(b, run, "checksum", target, &variants.checksum_levels);
-        add_levels(b, run, "json", target, &variants.json_levels);
+        add_levels(b, run, "hash", target, &variants.checksum_levels);
+        add_levels(b, run, "encoding/json", target, &variants.json_levels);
     }
     const step = b.step(
         "checkfree-check",
@@ -30,12 +30,12 @@ pub fn add(b: *std.Build, tool_module: *std.Build.Module) *std.Build.Step {
 fn add_levels(
     b: *std.Build,
     run: *std.Build.Step.Run,
-    comptime name: []const u8,
+    comptime directory: []const u8,
     target: std.Build.ResolvedTarget,
     wanted: []const variants.Level,
 ) void {
     for (variants.levels_of(target.result.cpu.arch)) |level| {
         if (std.mem.indexOfScalar(variants.Level, wanted, level) == null) continue;
-        run.addFileArg(variants.object(b, name, target, .ReleaseSafe, level).getEmittedAsm());
+        run.addFileArg(variants.object(b, directory, target, .ReleaseSafe, level).getEmittedAsm());
     }
 }

@@ -51,7 +51,7 @@ fn findings_of(
 test "denied-words flags every consumer's name, in any case" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/gzip.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/gzip.zig",
         \\// Colibri's h11 decodes gzip with this.
         \\// STOMPY, chapulin and cocuyo too.
     );
@@ -68,7 +68,7 @@ test "denied-words flags every consumer's name, in any case" {
 test "denied-words passes a name that holds a denied word inside a longer one" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try findings_of(arena_state.allocator(), "src/gzip/gzip.zig",
+    const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/gzip.zig",
         \\const h110 = 110;
         \\const colibri_window = 1;
         \\// HTTP/1.1 transfer codings.
@@ -77,7 +77,7 @@ test "denied-words passes a name that holds a denied word inside a longer one" {
 }
 
 test "denied-words reads every .zig file but its own list" {
-    try testing.expect(config.scope.applies("src/gzip/gzip.zig"));
+    try testing.expect(config.scope.applies("src/compress/gzip/gzip.zig"));
     try testing.expect(config.scope.applies("build/modules.zig"));
     try testing.expect(config.scope.applies("build.zig"));
     try testing.expect(config.scope.applies("tools/graph_check.zig"));

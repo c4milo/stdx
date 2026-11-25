@@ -1,6 +1,6 @@
 //! stdx's Lean proofs (decisions 28 and 86), built by pepegrillo's lake runner. The project is
 //! spec/lean/. After the proofs build, the vector files the proved definitions give are checked
-//! against the committed ones under src/utf8/, src/json/ and src/regex/, which the Zig unit tests
+//! against the committed ones under src/unicode/utf8/, src/encoding/json/ and src/regex/, which the Zig unit tests
 //! replay against the Zig code.
 //!
 //! Run: `zig build lean`, or `zig build lean -- write` to rewrite the vector files.

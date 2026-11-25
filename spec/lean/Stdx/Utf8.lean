@@ -2,7 +2,7 @@
 # UTF-8, RFC 3629 §4
 
 The syntax of a UTF-8 octet sequence, transcribed from RFC 3629 §4, and the machine that
-`src/utf8/validator.zig`'s `Validator` runs, one octet at a time. Two theorems hold the machine to
+`src/unicode/utf8/validator.zig`'s `Validator` runs, one octet at a time. Two theorems hold the machine to
 the syntax (decision 28). The `json` and `regex` modules both read UTF-8 through it (decision 86):
 
 - `accepts_iff`: from the start, the machine ends between characters exactly on the sequences the
@@ -11,7 +11,7 @@ the syntax (decision 28). The `json` and `regex` modules both read UTF-8 through
   octets up to it, so it refuses at the first octet that rules the text out.
 
 `Vectors.lean` writes every step of the machine, from every state it reaches, into
-`src/utf8/utf8_vectors.txt`, which a Zig test replays against `Validator.accept`.
+`src/unicode/utf8/utf8_vectors.txt`, which a Zig test replays against `Validator.accept`.
 
 Octets are natural numbers; the machine refuses every one above 0xFF, as no rule derives one.
 -/
