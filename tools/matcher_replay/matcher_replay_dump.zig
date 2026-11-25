@@ -12,7 +12,11 @@
 //! A text holds at most `text_len_max` bytes, or for one case in `long_case_share` at most
 //! `long_text_len_max`, with more searches.
 //!
-//! After a program's instructions, a `claim` line holds the literal that a searcher took for the
+//! After a program's instructions, a `slots` line names the slots of its capture groups, two
+//! for each group. The Lean side then writes the groups of each search's match
+//! (matcher_replay_groups.zig).
+//!
+//! After that line, a `claim` line holds the literal that a searcher took for the
 //! program, under the word of the rule it took it by (matcher_replay_claim.zig): `suffix` for
 //! claim R4's first rule, `suffix-wide` for its second rule or its third, and `inner` for claim
 //! R14. The Lean side decides each rule for the literal from the program, and a rule holds for
@@ -136,6 +140,7 @@ pub const Lines = struct {
     pub fn add_case(lines: *Lines, pattern: []const u8, program: *const regex.Program, claim: ?Claim, text: []const u8, lows: []const usize) !void {
         try lines.add_pattern(pattern);
         try lines.add_program(program);
+        try lines.add("slots {d}", .{program.slot_count()});
         if (claim) |taken| try lines.add_claim(taken);
         try lines.add_text(text);
         for (lows) |low| try lines.add("search {d}", .{low});

@@ -12,6 +12,7 @@ import Stdx.Regex.Prefix
 import Stdx.Regex.Count
 import Stdx.Regex.Closure
 import Stdx.Regex.Matcher
+import Stdx.Regex.Captures
 import Stdx.Regex.MatcherPaths
 import Stdx.Regex.MatcherSearch
 import Stdx.Regex.MatcherAnswer

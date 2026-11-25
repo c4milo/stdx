@@ -17,7 +17,10 @@
 //!   claim R4 or claim R14, and the Lean side judged the rule it names: the first searcher
 //!   must hold a literal of claim R4's first rule, and the third searcher, after its long
 //!   text, a literal of any rule (matcher_replay/matcher_replay_claim.zig). A line that
-//!   begins `differs` says a check of the Lean side failed, and fails the replay.
+//!   begins `differs` says a check of the Lean side failed, and fails the replay. A `groups`
+//!   line after a `find` line holds the groups of the search's match: the matcher with a slot
+//!   for each group and each searcher's `captures` must give them
+//!   (matcher_replay/matcher_replay_groups.zig).
 //!
 //! It exits 1 at the first line that fails, and names the line.
 //! src/regex/matcher_vectors_test.zig replays the committed file of one seed as a unit test.
@@ -27,6 +30,8 @@ const platform = @import("platform");
 const replay_dump = @import("matcher_replay/matcher_replay_dump.zig");
 const matcher_replay_claim = @import("matcher_replay/matcher_replay_claim.zig");
 const Claim = matcher_replay_claim.Claim;
+const matcher_replay_groups = @import("matcher_replay/matcher_replay_groups.zig");
+const matcher_replay_program = @import("matcher_replay/matcher_replay_program.zig");
 const Instruction = regex.Instruction;
 const Matcher = regex.Matcher;
 const Searcher = regex.Searcher;
@@ -116,6 +121,9 @@ pub fn no_claims() regex.SearcherClaims {
 /// The span a `find` line names, or null for `none`.
 const Expected = ?struct { start: u64, end: u64 };
 
+/// The cause for each searcher whose `captures` does not give a line's groups.
+pub const group_causes = [searcher_count]anyerror{ error.SearcherGroupsDiffer, error.SearcherWithNoClaimGroupsDiffer, error.SearcherAfterLongReadGroupsDiffer, error.SearcherWithSmallCacheGroupsDiffer };
+
 pub fn same(found: ?regex.Span, expected: Expected) bool {
     const span = found orelse return expected == null;
     const wanted = expected orelse return false;
@@ -168,6 +176,16 @@ pub const Replay = struct {
     /// The searches that the searcher which read a long text ran from the places of claim
     /// R14's literal: it held the literal, and its account was not at rest.
     finds_by_inner: usize = 0,
+    /// The slots of the program's capture groups, from its `slots` line, and the `groups`
+    /// lines of the file so far.
+    slots: ?u32 = null,
+    groups: usize = 0,
+    /// True after a `find` line of a program with a `slots` line, until its `groups` line.
+    groups_owed: bool = false,
+    /// The `groups` lines of more than one group whose program the first searcher holds as
+    /// one-pass (claim R6), and the others.
+    groups_by_one_thread: usize = 0,
+    groups_by_others: usize = 0,
     /// The words of the small cache that the fourth searcher's DFAs started with.
     small_cache_words: usize = 0,
     /// The searches that the searcher with a small cache answered after a DFA of its cleared
@@ -193,11 +211,16 @@ pub const Replay = struct {
     fn feed(replay: *Replay, line: []const u8) !void {
         var tokens = std.mem.tokenizeScalar(u8, line, ' ');
         const word = try take(&tokens);
+        // A `find` line of a program that names its slots has its `groups` line after it, or a
+        // line that says a check of the Lean side failed.
+        if (replay.groups_owed and !std.mem.eql(u8, word, "groups") and !std.mem.eql(u8, word, "differs")) return error.GroupsMissing;
         if (std.mem.eql(u8, word, "pattern")) return replay.set_pattern(try take(&tokens));
         if (std.mem.eql(u8, word, "program")) return replay.begin(&tokens);
         if (std.mem.eql(u8, word, "claim")) return replay.set_claim(&tokens);
         if (std.mem.eql(u8, word, "text")) return replay.set_text(&tokens);
         if (std.mem.eql(u8, word, "find")) return replay.expect_find(&tokens);
+        if (std.mem.eql(u8, word, "slots")) return replay.set_slots(&tokens);
+        if (std.mem.eql(u8, word, "groups")) return replay.expect_groups(&tokens);
         if (std.mem.eql(u8, word, "differs")) return error.ModelCheckFailed;
         const kind = std.meta.stringToEnum(regex.Kind, word) orelse return error.VectorWord;
         if (replay.listed_len == replay.listed.len) return error.VectorProgramLong;
@@ -228,7 +251,46 @@ pub const Replay = struct {
         replay.ready = false;
         replay.listed_len = 0;
         replay.claim_len = null;
+        replay.slots = null;
         replay.programs += 1;
+    }
+
+    /// A `slots` line: the slots of the program's capture groups, two for each group.
+    fn set_slots(replay: *Replay, tokens: *Tokens) !void {
+        const slots = try number(u32, tokens);
+        if (slots == 0 or slots > replay_dump.slots_max or slots % regex.constants.group_slots != 0) return error.VectorSlots;
+        replay.slots = slots;
+    }
+
+    /// The cause of the first that does not give a line's groups: the matcher with a slot for
+    /// each group, then each searcher's `captures`. Null where each gives them.
+    pub fn groups_cause(replay: *Replay, text: []const u8, low: usize, wanted: ?[]const ?regex.Span) ?anyerror {
+        replay.matcher.configure(.{ .captures = .groups });
+        if (!matcher_replay_groups.matcher_gives(&replay.matcher, replay.matcher.find(text, low), wanted)) return error.GroupsDiffer;
+        for (&replay.searchers, group_causes) |*searcher, cause| {
+            if (!matcher_replay_groups.searcher_gives(searcher, text, low, wanted)) return cause;
+        }
+        return null;
+    }
+
+    /// A `groups` line: the groups of the match that a search from an offset finds, the whole
+    /// match first, as the Lean model's threads carry them. The matcher with a slot for each
+    /// group must give them, and so must each searcher's `captures`: by one thread (claim R6),
+    /// by the backtracker (claim R8), or by the matcher's threads.
+    fn expect_groups(replay: *Replay, tokens: *Tokens) !void {
+        if (!replay.ready or !replay.compiled) return error.VectorOrder;
+        const low = try number(usize, tokens);
+        if (low > replay.text_len) return error.VectorOffset;
+        var buffer: matcher_replay_groups.Buffer(replay_dump.slots_max) = undefined;
+        const wanted = try matcher_replay_groups.read(tokens, &buffer);
+        const text = replay.text[0..replay.text_len];
+        replay.groups += 1;
+        replay.groups_owed = false;
+        if (replay.groups_cause(text, low, wanted)) |cause| return cause;
+        if (replay.program.group_count == 1 or wanted == null) return;
+        const one_thread = replay.searchers[0].one_pass == .yes or replay.searchers[0].one_pass == .at_text;
+        replay.groups_by_one_thread += @intFromBool(one_thread);
+        replay.groups_by_others += @intFromBool(!one_thread);
     }
 
     /// A `claim` line: the literal that a searcher took for the program, under the word of the
@@ -267,53 +329,23 @@ pub const Replay = struct {
         if (!held.same(named orelse return error.ClaimDiffers)) return error.ClaimDiffers;
     }
 
-    /// The program the listed instructions make: a forward program alone, whose one group is
-    /// the whole match. Only the matcher runs it: a DFA needs the classes `compile` finds.
-    fn listed_program(replay: *const Replay) regex.Program {
-        return .{
-            .instructions = replay.listed[0..replay.listed_len],
-            .forward_len = replay.listed_len,
-            .forward_nodes = replay.listed_len,
-            .reverse_nodes = 0,
-            .forward = replay.forward,
-            .reverse = replay_dump.no_entry,
-            .group_count = 1,
-            .reads_ahead = true,
-            .has_looks = true,
-            .encoding = replay.encoding,
-            .classes = @splat(0),
-            .class_count = 1,
-            .names = &.{},
-        };
-    }
-
-    /// Compiles the pattern again, and requires the program the file lists: the proved answers
-    /// are answers of those lines.
-    fn compile_listed(replay: *Replay) !void {
-        const pattern = replay.pattern[0..replay.pattern_len];
-        replay.program = regex.compile(pattern, .{ .encoding = replay.encoding }, replay.storage) catch return error.PatternRefused;
-        const program = &replay.program;
-        if (program.forward != replay.forward or program.reverse != replay.reverse) return error.ProgramDiffers;
-        if (program.instructions.len != replay.listed_len) return error.ProgramDiffers;
-        for (program.instructions, replay.listed[0..replay.listed_len]) |made, listed| {
-            var made_line: [replay_dump.line_len_max]u8 = undefined;
-            var listed_line: [replay_dump.line_len_max]u8 = undefined;
-            if (!std.mem.eql(u8, try replay_dump.line_of(&made_line, made), try replay_dump.line_of(&listed_line, listed))) return error.ProgramDiffers;
-        }
-    }
-
     /// Readies the matcher, and for a compiled pattern the searchers, for the lines read.
     fn make_ready(replay: *Replay) !void {
         if (replay.listed_len != replay.listed_named or replay.forward >= replay.listed_len) return error.VectorProgram;
         replay.ready = true;
+        const listed = replay.listed[0..replay.listed_len];
         if (!replay.compiled) {
-            replay.program = replay.listed_program();
+            replay.program = matcher_replay_program.of_listed(listed, replay.forward, replay.encoding);
             return replay.matcher.init(&replay.program, .{ .captures = .span }, replay.matcher_memory);
         }
-        try replay.compile_listed();
+        const pattern = replay.pattern[0..replay.pattern_len];
+        replay.program = regex.compile(pattern, .{ .encoding = replay.encoding }, replay.storage) catch return error.PatternRefused;
+        try matcher_replay_program.expect_listed(&replay.program, listed, replay.forward, replay.reverse, replay.slots);
         const program = &replay.program;
         if (program.slot_count() > replay_dump.slots_max) return error.VectorProgramLong;
-        replay.matcher.init(program, .{ .captures = .span }, replay.matcher_memory);
+        // The matcher keeps a slot for each group: a `groups` line asks for them, and a `find`
+        // line for the whole match alone.
+        replay.matcher.init(program, .{ .captures = .groups }, replay.matcher_memory);
         const claims = [searcher_count]regex.SearcherClaims{ .{}, no_claims(), .{}, .{} };
         const words = Searcher.memory_len(program.forward_len, program.slot_count(), regex.constants.cache_words_default);
         for (&replay.searchers, replay.searcher_memory, claims) |*searcher, memory, claim| {
@@ -367,8 +399,15 @@ pub const Replay = struct {
         };
         const text = replay.text[0..replay.text_len];
         replay.finds += 1;
+        replay.groups_owed = replay.compiled and replay.slots != null;
+        if (replay.compiled) replay.matcher.configure(.{ .captures = .span });
         try expect_matcher(replay.matcher.find(text, low), expected);
-        if (!replay.compiled) return;
+        if (replay.compiled) try replay.expect_searchers(text, low, expected);
+    }
+
+    /// Requires each searcher's `find` to give a search's answer, and for a search from 0 its
+    /// `is_match` too: a text holds a match exactly where a search from its start finds one.
+    fn expect_searchers(replay: *Replay, text: []const u8, low: usize, expected: Expected) !void {
         const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers, error.SearcherWithSmallCacheDiffers };
         const long_read = &replay.searchers[long_read_searcher];
         replay.finds_by_inner += @intFromBool(long_read.inner != null and long_read.account.rest == 0);
@@ -380,7 +419,6 @@ pub const Replay = struct {
         const cleared = small.forward_ready and small.reverse_ready and small.forward.cache.clears + small.reverse.cache.clears > 0;
         replay.finds_after_clear += @intFromBool(cleared);
         replay.finds_after_give_up += @intFromBool(small.give_ups > 0);
-        // A text holds a match exactly where a search from its start finds one.
         if (low != 0) return;
         for (&replay.searchers) |*searcher| {
             replay.is_matches += 1;
@@ -408,6 +446,7 @@ pub fn replay_text(replay: *Replay, text: []const u8) ?Failure {
         if (line[0] == '#') continue;
         replay.feed(line) catch |cause| return .{ .number = line_number, .line = line, .cause = cause };
     }
+    if (replay.groups_owed) return .{ .number = line_number, .line = "", .cause = error.GroupsMissing };
     return null;
 }
 
@@ -437,7 +476,7 @@ pub fn main(init: std.process.Init) !void {
         if (replay.compiled) std.debug.print("matcher_replay: the pattern is \"{f}\", read as {s}\n", .{ std.zig.fmtString(replay.pattern[0..replay.pattern_len]), @tagName(replay.encoding) });
         std.process.exit(1);
     }
-    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up; {d} from the places of claim R14's literal\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up, replay.finds_by_inner });
+    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up; {d} from the places of claim R14's literal; {d} with more than one group, {d} of them by one thread\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up, replay.finds_by_inner, replay.groups_by_one_thread + replay.groups_by_others, replay.groups_by_one_thread });
 }
 
 test {
@@ -445,4 +484,6 @@ test {
     _ = replay_dump;
     _ = matcher_replay_claim;
     _ = @import("matcher_replay/matcher_replay_shapes.zig");
+    _ = matcher_replay_groups;
+    _ = matcher_replay_program;
 }

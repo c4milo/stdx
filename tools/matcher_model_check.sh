@@ -15,10 +15,12 @@
 #    rule of claim R14 holds for each literal a searcher took by it, a literal with a place
 #    that folds among them (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean and
 #    RulesInner.lean).
-#    `matcher_replay` compiles each pattern again and requires the answer of `Matcher.find`
-#    and of four searchers: one with every claim, one with none, one with every claim that
-#    read a long text first, and one with every claim and a small cache. One case in eight
-#    takes a text of up to 1,024 bytes.
+#    After each answer it writes the groups of the match, from the slots of the model's
+#    threads (spec/lean/Stdx/Regex/Captures.lean). `matcher_replay` compiles each pattern
+#    again and requires the answer of `Matcher.find` and of four searchers: one with every
+#    claim, one with none, one with every claim that read a long text first, and one with
+#    every claim and a small cache. It requires the same groups of the matcher and of each
+#    searcher's `captures`. One case in eight takes a text of up to 1,024 bytes.
 #
 # A seed that fails is printed: give it again to see the same failure.
 #
@@ -255,6 +257,18 @@ range 97 97 0
 match
 claim suffix 1 97
 text 2 195 169
+search 0
+DUMP
+# `a` with the save of the match's start after its byte. The matcher's match from 0 ends at 1,
+# and the thread's slots say that the whole match is the empty text at 1.
+canary "groups 0" <<'DUMP'
+program bytes 4 0 none
+range 97 97 1
+save 0 2
+save 1 3
+match
+slots 2
+text 1 97
 search 0
 DUMP
 for seed in "$@"; do
