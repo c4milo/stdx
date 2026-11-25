@@ -1,7 +1,7 @@
 //! The value a program makes once, when it starts, and passes to each call of `stdx.crypto` that
-//! runs chapulin's code (decision 87 as amended on 2026-11-25). It holds what the program's one
-//! probe found about the CPU, what the program states about its threads, and the random source
-//! each session and each signature draws from.
+//! runs chapulin's code (decision 87 as amended on 2026-11-25). It holds the CPU features the
+//! program detected once, as its codecs take them, what the program states about its threads, and
+//! the random source each session and each signature draws from.
 //!
 //! A value, and not a global that one call sets: stdx keeps no process-wide mutable state
 //! (non-negotiable 8). So no call can run before the value exists, no two threads race to set it,
@@ -28,8 +28,8 @@ pub const Timing = enum {
 
 /// What `init` takes. The program names each field: none has a default.
 pub const Options = struct {
-    /// The answers of the program's one `stdx.platform.probe()`.
-    probe: platform.Cpu,
+    /// The program's one `stdx.platform.CpuFeatures.detect()`, which its codecs take too.
+    features: platform.CpuFeatures,
     /// The mode of every thread that runs chapulin's code.
     timing: Timing,
     /// A cryptographically secure random source. chapulin draws each session's secrets and each
@@ -50,7 +50,8 @@ pub const Context = struct {
     random: chapulin.tcp.RandomSource,
 };
 
-/// The value a program makes once from its probe, its statement of timing and its random source.
+/// The value a program makes once from its CPU features, its statement of timing and its random
+/// source.
 pub fn init(options: Options) Context {
     const context: Context = .{
         .cpu = cpu_of(chapulin.tcp.Cpu, options, builtin.cpu.arch),
@@ -65,30 +66,34 @@ pub fn init(options: Options) Context {
     return context;
 }
 
-/// chapulin's description of the CPU (its `cpu_cfg.h`), from the probe's answers and the program's
+/// chapulin's description of the CPU (its `cpu_cfg.h`), from the program's CPU features and its
 /// statement of timing. A bit that states timing is set only under `data_independent`. A bit that
-/// states presence is set where the probe answers `yes` on the architecture chapulin defines it
-/// for, because chapulin refuses a bit its object does not define. `arch` is the target's, and a
-/// test passes the other one.
+/// states presence is set where the features hold it on the architecture chapulin defines it for,
+/// because chapulin refuses a bit its object does not define. `arch` is the target's, and a test
+/// passes the other one.
 fn cpu_of(comptime Cpu: type, options: Options, arch: std.Target.Cpu.Arch) Cpu {
-    const cpu = options.probe;
+    const features = options.features;
     const arm64 = arch == .aarch64;
     const x86_64 = arch == .x86_64;
-    // A core without FEAT_DIT has no PSTATE.DIT to set, so a statement of `data_independent`
-    // there states nothing, and the description fails closed to the code that needs none.
-    const stated = options.timing == .data_independent and !(arm64 and cpu.dit == .no);
+    // On arm64 the mode is PSTATE.DIT, and a core whose features hold no FEAT_DIT has none to
+    // set, so a statement of `data_independent` there states nothing. The description then fails
+    // closed to the code that needs no statement.
+    const stated = options.timing == .data_independent and !(arm64 and !features.dit);
     // Arm's list under FEAT_DIT names the hash instructions. stdx states their timing on arm64
     // alone, and on x86-64 chapulin hashes in general registers.
     const hash_stated = arm64 and stated;
+    // AES-GCM runs the carry-less multiply beside AES's rounds: PMULL on arm64, PCLMULQDQ on
+    // x86-64.
+    const carry_less = if (arm64) features.pmull else features.pclmul;
     return .{
-        .constant_time_aes = stated and cpu.aes_clmul == .yes,
+        .constant_time_aes = stated and features.aes and carry_less,
         .constant_time_multiply = stated,
-        .constant_time_sha256 = hash_stated and cpu.sha256 == .yes,
-        .constant_time_sha512 = hash_stated and cpu.sha512 == .yes,
-        .constant_time_sha3 = hash_stated and cpu.sha3 == .yes,
-        .avx2 = x86_64 and cpu.avx2 == .yes,
-        .vaes = x86_64 and cpu.vaes == .yes,
-        .sve2 = arm64 and cpu.sve2 == .yes,
+        .constant_time_sha256 = hash_stated and features.sha256,
+        .constant_time_sha512 = hash_stated and features.sha512,
+        .constant_time_sha3 = hash_stated and features.sha3,
+        .avx2 = x86_64 and features.avx2,
+        .vaes = x86_64 and features.vaes,
+        .sve2 = arm64 and features.sve2,
     };
 }
 
@@ -96,19 +101,18 @@ fn cpu_of(comptime Cpu: type, options: Options, arch: std.Target.Cpu.Arch) Cpu {
 
 const testing = std.testing;
 
-/// A probe's answers with every feature `yes` and a core with FEAT_DIT.
-const every_feature: platform.Cpu = .{
-    .aes_clmul = .yes,
-    .dit = .yes,
-    .sha256 = .yes,
-    .sha512 = .yes,
-    .sha3 = .yes,
-    .sve2 = .yes,
-    .ssse3 = .yes,
-    .sse4_1 = .yes,
-    .avx2 = .yes,
-    .vaes = .yes,
-    .midr = null,
+/// CPU features with every instruction `cpu_of` reads, on both architectures.
+const every_feature: platform.CpuFeatures = .{
+    .aes = true,
+    .pclmul = true,
+    .pmull = true,
+    .dit = true,
+    .sha256 = true,
+    .sha512 = true,
+    .sha3 = true,
+    .sve2 = true,
+    .avx2 = true,
+    .vaes = true,
 };
 
 /// A fixed source for the tests, which writes the bytes of a counter. It is no random source.
@@ -128,12 +132,12 @@ const Counter = struct {
     }
 };
 
-fn described(cpu: platform.Cpu, timing: Timing, arch: std.Target.Cpu.Arch) chapulin.tcp.Cpu {
+fn described(features: platform.CpuFeatures, timing: Timing, arch: std.Target.Cpu.Arch) chapulin.tcp.Cpu {
     var counter: Counter = .{};
-    return cpu_of(chapulin.tcp.Cpu, .{ .probe = cpu, .timing = timing, .random = counter.source() }, arch);
+    return cpu_of(chapulin.tcp.Cpu, .{ .features = features, .timing = timing, .random = counter.source() }, arch);
 }
 
-test "a statement of timing gives the bits of each instruction the probe found" {
+test "a statement of timing gives the bits of each instruction the features hold" {
     const arm = described(every_feature, .data_independent, .aarch64);
     try testing.expect(arm.constant_time_aes and arm.constant_time_multiply);
     try testing.expect(arm.constant_time_sha256 and arm.constant_time_sha512 and arm.constant_time_sha3);
@@ -154,40 +158,48 @@ test "no statement of timing gives no bit of timing, and every bit of presence" 
     }
 }
 
-test "an answer other than yes gives no bit" {
-    var cpu = every_feature;
-    cpu.aes_clmul = .not_known;
-    cpu.sha256 = .no;
-    cpu.sha512 = .not_known;
-    cpu.sha3 = .no;
-    cpu.avx2 = .not_known;
-    cpu.vaes = .no;
-    cpu.sve2 = .no;
-    const arm = described(cpu, .data_independent, .aarch64);
+test "a feature the CPU lacks gives no bit" {
+    var features = every_feature;
+    features.aes = false;
+    features.sha256 = false;
+    features.sha512 = false;
+    features.sha3 = false;
+    features.avx2 = false;
+    features.vaes = false;
+    features.sve2 = false;
+    const arm = described(features, .data_independent, .aarch64);
     try testing.expect(!arm.constant_time_aes and !arm.sve2);
     try testing.expect(!arm.constant_time_sha256 and !arm.constant_time_sha512 and !arm.constant_time_sha3);
     try testing.expect(arm.constant_time_multiply);
-    const x86 = described(cpu, .data_independent, .x86_64);
+    const x86 = described(features, .data_independent, .x86_64);
     try testing.expect(!x86.constant_time_aes and !x86.avx2 and !x86.vaes);
     try testing.expect(x86.constant_time_multiply);
 }
 
-test "on arm64 a core without FEAT_DIT states no timing" {
-    var cpu = every_feature;
-    cpu.dit = .no;
-    const arm = described(cpu, .data_independent, .aarch64);
-    try testing.expect(!arm.constant_time_aes and !arm.constant_time_multiply);
-    try testing.expect(!arm.constant_time_sha256 and arm.sve2);
-    cpu.dit = .not_known;
-    try testing.expect(described(cpu, .data_independent, .aarch64).constant_time_multiply);
-    // x86-64 has no FEAT_DIT, and its probe answers `not_known`, so its answer reads nothing.
-    cpu.dit = .no;
-    try testing.expect(described(cpu, .data_independent, .x86_64).constant_time_aes);
+test "AES's bit needs the carry-less multiply of its own architecture" {
+    var no_pmull = every_feature;
+    no_pmull.pmull = false;
+    try testing.expect(!described(no_pmull, .data_independent, .aarch64).constant_time_aes);
+    try testing.expect(described(no_pmull, .data_independent, .x86_64).constant_time_aes);
+    var no_pclmul = every_feature;
+    no_pclmul.pclmul = false;
+    try testing.expect(!described(no_pclmul, .data_independent, .x86_64).constant_time_aes);
+    try testing.expect(described(no_pclmul, .data_independent, .aarch64).constant_time_aes);
 }
 
-test "the value keeps the caller's random source and describes the probed CPU to both objects" {
+test "on arm64 a core without FEAT_DIT states no timing" {
+    var features = every_feature;
+    features.dit = false;
+    const arm = described(features, .data_independent, .aarch64);
+    try testing.expect(!arm.constant_time_aes and !arm.constant_time_multiply);
+    try testing.expect(!arm.constant_time_sha256 and arm.sve2);
+    // x86-64 has no FEAT_DIT, so its features' `dit` reads nothing there.
+    try testing.expect(described(features, .data_independent, .x86_64).constant_time_aes);
+}
+
+test "the value keeps the caller's random source and describes the detected CPU to both objects" {
     var counter: Counter = .{};
-    const context = init(.{ .probe = platform.probe(), .timing = .not_stated, .random = counter.source() });
+    const context = init(.{ .features = platform.CpuFeatures.detect(), .timing = .not_stated, .random = counter.source() });
     var bytes: [3]u8 = undefined;
     context.random.bytes(&bytes);
     try testing.expectEqualSlices(u8, &.{ 0, 1, 2 }, &bytes);

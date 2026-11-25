@@ -5,10 +5,10 @@
 //! a time that does not depend on the values they process. User code reads it with one `mrs` and
 //! sets it with one `msr`, and the kernel keeps it for the thread. Each is an instruction, and
 //! neither is a syscall. On a core without FEAT_DIT each instruction faults, so each call takes
-//! the probe's answers and runs neither unless `dit` is `yes`.
+//! the program's `CpuFeatures` and runs neither unless `dit` is true.
 //!
 //! On x86-64 the mode is DOITM, a bit of the model-specific register IA32_UARCH_MISC_CTL. Only the
-//! operating system reads or writes it, so these calls answer `not_known` and refuse to set it.
+//! operating system reads or writes it, so these calls answer false and refuse to set it.
 //!
 //! Each call acts on the calling thread alone. A program calls `set_data_independent_timing` on
 //! each thread that runs code whose timing must not depend on a secret.
@@ -17,36 +17,33 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const platform = @import("platform.zig");
-const Answer = platform.Answer;
-const Cpu = platform.Cpu;
+const CpuFeatures = @import("platform_cpu_features.zig").CpuFeatures;
 
-/// The calling thread's mode: `yes` when its timing is data-independent, `no` when it is not or
-/// the core cannot hold the mode, and `not_known` where a program cannot read it. `cpu` holds the
-/// answers of the program's probe.
-pub fn data_independent_timing(cpu: Cpu) Answer {
+/// Whether the calling thread's timing is data-independent: true when its PSTATE.DIT is 1. False
+/// when it is 0, when `features` holds no FEAT_DIT, so that the read could fault, and on every
+/// architecture but arm64, where no program can read the mode. `features` holds the program's
+/// one `CpuFeatures.detect()`.
+pub fn data_independent_timing(features: CpuFeatures) bool {
     // The register exists on arm64 alone, so another target compiles no `mrs`.
-    if (comptime builtin.cpu.arch != .aarch64) return .not_known;
-    if (answer_unread(cpu, builtin.cpu.arch)) |answer| return answer;
-    return if (dit_of(read_dit())) .yes else .no;
+    if (comptime builtin.cpu.arch != .aarch64) return false;
+    if (!readable(features, builtin.cpu.arch)) return false;
+    return dit_of(read_dit());
 }
 
-/// The answer that needs no read of the register, or null when only the register holds it.
-fn answer_unread(cpu: Cpu, arch: std.Target.Cpu.Arch) ?Answer {
-    if (arch != .aarch64) return .not_known;
-    // `no`: the core has no PSTATE.DIT. `not_known`: the read could fault.
-    if (cpu.dit != .yes) return cpu.dit;
-    return null;
+/// Whether a program may read and write the DIT register: an arm64 core that has FEAT_DIT. On any
+/// other core the instruction faults.
+fn readable(features: CpuFeatures, arch: std.Target.Cpu.Arch) bool {
+    return arch == .aarch64 and features.dit;
 }
 
 /// Sets the calling thread's PSTATE.DIT when `enabled` is true, and clears it when it is false.
-/// `cpu` holds the answers of the program's probe. Returns true when the thread now holds the mode
-/// `enabled` names, and false where it cannot set the mode: x86-64, where only the operating system
-/// sets DOITM, another architecture, and an arm64 core the probe does not answer FEAT_DIT `yes` for.
-pub fn set_data_independent_timing(cpu: Cpu, enabled: bool) bool {
+/// `features` holds the program's one `CpuFeatures.detect()`. Returns true when the thread now
+/// holds the mode `enabled` names, and false where it cannot set the mode: x86-64, where only the
+/// operating system sets DOITM, another architecture, and an arm64 core whose `features` hold no
+/// FEAT_DIT.
+pub fn set_data_independent_timing(features: CpuFeatures, enabled: bool) bool {
     if (comptime builtin.cpu.arch != .aarch64) return false;
-    // A mode the read cannot hold is a mode the write cannot set.
-    if (answer_unread(cpu, builtin.cpu.arch) != null) return false;
+    if (!readable(features, builtin.cpu.arch)) return false;
     write_dit(register_of(enabled));
     assert(dit_of(read_dit()) == enabled);
     return true;
@@ -90,38 +87,31 @@ test "PSTATE.DIT is bit 24 of the register, and no other bit" {
     try testing.expectEqual(@as(u64, 0), register_of(false));
 }
 
-test "only an arm64 core the probe answers FEAT_DIT yes for has its register read" {
-    var cpu = platform.probe();
-    cpu.dit = .yes;
-    try testing.expectEqual(@as(?Answer, null), answer_unread(cpu, .aarch64));
-    try testing.expectEqual(@as(?Answer, .not_known), answer_unread(cpu, .x86_64));
-    cpu.dit = .no;
-    try testing.expectEqual(@as(?Answer, .no), answer_unread(cpu, .aarch64));
-    cpu.dit = .not_known;
-    try testing.expectEqual(@as(?Answer, .not_known), answer_unread(cpu, .aarch64));
+test "only an arm64 core whose features hold FEAT_DIT has its register read" {
+    try testing.expect(readable(.{ .dit = true }, .aarch64));
+    try testing.expect(!readable(.{ .dit = true }, .x86_64));
+    try testing.expect(!readable(.{}, .aarch64));
+    try testing.expect(!readable(.{ .sha3 = true, .sve2 = true, .aes = true }, .aarch64));
 }
 
-test "a core without FEAT_DIT has no mode to read or set, and one that may lack it is not read" {
-    var cpu = platform.probe();
-    cpu.dit = .no;
-    try testing.expectEqual(if (builtin.cpu.arch == .aarch64) Answer.no else Answer.not_known, data_independent_timing(cpu));
-    try testing.expect(!set_data_independent_timing(cpu, true));
-    cpu.dit = .not_known;
-    try testing.expectEqual(Answer.not_known, data_independent_timing(cpu));
-    try testing.expect(!set_data_independent_timing(cpu, true));
+test "a core without FEAT_DIT has no mode to read or set" {
+    var features = CpuFeatures.detect();
+    features.dit = false;
+    try testing.expect(!data_independent_timing(features));
+    try testing.expect(!set_data_independent_timing(features, true));
 }
 
 test "the calling thread's mode follows each set, and returns to what it was" {
-    const cpu = platform.probe();
-    const before = data_independent_timing(cpu);
-    if (builtin.cpu.arch != .aarch64 or cpu.dit != .yes) {
-        try testing.expectEqual(if (builtin.cpu.arch == .aarch64) cpu.dit else Answer.not_known, before);
-        try testing.expect(!set_data_independent_timing(cpu, true));
+    const features = CpuFeatures.detect();
+    const before = data_independent_timing(features);
+    if (builtin.cpu.arch != .aarch64 or !features.dit) {
+        try testing.expect(!before);
+        try testing.expect(!set_data_independent_timing(features, true));
         return;
     }
-    defer assert(set_data_independent_timing(cpu, before == .yes));
-    try testing.expect(set_data_independent_timing(cpu, true));
-    try testing.expectEqual(Answer.yes, data_independent_timing(cpu));
-    try testing.expect(set_data_independent_timing(cpu, false));
-    try testing.expectEqual(Answer.no, data_independent_timing(cpu));
+    defer assert(set_data_independent_timing(features, before));
+    try testing.expect(set_data_independent_timing(features, true));
+    try testing.expect(data_independent_timing(features));
+    try testing.expect(set_data_independent_timing(features, false));
+    try testing.expect(!data_independent_timing(features));
 }

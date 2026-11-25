@@ -2,11 +2,12 @@
 //! (decision 40, design §3).
 //!
 //! It holds two reads of the CPU, and a program makes each once, at start:
-//! - `probe()` gives a `Cpu`, the `yes`, `no` and `not_known` answers a TLS stack asks for. A
-//!   program passes its fields to the code that asks: to a TLS stack's configuration, for
-//!   example, which hands them to each session.
-//! - `CpuFeatures.detect()` gives a `CpuFeatures`, the booleans a codec's fast paths read. A
-//!   program passes it to each codec's `init` (decision 21, platform_cpu_features.zig).
+//! - `CpuFeatures.detect()` gives a `CpuFeatures`, the booleans a codec's fast paths read and the
+//!   instructions `stdx.crypto` runs. A program passes it to each codec's `init` and to
+//!   `crypto.init` (decisions 21 and 40 as amended on 2026-11-25, platform_cpu_features.zig).
+//! - `probe()` gives a `Cpu`, the `yes`, `no` and `not_known` answers of the same instructions.
+//!   `CpuFeatures` now holds each of them as a boolean, and `probe` stays until the programs
+//!   that read a `Cpu` read `CpuFeatures` instead.
 //!
 //! stdx keeps no copy of either (invariant 4). The codecs import this module for the type
 //! `CpuFeatures` alone. Outside it, only a test under `src/` calls `probe` or `CpuFeatures.detect`,
@@ -53,11 +54,12 @@ const memset_file = @import("platform_memset.zig");
 const cpu_features_file = @import("platform_cpu_features.zig");
 const timing_file = @import("platform_timing.zig");
 
-/// The CPU features a codec's SIMD paths may use: a program calls `CpuFeatures.detect()` once and
-/// passes the value to each codec's `init` (decision 21 as amended on 2026-11-24).
+/// The CPU features a codec's SIMD paths and `stdx.crypto` may use: a program calls
+/// `CpuFeatures.detect()` once and passes the value to each codec's `init` and to `crypto.init`
+/// (decisions 21 and 40 as amended on 2026-11-25).
 pub const CpuFeatures = cpu_features_file.CpuFeatures;
 
-/// The calling thread's mode of data-independent timing: PSTATE.DIT on arm64, and `not_known`
+/// Whether the calling thread's timing is data-independent: its PSTATE.DIT on arm64, and false
 /// elsewhere (decision 40 as amended on 2026-11-25).
 pub const data_independent_timing = timing_file.data_independent_timing;
 /// Sets or clears the calling thread's PSTATE.DIT on arm64, and returns false where it cannot.
@@ -415,4 +417,28 @@ fn expect_aarch64_host(cpu: Cpu, target: Cpu) !void {
         },
         else => try testing.expectEqual(without_x86(target), cpu),
     }
+}
+
+test "CpuFeatures.detect agrees with probe on each instruction both read" {
+    // probe's `yes` and `no` say what the host's source reports, and `not_known` says nothing, so
+    // the test reads the first two alone. On x86-64, CpuFeatures' SHA-256 needs SSSE3 and SSE4.1
+    // beside the SHA extensions, and its AES needs the carry-less multiply to answer `aes_clmul`.
+    const cpu = probe();
+    const features = CpuFeatures.detect();
+    const x86_64 = builtin.cpu.arch == .x86_64;
+    const carry_less = if (x86_64) features.pclmul else features.pmull;
+    try expect_agrees(cpu.aes_clmul, features.aes and carry_less);
+    try expect_agrees(if (x86_64) both(both(cpu.sha256, cpu.ssse3), cpu.sse4_1) else cpu.sha256, features.sha256);
+    try expect_agrees(cpu.sha512, features.sha512);
+    try expect_agrees(cpu.sha3, features.sha3);
+    try expect_agrees(cpu.sve2, features.sve2);
+    try expect_agrees(cpu.dit, features.dit);
+    try expect_agrees(cpu.avx2, features.avx2);
+    try expect_agrees(cpu.vaes, features.vaes);
+}
+
+/// A feature is true where the probe answers `yes` and false where it answers `no`.
+fn expect_agrees(answer: Answer, feature: bool) !void {
+    if (answer == .not_known) return;
+    try testing.expectEqual(answer == .yes, feature);
 }

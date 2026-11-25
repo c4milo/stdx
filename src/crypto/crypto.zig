@@ -148,12 +148,13 @@ pub const scram = chapulin.tcp.scram;
 /// HMAC over the three SHA-2 hashes (RFC 2104), and HKDF's Extract and Expand (RFC 5869). Each
 /// call takes `Context.cpu`, and runs each hash on the instructions that value names.
 pub const hash = chapulin.tcp.hash;
-/// The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe,
-/// `stdx.platform`. It is `tls.Cpu`.
+/// The CPU the calls beside `tls` and `quic` take, which `init` describes from the program's
+/// `stdx.platform.CpuFeatures`. It is `tls.Cpu`.
 pub const Cpu = tls.Cpu;
 
-/// The value a program makes once, when it starts, from its probe, its statement of timing and its
-/// random source, and passes to each session and call (decision 87 as amended on 2026-11-25).
+/// The value a program makes once, when it starts, from its CPU features, its statement of timing
+/// and its random source, and passes to each session and call (decision 87 as amended on
+/// 2026-11-25).
 pub const init = init_file.init;
 /// What `init` takes.
 pub const Options = init_file.Options;
@@ -239,7 +240,7 @@ test "chapulin takes init's description of this host, under each statement of ti
     var source_state: u8 = 0;
     const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
     inline for (.{ Timing.not_stated, Timing.data_independent }) |timing| {
-        const context = init(.{ .probe = platform.probe(), .timing = timing, .random = random });
+        const context = init(.{ .features = platform.CpuFeatures.detect(), .timing = timing, .random = random });
         var digest: [hash.sha256_len]u8 = undefined;
         try hash.sha256(context.cpu, &digest, "abc");
         try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);

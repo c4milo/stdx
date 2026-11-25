@@ -19,17 +19,18 @@ Without the option, stdx fetches no chapulin and compiles no C, and `stdx.crypto
 in a compile error.
 
 A program makes one value when it starts, with `init`, and passes it to each session and call. The
-value holds the answers of the program's one probe, its statement of its threads' timing, and a
+value holds the CPU features the program detected once, its statement of its threads' timing, and a
 cryptographically secure random source:
 
 ```zig
-const probe = stdx.platform.probe();
+// The CPU features the program detects once, for its codecs and for stdx.crypto alike.
+const features = stdx.platform.CpuFeatures.detect();
 // Data-independent timing on this thread where a program can set it: arm64 with FEAT_DIT.
 // On x86-64 only the operating system sets DOITM, so this program states nothing there.
-const set = stdx.platform.set_data_independent_timing(probe, true);
+const set = stdx.platform.set_data_independent_timing(features, true);
 const timing: stdx.crypto.Timing = if (set) .data_independent else .not_stated;
 const crypto = stdx.crypto.init(.{
-    .probe = probe,
+    .features = features,
     .timing = timing,
     .random = csprng.random(),
 });
@@ -38,7 +39,7 @@ const crypto = stdx.crypto.init(.{
 `timing` has no default, because only the program knows its threads' mode. `.data_independent`
 states that each thread that runs chapulin's code has set PSTATE.DIT on arm64, or runs on an
 x86-64 part whose operating system has set DOITM. Under it, chapulin runs AES-GCM and the widening
-multiplies on the CPU's instructions where the probe found them. `.not_stated` keeps chapulin's code
+multiplies on the CPU's instructions where its features hold them. `.not_stated` keeps chapulin's code
 that needs no such mode. `stdx.platform.set_data_independent_timing` sets PSTATE.DIT on the calling
 thread alone, so a program calls it on each thread that runs chapulin's code, and
 `stdx.platform.data_independent_timing` reads it ([`stdx.platform`](../platform/README.md)).
@@ -54,8 +55,8 @@ try stdx.crypto.hash.sha256(crypto.cpu, &digest, "abc");
 ```
 
 Each hash runs where `crypto.cpu` puts it. On arm64 under `.data_independent`, SHA-256, SHA-512
-and SHA-3 run on the instructions the probe found. On x86-64, SHA-384 and SHA-512 run on AVX2
-where the probe found it. Every other hash runs chapulin's portable code.
+and SHA-3 run on the instructions the features hold. On x86-64, SHA-384 and SHA-512 run on
+AVX2 where the features hold it. Every other hash runs chapulin's portable code.
 
 stdx is the one place that asks chapulin for its module. So a program that names chapulin only
 through stdx links one chapulin, which chapulin requires.
@@ -75,8 +76,8 @@ the object it comes from.
 | `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
 | `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
 | `hash` | SHA-256, SHA-384 and SHA-512 as a stream and over a whole input, SHA3-256 and SHA3-512, SHAKE128 and SHAKE256, HMAC over the three SHA-2 hashes, and HKDF's Extract and Expand ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869)), each taking `Context.cpu` | `tcp.hash` |
-| `Cpu` | The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe, [`stdx.platform`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
-| `init`, `Options`, `Context` and `Timing` | The value a program makes once from its probe, [`stdx.platform`](../platform/README.md), its statement of timing and its random source | none: stdx's own |
+| `Cpu` | The CPU the calls beside `tls` and `quic` take, which `init` describes from the program's [`stdx.platform.CpuFeatures`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
+| `init`, `Options`, `Context` and `Timing` | The value a program makes once from its CPU features, [`stdx.platform.CpuFeatures`](../platform/README.md), its statement of timing and its random source | none: stdx's own |
 
 A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.ClientOptions`.
 

@@ -11819,6 +11819,31 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     `crypto` in a build with `.crypto = true`. `zig build readme-check` now also builds the
     consumer's first program over that build and runs it. Mutation: the reference removed,
     `CAUGHT` against `zig build readme-check`, whose link fails on `ch_assert_fail`.
+- **Step 27: `CpuFeatures`, the one CPU type a program passes (decisions 40 and 87 as amended on
+  2026-11-25).** The owner chose `platform.CpuFeatures` as the API a program names, enhanced first
+  to serve what `platform.Cpu` serves. `CpuFeatures` gains `aes`, `sha256`, `sha512`, `sha3`,
+  `sve2`, `dit` and `vaes`. `crypto.init` takes `.features`, and the two timing calls take
+  `CpuFeatures`, the read returning a `bool`. `probe` and `Cpu` stay until their programs move.
+  New public names: the seven fields. The changed calls: `crypto.Options.features` in place of
+  `probe`, and `data_independent_timing(features) bool` in place of `(cpu) Answer`.
+  **Check:**
+  - `zig build test-platform` maps each new field from its own bit of CPUID, of AT_HWCAP and of
+    AT_HWCAP2, with SHA-256's SSSE3 and SSE4.1, SHA512's YMM state, and VAES's AVX2 and
+    VPCLMULQDQ; from the targets of an Apple M1, a Neoverse N2, a Cortex-A72, a Zen 4 and
+    x86-64's baseline; and on the host, against `probe()`'s answer of each field and its read of
+    each CPUID leaf.
+  - `zig build test-crypto` holds `init`'s description to each feature on both architectures, and
+    AES's bit to the carry-less multiply of its own one.
+  - `zig test src/platform/platform.zig -target aarch64-linux --test-no-exec` and `-target
+    aarch64-macos` compile.
+  - Mutations, 14, each `CAUGHT`: the x86-64 bits of AES, SHA-256's SSSE3 and SSE4.1, SHA512's
+    YMM, VAES's AVX2 and VPCLMULQDQ, and leaf 7's subleaf 1 skipped; the arm64 SVE2 from AT_HWCAP
+    and DIT from another bit; the target's DIT dropped and its SHA-512 from `sha2`; and the timing
+    read whatever `dit` says, against `zig build test-platform`. AES's bit without the carry-less
+    multiply, with the other architecture's, and FEAT_DIT unread, against `zig build
+    test-crypto`. The skipped subleaf is caught on a CPU whose leaf 7 gives subleaf 1 a bit, as
+    this host's does.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

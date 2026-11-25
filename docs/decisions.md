@@ -2869,6 +2869,25 @@ last part lists what still waits on a ruling.
       - A read of DOITM through `/dev/cpu/*/msr`. It is a file read, which non-negotiable 1
         refuses, and it needs root.
 
+    **Amended again by the owner on 2026-11-25: `CpuFeatures` is the one CPU type a program
+    passes.** The owner chose to consolidate on `platform.CpuFeatures` as the API a program
+    names, and to enhance it first, so that it serves what `Cpu` serves.
+    - `CpuFeatures` gains `aes`, `sha256`, `sha512`, `sha3`, `sve2`, `dit` and `vaes`, each read
+      as `probe` reads it. On x86-64 that is CPUID leaves 1 and 7 and leaf 7's subleaf 1, with
+      XCR0. On aarch64 Linux it is AT_HWCAP and AT_HWCAP2. On a Mac it is the M-series facts,
+      which Zig's targets for Apple's cores guarantee. Detection still makes no syscall.
+    - A field is a boolean: false where the CPU lacks the feature or nothing says. `probe`'s
+      `not_known` becomes false, which fails closed. MIDR stays `probe`'s alone, because no
+      program reads it.
+    - `data_independent_timing` and `set_data_independent_timing` take `CpuFeatures`, and the
+      read returns a `bool`. `crypto.init` takes `.features` in place of `.probe` (entry 87 as
+      amended a fifth time). A program then detects once, for its codecs and for `stdx.crypto`.
+    - `probe`, `Cpu` and `Answer` stay until colibri, cocuyo, stompy and connect-zig read
+      `CpuFeatures`. A test holds `CpuFeatures.detect()` to `probe()` on each field both read, on
+      every host the tests run on.
+    - x86-64's detection moves to `platform_cpu_features_x86.zig`, so that each file stays under
+      500 lines.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
@@ -7180,6 +7199,11 @@ last part lists what still waits on a ruling.
       - Zig gives each file to one module of a compile, so one image holds one stdx. A test image
         over the stdx of `crypto_keylog` builds its own copy of each module above stdx, as
         colibri's key-log images do. `src/crypto/README.md` says so.
+    - Amended a fifth time on 2026-11-25, with entry 40: `init` takes the program's
+      `platform.CpuFeatures` as `.features`, the value its codecs take, in place of `probe`'s
+      `Cpu`. AES's bit needs the carry-less multiply of its own architecture beside `aes`: `pmull`
+      on arm64 and `pclmul` on x86-64. On arm64 a core whose features hold no FEAT_DIT states no
+      timing, where `probe`'s `not_known` stated it before.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.
