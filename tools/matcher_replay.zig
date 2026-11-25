@@ -14,17 +14,19 @@
 //!   every claim, one with none, one with every claim that read a long text first, and one
 //!   with every claim and the least cache its DFAs start with. A search from 0 also holds
 //!   each searcher's `is_match`. A `claim` line holds the literal that a searcher took for
-//!   claim R4, and the Lean side judged the rule it names: the first searcher must hold a
-//!   literal of the first rule, and the third searcher, after its long text, a literal of
-//!   any rule. A line that begins `differs` says a check of the Lean side failed, and fails
-//!   the replay.
+//!   claim R4 or claim R14, and the Lean side judged the rule it names: the first searcher
+//!   must hold a literal of claim R4's first rule, and the third searcher, after its long
+//!   text, a literal of any rule (matcher_replay/matcher_replay_claim.zig). A line that
+//!   begins `differs` says a check of the Lean side failed, and fails the replay.
 //!
 //! It exits 1 at the first line that fails, and names the line.
 //! src/regex/matcher_vectors_test.zig replays the committed file of one seed as a unit test.
 const std = @import("std");
 const regex = @import("regex");
 const platform = @import("platform");
-const replay_dump = @import("matcher_replay_dump.zig");
+const replay_dump = @import("matcher_replay/matcher_replay_dump.zig");
+const matcher_replay_claim = @import("matcher_replay/matcher_replay_claim.zig");
+const Claim = matcher_replay_claim.Claim;
 const Instruction = regex.Instruction;
 const Matcher = regex.Matcher;
 const Searcher = regex.Searcher;
@@ -155,11 +157,16 @@ pub const Replay = struct {
     searcher_finds: usize = 0,
     long_reads: usize = 0,
     is_matches: usize = 0,
-    /// The literal of the program's `claim` line, and the lines of the file so far.
+    /// The program's `claim` line: its literal, its rule and, for claim R14, the instruction
+    /// where the reverse program stands after the literal. Then the lines of the file so far.
     claim: [regex.constants.literal_len_max]u8 = undefined,
     claim_len: ?usize = null,
-    claim_rule: replay_dump.Rule = .first,
+    claim_rule: matcher_replay_claim.Rule = .first,
+    claim_before: u32 = 0,
     claims: usize = 0,
+    /// The searches that the searcher which read a long text ran from the places of claim
+    /// R14's literal: it held the literal, and its account was not at rest.
+    finds_by_inner: usize = 0,
     /// The words of the small cache that the fourth searcher's DFAs started with.
     small_cache_words: usize = 0,
     /// The searches that the searcher with a small cache answered after a DFA of its cleared
@@ -223,14 +230,11 @@ pub const Replay = struct {
         replay.programs += 1;
     }
 
-    /// A `claim` line: the literal that a searcher took for claim R4 of the program, under the
-    /// word of the rule it took it by. The Lean side judged that rule for the literal.
+    /// A `claim` line: the literal that a searcher took for the program, under the word of the
+    /// rule it took it by. The Lean side judged that rule for the literal.
     fn set_claim(replay: *Replay, tokens: *Tokens) !void {
-        const word = try take(tokens);
-        replay.claim_rule = inline for (std.meta.fields(replay_dump.Rule)) |field| {
-            const rule: replay_dump.Rule = @enumFromInt(field.value);
-            if (std.mem.eql(u8, word, rule.word())) break rule;
-        } else return error.VectorClaim;
+        replay.claim_rule = matcher_replay_claim.Rule.of_word(try take(tokens)) orelse return error.VectorClaim;
+        replay.claim_before = if (replay.claim_rule == .inner) try number(u32, tokens) else 0;
         const len = try number(usize, tokens);
         if (len == 0 or len > replay.claim.len) return error.VectorClaim;
         for (replay.claim[0..len]) |*byte| byte.* = try number(u8, tokens);
@@ -238,22 +242,22 @@ pub const Replay = struct {
         replay.claims += 1;
     }
 
-    /// The literal of the file's `claim` line, where the searcher at this point must hold it:
-    /// a new searcher holds a literal of the first rule alone, and a searcher that read the
-    /// long text holds a literal of any rule.
-    fn claimed(replay: *const Replay, judged: bool) ?[]const u8 {
+    /// The claim of the file's `claim` line, where the searcher at this point must hold it: a
+    /// new searcher holds a literal of claim R4's first rule alone, and a searcher that read
+    /// the long text holds a literal of any rule.
+    fn claimed(replay: *const Replay, judged: bool) ?Claim {
         const len = replay.claim_len orelse return null;
-        return if (judged or replay.claim_rule == .first) replay.claim[0..len] else null;
+        if (!judged and replay.claim_rule != .first) return null;
+        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .before = replay.claim_before };
     }
 
-    /// Requires a searcher to hold the literal that the file names for claim R4 at this point,
-    /// and none where the file names none. So the literal that the Lean side judged is the one
-    /// this build's searcher takes.
+    /// Requires a searcher to hold the claim that the file names at this point, and none where
+    /// the file names none: the literal, its rule and, for claim R14, the reverse DFA's second
+    /// entry. So what the Lean side judged is what this build's searcher takes.
     fn expect_claim(replay: *const Replay, searcher: *const Searcher, judged: bool) !void {
-        const held = replay_dump.claimed_suffix(searcher);
         const named = replay.claimed(judged);
-        const literal = held orelse return if (named == null) {} else error.ClaimDiffers;
-        if (!std.mem.eql(u8, literal, named orelse return error.ClaimDiffers)) return error.ClaimDiffers;
+        const held = matcher_replay_claim.held(searcher) orelse return if (named == null) {} else error.ClaimDiffers;
+        if (!held.same(named orelse return error.ClaimDiffers)) return error.ClaimDiffers;
     }
 
     /// The program the listed instructions make: a forward program alone, whose one group is
@@ -359,6 +363,8 @@ pub const Replay = struct {
         try expect_matcher(replay.matcher.find(text, low), expected);
         if (!replay.compiled) return;
         const causes = [searcher_count]anyerror{ error.SearcherDiffers, error.SearcherWithNoClaimDiffers, error.SearcherAfterLongReadDiffers, error.SearcherWithSmallCacheDiffers };
+        const long_read = &replay.searchers[long_read_searcher];
+        replay.finds_by_inner += @intFromBool(long_read.inner != null and long_read.account.rest == 0);
         for (&replay.searchers, causes) |*searcher, cause| {
             replay.searcher_finds += 1;
             if (!same(searcher.find(text, low), expected)) return cause;
@@ -424,10 +430,11 @@ pub fn main(init: std.process.Init) !void {
         if (replay.compiled) std.debug.print("matcher_replay: the pattern is \"{f}\", read as {s}\n", .{ std.zig.fmtString(replay.pattern[0..replay.pattern_len]), @tagName(replay.encoding) });
         std.process.exit(1);
     }
-    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up });
+    std.debug.print("matcher_replay: {d} programs, {d} of them compiled from a pattern, {d} searches, each the proved answer; with a small cache, {d} after a DFA cleared it and {d} after one gave up; {d} from the places of claim R14's literal\n", .{ replay.programs, replay.patterns, replay.finds, replay.finds_after_clear, replay.finds_after_give_up, replay.finds_by_inner });
 }
 
 test {
-    _ = @import("matcher_replay_test.zig");
+    _ = @import("matcher_replay/matcher_replay_test.zig");
     _ = replay_dump;
+    _ = matcher_replay_claim;
 }
