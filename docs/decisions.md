@@ -6636,15 +6636,23 @@ last part lists what still waits on a ruling.
         with `apart_program`. `RulesWide.lean` and `RulesSeparator.lean` decide the second
         rule and the third: `wideOn`, with `wide_program`. The script runs them for each
         literal that a searcher took by a rule, so the choice is held for every text, and
-        not for the drawn one alone. Claim R14's rule is not decided yet, nor a literal with
-        a place that folds.
+        not for the drawn one alone. A literal with a place that folds is not decided yet.
+      - `Stdx/Regex/SearcherInner.lean` gives claim R14's scans for a program: `innerOf`,
+        whose reverse scan starts where the reverse program stands after the literal.
+        `RulesInner.lean` decides the claim's rule: `innerOn`, with `inner_program`. Every
+        match passes the instruction that takes the literal's last byte, and one of claim
+        R4's three rules holds for the part of a match before the literal. The script runs
+        `innerOn` for each literal that a searcher took for claim R14.
     - Not proved: the parser, the builder, the matcher's capture slots, a DFA's table and the
       claims that change how it reads its bytes, and the Zig code of `Literal.find`. Three
       things hold by a proved check for each program and text a run draws, and by no proof
       for the builder: a node's ranges stand apart, the reverse program takes each match
-      read backward, and a match that starts before a continuation byte is empty. Claims
-      R10, R13 and R14 are proved over scans taken as given, and not yet over a program's.
-      Design §8 parts 22h and 22r name their order.
+      read backward, and a match that starts before a continuation byte is empty. For a
+      program with a claim's literal, the check also holds that no match starts there.
+      Claims R10 and R13 are proved over scans taken as given, and not yet over a program's.
+      Claim R14's proof has no guard that leaves the literal's places after a forward scan
+      read far: the guard changes a search's cost and no answer. Design §8 parts 22h and 22r
+      name their order.
 
     **What the hosted runners measured, 2026-11-21.** `bench-regex` ran at `22f6bba` in five jobs
     on the Neoverse N2 and in three on the AMD EPYC 7763 (design §8 step 22, part 22l, names

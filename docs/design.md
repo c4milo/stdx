@@ -10841,6 +10841,98 @@ to 12 are reordered and nothing else changes.
   - What this part does not decide: claim R14's rule, and a literal with a place that folds.
     The sixth part's count of literals is of the dump before this part's two shapes.
 
+  **Part 22r, its eighth part built: claim R14's search over a program, and its rule decided
+  from a program (decision 86).** **Check:** `lake build` exits 0 and pins each new theorem's
+  axioms; the rule holds and fails on small programs by `decide`;
+  `tools/matcher_model_check.sh` passes, with the rule decided for each literal that a
+  searcher took for claim R14.
+
+  **Check passed, part 22r, its eighth part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on
+  x86-64 Linux 6.18, in a cloud container.
+  - Before this part, `Inner.lean` proved claim R14's search over scans that it took as
+    given, and no proof held the code's rule to that theorem's precondition.
+    `Stdx/Axioms.lean` pins 12 more theorems, 99 in all.
+  - `Stdx/Regex/SearcherInner.lean` gives `Search.Inner` for a program: `innerOf`.
+    - The reverse program takes the literal's bytes from an instruction, `cut`, and stands
+      at `before` after them. `chainTo` decides that walk to the instruction that the Zig
+      walk names: `Literal.walk` goes on through the saves and jumps after the last byte.
+    - `passesOn` decides that every path from the reverse program's entry to `match` passes
+      `cut` (`dfa_inner.every_match_passes`). `passes_split` proves it from a set that
+      `passesOk` checks.
+    - The part of a match before the literal is a path from `before`. The part after it is a
+      path from the entry to `cut`, and then through the literal's instructions. An
+      assertion among them holds on that path, so the three parts make a match.
+    - `backBefore` is `scanBack` from `before`: the reverse DFA's scan from its second start.
+  - `Stdx/Regex/RulesInner.lean` decides the rule for the part before the literal:
+    `beforeOn`, one of claim R4's three rules from `before`. Each gives `BeforeRising`.
+    - The third rule may hold for the literal past some of its first bytes, as the Zig rule
+      tries the literal past its first run. The search still goes to the places of the whole
+      literal, so the proof needs more than the rule for the shorter one. The bytes passed
+      are separators, the byte after them is none, and `before` stands among the
+      instructions that the program reaches over separators alone (`inner_separated`).
+    - `innerOn` is the three parts, and `inner_program` gives the search's answer.
+    - The Lean rule takes more literals than the Zig rule. The Zig third rule requires that
+      no byte of the literal past its first run is a separator, and the proof reads the
+      first of them alone.
+  - The dump writes a `claim inner` line for the literal that a searcher holds for claim R14
+    after it read enough text: the reverse DFA's second entry, and the literal. The vector
+    writer requires `innerOn` to hold for some cut with that entry, and writes `differs
+    claim inner` where it holds for none. The replay requires its searcher that read the
+    long text to hold the same literal, rule and entry.
+  - The theorems of the claims take `StartsClean`, and the script decided `EmptyElsewhere`
+    alone. For a program with a `claim` line, the vector writer now decides `StartsClean`
+    for each short text too, and writes `differs starts-clean` where it fails.
+  - The dump's file had reached 485 lines. The replay program's pieces moved to
+    `tools/matcher_replay/`, and `matcher_replay_claim.zig` reads the claim that a searcher
+    holds, with its rule.
+  - The second pattern source draws one more shape: a run, a space or more, a word and a
+    run.
+  - `tools/matcher_model_check.sh` passed seeds 7, 11 and 13 in 33 s. Seeds 1, 2 and 3 with
+    20,000 patterns each hold 4,022 literals of claim R14, 1,242 of claim R4's first rule and
+    1,770 of its other two, and a proved rule held for each.
+    - Of seed 7's 700 searches under a literal of claim R14, the searcher that read a long
+      text ran 643 from the literal's places. The claim's account was at rest for the others.
+  - 34 mutations. Each was CAUGHT, one of them by the module's own tests alone:
+    - Six of the Zig rule, against the script: every match taken to pass the cut; no rule
+      for the part before the literal; the reverse DFA's second entry not set; the third
+      rule with a separator let past the separator; the second rule for a part of more than
+      one length; and the first rule taken to hold. A `differs claim` line caught each one
+      before a searcher's answer did.
+    - The proved rules refuse a faulty searcher's literals with no text. For seed 7:
+      - Every match taken to pass the cut: 743 of its 1,011 literals of claim R14.
+      - No rule for the part before the literal: 576 of 876.
+      - The third rule's fault: 53 of 351, and 14 of 130 of claim R4's wider rules.
+      - The second rule's fault: 269 of 567, and 17 of 132.
+      - The first rule's fault: 454 of 731, and 362 of 457 of claim R4's first rule.
+    - Seven of the Zig search, against the script. A searcher's answer caught six: the next
+      place sought past the whole literal; the search ended at a place with no start; a
+      forward scan with no match taken as a match; a start held to one byte before the place
+      at the most; a match's first end kept; and the second start taken as the first.
+    - The seventh was NOT CAUGHT by the script, and none is expected: a search with no guard
+      on a forward scan that read far gives the same answers. Two tests of
+      `searcher_inner_test.zig` catch it.
+    - Four of the vector writer, against the script: no line for a rule that fails, a rule
+      held for any second entry, no line for `StartsClean`, and the literal read from its
+      first byte. Three canary dumps caught the first three, and seed 7's dump the fourth.
+      Each of the three canaries of claim R14 breaks one part of the rule, and its twin
+      with that part mended passes.
+    - Eight of the Lean checks, against `lake build`: the rule with no check that every
+      match passes the cut; a set that may hold `match`; `before` outside the instructions
+      reached over separators; the byte after the bytes passed taken as no separator; a
+      walk through a range of more than one byte; `before` outside the first set; the bytes
+      passed taken as separators; and a reverse scan that reads back to 0. Each fails its
+      proof.
+    - Nine of the replay program and the dump, against `zig build test-tools`: a claim with
+      the reverse program's entry in the place of the second entry; a compare of two claims
+      with no entry; a `claim inner` line with no entry; no check of the searcher that read
+      the long text; a literal with a place that folds written as one with none, for each
+      claim; a wider rule's literal named as the first rule's; a new searcher held to a
+      literal of a rule that waits; and a dump that reads no long text.
+  - What this part does not decide: a literal with a place that folds, which the dump leaves
+    out, and the guard of `searcher_inner.find` that leaves the literal's places after a
+    forward scan read far. The seventh part's count of literals is of the dump before this
+    part's shape.
+
   **Part 22h, its first part built: the order of the matcher's threads in Lean (decision 86).**
   **Check:** `zig build lean` builds the two files below with their theorems' axioms pinned;
   the model gives RE2's ends on small programs; mutations of the definitions fail the build.
@@ -10979,9 +11071,9 @@ to 12 are reordered and nothing else changes.
     programs drawn as instructions. The second part is new, and reads programs that `compile`
     wrote:
     1. `matcher_replay dump <seed> <count> <file>` draws patterns, and compiles each as UTF-8
-       or as bytes in turn (`tools/matcher_replay_dump.zig`). For each it writes the pattern,
-       the whole program with its two entries, a text of at most 12 bytes, and one or two
-       searches.
+       or as bytes in turn (`tools/matcher_replay/matcher_replay_dump.zig`). For each it
+       writes the pattern, the whole program with its two entries, a text of at most 12
+       bytes, and one or two searches.
     2. `lake exe vectors --answers <file>` writes the file again with each search answered by
        `answerFast`, which `answerFast_isAnswer` proves equal to `answerOf`.
     3. `matcher_replay` compiles each pattern again and requires the program that the file

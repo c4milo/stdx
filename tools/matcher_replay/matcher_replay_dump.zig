@@ -14,15 +14,16 @@
 //! A text holds at most `text_len_max` bytes, or for one case in `long_case_share` at most
 //! `long_text_len_max`, with more searches.
 //!
-//! After a program's instructions, a `claim suffix` line holds the literal that a new searcher
-//! took for claim R4, by the claim's first rule. A `claim suffix-wide` line holds the literal
-//! that a searcher took after it read enough text, by the second rule or the third. The Lean
-//! side decides each rule for the literal from the program (spec/lean/Stdx/Regex/Rules.lean
-//! and RulesSeparator.lean), and a rule holds for every text or for none.
+//! After a program's instructions, a `claim` line holds the literal that a searcher took for the
+//! program, under the word of the rule it took it by (matcher_replay_claim.zig): `suffix` for
+//! claim R4's first rule, `suffix-wide` for its second rule or its third, and `inner` for claim
+//! R14. The Lean side decides each rule for the literal from the program, and a rule holds for
+//! every text or for none.
 const std = @import("std");
 const regex = @import("regex");
-const platform = @import("platform");
-const regex_generate = @import("differential/regex_generate.zig");
+const regex_generate = @import("../differential/regex_generate.zig");
+const matcher_replay_claim = @import("matcher_replay_claim.zig");
+const Claim = matcher_replay_claim.Claim;
 const Generator = @import("codec").testing.split.Generator;
 const Instruction = regex.Instruction;
 
@@ -117,6 +118,8 @@ const Shape = enum {
     /// A run, a space or more, then a word: claim R4's third rule, where the run takes no
     /// space.
     separated,
+    /// The same, and then a run: claim R14, by the third rule for the part before the word.
+    inner_separated,
 };
 
 fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
@@ -171,6 +174,7 @@ fn claim_case(generator: *Generator, case: *regex_generate.Case) void {
         .either => pattern.printAssumeCapacity("(?:{s}{s}|{s})", .{ run, word, other }),
         .nested => pattern.printAssumeCapacity("(?:[ab]|c[ab]{s}){s}{s}", .{ word, word, second }),
         .separated => pattern.printAssumeCapacity("{s} +{s}", .{ run, word }),
+        .inner_separated => pattern.printAssumeCapacity("{s} +{s}{s}", .{ run, word, second }),
     }
     pattern.appendSliceAssumeCapacity(pick(generator, &tails));
     case.pattern.len = pattern.items.len;
@@ -218,11 +222,14 @@ pub const Lines = struct {
         try lines.bytes.append(lines.arena, '\n');
     }
 
-    /// The literal a searcher took for claim R4, under the word of its rule: its length and
-    /// its bytes, in the text's order.
+    /// The literal a searcher took, under the word of its rule: for claim R14 the instruction
+    /// where the reverse program stands after the literal, then the literal's length and its
+    /// bytes, in the text's order.
     fn add_claim(lines: *Lines, claim: Claim) !void {
         var buffer: [line_len_max]u8 = undefined;
-        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s} {d}", .{ claim.rule.word(), claim.literal.len }));
+        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s}", .{claim.rule.word()}));
+        if (claim.rule == .inner) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
+        try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.literal.len}));
         for (claim.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
         try lines.bytes.append(lines.arena, '\n');
     }
@@ -238,74 +245,19 @@ pub const Lines = struct {
     }
 };
 
-/// The rule that a searcher took a literal for claim R4 by.
-pub const Rule = enum {
-    /// The first rule, which a new searcher judges.
-    first,
-    /// The second rule or the third, which a searcher judges after its searches were given
-    /// enough text.
-    wide,
-
-    /// The word of a claim line for the rule.
-    pub fn word(rule: Rule) []const u8 {
-        return switch (rule) {
-            .first => "suffix",
-            .wide => "suffix-wide",
-        };
-    }
-};
-
-/// A literal that a searcher took for claim R4, and the rule it took it by.
-pub const Claim = struct { rule: Rule, literal: []const u8 };
-
-/// The literal of claim R4 that a searcher holds, where no place of it folds. Null where the
-/// searcher took none, or one with a place that takes its byte in either case.
-pub fn claimed_suffix(searcher: *const regex.Searcher) ?[]const u8 {
-    if (searcher.suffix) |*literal| {
-        if (literal.folds == 0) return literal.slice();
-    }
-    return null;
-}
-
-/// What a dump keeps from one case to the next: the storage `compile` writes, and a searcher
-/// with its memory, which says what claim a new searcher takes for a program.
+/// What a dump keeps from one case to the next: the storage `compile` writes, and the searcher
+/// that says what claim a searcher takes for a program.
 pub const Scratch = struct {
     storage: []Instruction,
-    memory: []u64,
-    /// A text long enough that a searcher which read it has judged each rule that waits.
-    judging_text: []u8,
-    features: platform.CpuFeatures,
-    searcher: regex.Searcher = undefined,
+    taker: matcher_replay_claim.Taker,
 
     pub fn init(arena: std.mem.Allocator) !Scratch {
-        const memory_len = regex.Searcher.memory_len(instructions_max, slots_max, regex.constants.cache_words_default);
-        const judging_text = try arena.alloc(u8, judging_text_len);
-        @memset(judging_text, 0);
         return .{
             .storage = try arena.alloc(Instruction, instructions_max),
-            .memory = try arena.alloc(u64, memory_len),
-            .judging_text = judging_text,
-            .features = platform.CpuFeatures.detect(),
+            .taker = try matcher_replay_claim.Taker.init(arena, instructions_max, slots_max),
         };
     }
-
-    /// The literal that a searcher takes for claim R4 of `program`, and by which rule. A new
-    /// searcher has judged the first rule alone. Where it took no literal, the searcher reads
-    /// the long text, and a literal it then holds is the second rule's or the third's. The
-    /// literal holds until the next call.
-    pub fn suffix_claim(scratch: *Scratch, program: *const regex.Program) ?Claim {
-        const memory_len = regex.Searcher.memory_len(program.forward_len, program.slot_count(), regex.constants.cache_words_default);
-        scratch.searcher.init(program, &.{ .features = scratch.features }, scratch.memory[0..memory_len]);
-        if (claimed_suffix(&scratch.searcher)) |literal| return .{ .rule = .first, .literal = literal };
-        _ = scratch.searcher.is_match(scratch.judging_text);
-        const literal = claimed_suffix(&scratch.searcher) orelse return null;
-        return .{ .rule = .wide, .literal = literal };
-    }
 };
-
-/// The bytes of a text after which a searcher has judged each rule that waits: what it waits
-/// for, for each instruction a dumped program may hold (decision 86, the claims that wait).
-pub const judging_text_len = regex.constants.claim_text_per_instruction * instructions_max;
 
 /// A long text for a case whose own text is `short`. A run repeats one filler, or holds mixed
 /// pieces, which make a DFA build many states.
@@ -329,7 +281,7 @@ fn add_drawn(lines: *Lines, generator: *Generator, case: *const regex_generate.C
     if (case.overflowed()) return false;
     const program = regex.compile(case.pattern.slice(), .{ .encoding = encoding }, scratch.storage) catch return false;
     if (program.slot_count() > slots_max) return false;
-    const claim = scratch.suffix_claim(&program);
+    const claim = scratch.taker.claim(&program);
     var long: [long_text_len_max]u8 = undefined;
     const short = case.text[0..@min(case.text_len, text_len_max)];
     if (generator.below(long_case_share) != 0) {
@@ -426,50 +378,34 @@ test "some cases of a dump take a long text, each with its searches" {
     try testing.expect(longs > 0 and longs < cases / 2);
 }
 
-test "a dump names the literal that a new searcher took for claim R4" {
+test "a dump names the literal that a searcher took, after the program and before its text" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    var scratch = try Scratch.init(arena_state.allocator());
-    // No digit is the literal's first byte, so the first rule holds. `[a-c]+ab` takes `a`
-    // before its literal, and a new searcher has judged no other rule.
-    const taken = try regex.compile("[0-9]+ab", .{}, scratch.storage);
-    const first = scratch.suffix_claim(&taken).?;
-    try testing.expectEqual(Rule.first, first.rule);
-    try testing.expectEqualStrings("ab", first.literal);
-    // No rule holds for `[a-c]+ab`: the part before takes `a`, takes more than one count of
-    // bytes, and ends with no separator.
-    const refused = try regex.compile("[a-c]+ab", .{}, scratch.storage);
-    try testing.expect(scratch.suffix_claim(&refused) == null);
-    // The second rule: the part before takes one byte, which may be the literal's first.
-    const fixed = try regex.compile("[a-z]shing", .{}, scratch.storage);
-    const second = scratch.suffix_claim(&fixed).?;
-    try testing.expectEqual(Rule.wide, second.rule);
-    try testing.expectEqualStrings("shing", second.literal);
-    // The third rule: the part before ends with a space or more, and holds none before them.
-    // The literal starts with the one space that every match holds before `Holmes`.
-    const separated = try regex.compile("[A-Za-z]+ +Holmes", .{}, scratch.storage);
-    const third = scratch.suffix_claim(&separated).?;
-    try testing.expectEqual(Rule.wide, third.rule);
-    try testing.expectEqualStrings(" Holmes", third.literal);
-    // A literal with a place that folds is left out.
-    const folded = try regex.compile("[0-9]+(?i:ab)", .{}, scratch.storage);
-    try testing.expect(scratch.suffix_claim(&folded) == null);
-    try testing.expect(scratch.searcher.suffix != null);
-
     const cases = 64;
     const text = try dump(arena_state.allocator(), 1, cases);
     var claims: usize = 0;
+    var inner: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     var before: []const u8 = "";
     while (lines.next()) |line| {
-        // A claim line stands after the program's last instruction, and before its text.
-        if (std.mem.startsWith(u8, line, "claim suffix")) {
+        if (std.mem.startsWith(u8, line, "claim ")) {
             claims += 1;
+            inner += @intFromBool(std.mem.startsWith(u8, line, "claim inner "));
             try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
+            var tokens = std.mem.tokenizeScalar(u8, line, ' ');
+            _ = tokens.next();
+            const rule = matcher_replay_claim.Rule.of_word(tokens.next().?).?;
+            // Claim R14's line names an instruction before the literal's length.
+            if (rule == .inner) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
+            const len = try std.fmt.parseInt(usize, tokens.next().?, text_len_radix);
+            var bytes: usize = 0;
+            while (tokens.next()) |_| bytes += 1;
+            try testing.expect(len > 0 and len == bytes);
         }
         before = line;
     }
     try testing.expect(claims > 0 and claims < cases);
+    try testing.expect(inner > 0 and inner < claims);
 }
 
 test "line_of writes each kind as the Lean model reads it" {

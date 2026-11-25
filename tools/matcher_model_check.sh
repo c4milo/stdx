@@ -11,11 +11,13 @@
 # 2. `matcher_replay dump` writes the programs that `compile` gives the patterns the seed draws,
 #    with a text and its searches. `lake exe vectors --answers` answers each search, and checks
 #    that each program and text pass the hypotheses of the model's theorems
-#    (spec/lean/Stdx/Regex/Hypotheses.lean), and that a rule of claim R4 holds for each
-#    literal a searcher took by it (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean). `matcher_replay` compiles each pattern again and
-#    requires the answer of `Matcher.find` and of four searchers: one with every claim, one
-#    with none, one with every claim that read a long text first, and one with every claim and
-#    a small cache. One case in eight takes a text of up to 1,024 bytes.
+#    (spec/lean/Stdx/Regex/Hypotheses.lean). It also checks that a rule of claim R4 or the
+#    rule of claim R14 holds for each literal a searcher took by it
+#    (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean and RulesInner.lean).
+#    `matcher_replay` compiles each pattern again and requires the answer of `Matcher.find`
+#    and of four searchers: one with every claim, one with none, one with every claim that
+#    read a long text first, and one with every claim and a small cache. One case in eight
+#    takes a text of up to 1,024 bytes.
 #
 # A seed that fails is printed: give it again to see the same failure.
 #
@@ -146,6 +148,85 @@ split 7 9
 match
 claim suffix-wide 2 97 98
 text 3 99 97 98
+search 0
+DUMP
+# `[a-c]+@[a-c]+` and its reverse half, which has the same form. Every match holds `@`, and
+# the reverse program stands at 9 after it. The claim names 10: the walk of the literal stands
+# at no such instruction.
+canary "claim inner" <<'DUMP'
+program bytes 12 0 6
+range 97 99 1
+split 0 2
+range 64 64 3
+range 97 99 4
+split 3 5
+match
+range 97 99 7
+split 6 8
+range 64 64 9
+range 97 99 10
+split 9 11
+match
+claim inner 10 1 64
+text 4 97 98 64 99
+search 0
+DUMP
+# `(?:a@|b)c` and its reverse half `c(?:@a|b)`. The reverse program takes `@` at 8 and stands at
+# 9 after it, and the part before takes no `@`. A match of `bc` passes no `@`, so not every
+# match passes 8.
+canary "claim inner" <<'DUMP'
+program bytes 12 0 6
+split 1 3
+range 97 97 2
+range 64 64 4
+range 98 98 4
+range 99 99 5
+match
+range 99 99 7
+split 8 10
+range 64 64 9
+range 97 97 11
+range 98 98 11
+match
+claim inner 9 1 64
+text 3 97 64 99
+search 0
+DUMP
+# `[a-c@]+@[a-c]+` and its reverse half. Every match passes the `@` at 10, and the reverse
+# program stands at 11 after it. The part before takes `@`, takes more than one count of bytes,
+# and ends with no separator that the literal does not start with: no rule holds for it.
+canary "claim inner" <<'DUMP'
+program bytes 16 0 8
+ranges 2
+range 64 64 3
+range 97 99 3
+split 0 4
+range 64 64 5
+range 97 99 6
+split 5 7
+match
+range 97 99 9
+split 8 10
+range 64 64 11
+ranges 2
+range 64 64 14
+range 97 99 14
+split 11 15
+match
+claim inner 11 1 64
+text 4 97 64 64 98
+search 0
+DUMP
+# `a*` read as UTF-8, with a claim. In the bytes C3 A9 it matches the empty text at 1, where
+# no match may start. That match is empty, so the search with no claim keeps its hypothesis,
+# and the theorem of a claim does not.
+canary "starts-clean" <<'DUMP'
+program utf8 3 0 none
+split 1 2
+range 97 97 0
+match
+claim suffix 1 97
+text 2 195 169
 search 0
 DUMP
 for seed in "$@"; do
