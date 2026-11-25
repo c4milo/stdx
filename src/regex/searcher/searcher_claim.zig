@@ -34,11 +34,13 @@ pub const Deferred = struct {
     suffix: bool = false,
     /// Claim R14.
     inner: bool = false,
+    /// The window (dfa_window.zig).
+    window: bool = false,
     /// Claim R13, for a pattern that starts at the text's start and ends at its end.
     length: bool = false,
 
     pub fn any(deferred: Deferred) bool {
-        return deferred.suffix or deferred.inner or deferred.length;
+        return deferred.suffix or deferred.inner or deferred.window or deferred.length;
     }
 };
 
@@ -61,6 +63,8 @@ pub fn ready(searcher: *Searcher, program: *const Program, claims: searcher_file
     if (by_place and claims.suffix) ready_suffix(searcher, program);
     // Claim R14 is for a pattern that no other claim finds the matches of.
     searcher.deferred.inner = by_place and claims.inner and searcher.suffix == null and searcher.forward.literals == null;
+    // The window takes claim R1's skip, which a program with an assertion has none of.
+    searcher.deferred.window = by_place and claims.window and searcher.suffix == null and searcher.forward.literals == null and searcher.forward.may_skip;
     searcher.deferred_left = (program.instructions.len - program.forward_len) * constants.claim_text_per_instruction;
     searcher.by_claim = flag(searcher);
 }
@@ -94,6 +98,12 @@ pub fn judge(searcher: *Searcher) void {
             searcher.inner.?.wide = searcher.forward.config.wide;
             // The reverse DFA's second start reads the part of a match before the literal.
             searcher.reverse.second_entry = inner.before;
+        }
+    }
+    if (searcher.deferred.window and searcher.suffix == null and searcher.inner == null) {
+        if (dfa_inner.window_of(&searcher.reverse, program)) |window| {
+            searcher.forward.window = window;
+            searcher.forward.window.?.literal.wide = searcher.forward.config.wide;
         }
     }
     if (searcher.deferred.length) {

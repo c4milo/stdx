@@ -18,8 +18,8 @@
 //!
 //! After that line, a `claim` line holds the literal that a searcher took for the
 //! program, under the word of the rule it took it by (matcher_replay_claim.zig): `suffix` for
-//! claim R4's first rule, `suffix-wide` for its second rule or its third, and `inner` for claim
-//! R14. The Lean side decides each rule for the literal from the program, and a rule holds for
+//! claim R4's first rule, `suffix-wide` for its second rule or its third, `inner` for claim
+//! R14, and `window` for the window, with its bound after the instruction. The Lean side decides each rule for the literal from the program, and a rule holds for
 //! every text or for none.
 //!
 //! A `prefix` line holds the literal that the searcher's forward DFA goes to, by claim R2 or
@@ -133,7 +133,8 @@ pub const Lines = struct {
     fn add_claim(lines: *Lines, claim: Claim) !void {
         var buffer: [line_len_max]u8 = undefined;
         try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s}", .{claim.rule.word()}));
-        if (claim.rule == .inner) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
+        if (claim.rule == .inner or claim.rule == .window) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
+        if (claim.rule == .window) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.lead}));
         try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.literal.len}));
         for (claim.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
         if (claim.folds != 0) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " folds {d}", .{claim.folds}));
@@ -307,6 +308,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     var inner: usize = 0;
     var folded: usize = 0;
     var prefixes: usize = 0;
+    var windows: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     var before: []const u8 = "";
     while (lines.next()) |line| {
@@ -317,6 +319,7 @@ test "a dump names the literal that a searcher took, after the program and befor
         if (std.mem.startsWith(u8, line, "claim ")) {
             claims += 1;
             inner += @intFromBool(std.mem.startsWith(u8, line, "claim inner "));
+            windows += @intFromBool(std.mem.startsWith(u8, line, "claim window "));
             try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
             folded += @intFromBool(try expect_claim_line(line));
         }
@@ -326,6 +329,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     try testing.expect(inner > 0 and inner < claims);
     try testing.expect(folded > 0 and folded < claims);
     try testing.expect(prefixes > 0 and prefixes < cases);
+    try testing.expect(windows > 0 and windows < claims);
 }
 
 /// Requires a claim line's parts: its rule, for claim R14 an instruction, the literal's length
@@ -335,7 +339,8 @@ fn expect_claim_line(line: []const u8) !bool {
     var tokens = std.mem.tokenizeScalar(u8, line, ' ');
     _ = tokens.next();
     const rule = matcher_replay_claim.Rule.of_word(tokens.next().?).?;
-    if (rule == .inner) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
+    if (rule == .inner or rule == .window) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
+    if (rule == .window) try testing.expect(try std.fmt.parseInt(u32, tokens.next().?, text_len_radix) <= regex.constants.window_lead_max);
     const len = try std.fmt.parseInt(usize, tokens.next().?, text_len_radix);
     try testing.expect(len > 0);
     for (0..len) |_| _ = try std.fmt.parseInt(u8, tokens.next().?, text_len_radix);

@@ -23,6 +23,8 @@ pub const Rule = enum {
     wide,
     /// Claim R14's rule, which a searcher judges then too.
     inner,
+    /// The window's rule (src/regex/dfa/dfa_window.zig), which a searcher judges then too.
+    window,
 
     /// The word of a claim line for the rule.
     pub fn word(rule: Rule) []const u8 {
@@ -30,6 +32,7 @@ pub const Rule = enum {
             .first => "suffix",
             .wide => "suffix-wide",
             .inner => "inner",
+            .window => "window",
         };
     }
 
@@ -51,13 +54,14 @@ pub const Claim = struct {
     /// The places that take a letter in either case: bit `i` for place `i` (`Literal.folds`).
     /// Such a place holds the lower-case letter.
     folds: u64 = 0,
-    /// For claim R14, the instruction where the reverse program stands after the literal: the
-    /// reverse DFA's second entry, from which it reads the part of a match before the literal.
-    /// Zero for claim R4.
+    /// For claim R14 and the window, the instruction where the reverse program stands after the
+    /// literal, from which it reads the part of a match before the literal. Zero for claim R4.
     before: u32 = 0,
+    /// For the window, the most bytes of a match before the literal. Zero for the others.
+    lead: u32 = 0,
 
     pub fn same(claim: Claim, other: Claim) bool {
-        return claim.rule == other.rule and claim.before == other.before and claim.folds == other.folds and std.mem.eql(u8, claim.literal, other.literal);
+        return claim.rule == other.rule and claim.before == other.before and claim.lead == other.lead and claim.folds == other.folds and std.mem.eql(u8, claim.literal, other.literal);
     }
 };
 
@@ -66,8 +70,11 @@ pub fn held(searcher: *const regex.Searcher) ?Claim {
     if (searcher.suffix) |*literal| {
         return .{ .rule = if (searcher.suffix_wide) .wide else .first, .literal = literal.slice(), .folds = literal.folds };
     }
-    const literal = &(searcher.inner orelse return null);
-    return .{ .rule = .inner, .literal = literal.slice(), .folds = literal.folds, .before = searcher.reverse.second_entry };
+    if (searcher.inner) |*literal| {
+        return .{ .rule = .inner, .literal = literal.slice(), .folds = literal.folds, .before = searcher.reverse.second_entry };
+    }
+    const window = &(searcher.forward.window orelse return null);
+    return .{ .rule = .window, .literal = window.literal.slice(), .folds = window.literal.folds, .before = window.before, .lead = window.lead };
 }
 
 /// A searcher with its memory, which says what claim a searcher takes for a program.
@@ -185,4 +192,20 @@ test "a claim line's word names its rule" {
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 8 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "aa", .before = 7 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 7, .folds = 1 }));
+    try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 7, .lead = 3 }));
+}
+
+test "a taker names the literal and the bound of a window" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var taker = try Taker.init(arena.allocator(), test_instructions_max, test_slots_max);
+    const storage = try arena.allocator().alloc(regex.Instruction, test_instructions_max);
+    // The part before `ab` may hold `a`, so no rule of claim R14 holds, and it takes three bytes
+    // at most.
+    const window = try expect_claim(&taker, storage, "[a-c]{0,3}ab[a-c]*", .window, "ab");
+    try testing.expectEqual(@as(u32, 3), window.lead);
+    const program = taker.searcher.matcher.program;
+    try testing.expect(window.before >= program.forward_len and window.before < program.instructions.len);
+    // No bound: no window.
+    try expect_none(&taker, storage, "[a-c]*ab[a-c]*");
 }

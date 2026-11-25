@@ -19,6 +19,8 @@ const Literal = literal_file.Literal;
 const Suffix = literal_file.Suffix;
 const Dfa = @import("dfa.zig").Dfa;
 const dfa_suffix = @import("dfa_suffix.zig");
+const dfa_length = @import("dfa_length.zig");
+const Window = @import("dfa_window.zig").Window;
 
 /// A literal that every match holds in its middle, and whether claim R4's first rule holds for
 /// the part of a match before it.
@@ -57,6 +59,40 @@ pub fn inner_of(reverse: *Dfa, program: *const Program) ?Suffix {
     var suffix = (best orelse return null).suffix;
     suffix.literal.prepare();
     return suffix;
+}
+
+/// The window (dfa_window.zig): a literal that every match holds, after a part of the match
+/// that takes at most `window_lead_max` bytes. Of several, the longest, and of those the one
+/// with the shorter part before it. `reverse` is the reverse program's DFA. Null where the
+/// program holds none among its `inner_candidates_max` longest literals, and where the literal
+/// is shorter than `literal_prefix_len_min`.
+pub fn window_of(reverse: *Dfa, program: *const Program) ?Window {
+    assert(reverse.config.entry == program.reverse);
+    var runs: [constants.inner_candidates_max]Run = undefined;
+    const runs_len = collect(program, &runs);
+    longest_first(runs[0..runs_len]);
+    var best: ?Window = null;
+    for (runs[0..runs_len]) |run| {
+        if (run.chain.literal.len < constants.literal_prefix_len_min) break;
+        // The literals after a shorter one are as short or shorter, and lose to the one held.
+        if (best) |held| {
+            if (run.chain.literal.len < held.literal.len) break;
+        }
+        const lead = window_lead(reverse, run) orelse continue;
+        if (best == null or lead < best.?.lead) best = .{ .literal = run.chain.literal, .lead = lead, .before = run.chain.before };
+    }
+    var window = best orelse return null;
+    window.literal.prepare();
+    return window;
+}
+
+/// The most bytes of a match before the literal of `run`, where every match passes its cut and
+/// no path of the part before it takes more than `window_lead_max` bytes. Null otherwise.
+fn window_lead(reverse: *Dfa, run: Run) ?u32 {
+    if (!every_match_passes(reverse, run.cut)) return null;
+    const lengths = dfa_length.from(reverse, run.chain.before, constants.window_lead_max) orelse return null;
+    assert(lengths.bound <= constants.window_lead_max);
+    return @intCast(lengths.bound);
 }
 
 /// A literal that the reverse program takes from one of its instructions: the instruction,

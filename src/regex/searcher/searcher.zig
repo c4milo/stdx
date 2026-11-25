@@ -91,6 +91,11 @@ pub const Claims = struct {
     /// back from each to the match's start, and forward from there to its end
     /// (searcher_inner.zig). Only with `start_skip`.
     inner: bool = true,
+    /// The window: where every match holds a literal at most `window_lead_max` bytes after its
+    /// start, and no claim from R2 to R5 or R14 holds, the forward DFA's state that waits goes
+    /// to that many bytes before the literal's next place (dfa_window.zig). Only with
+    /// `start_skip`, and judged with R14.
+    window: bool = true,
 };
 
 /// What `Searcher.init` takes beside the program and the memory: one way to start a searcher, as
@@ -456,6 +461,7 @@ test {
     _ = @import("searcher_edge_test.zig");
     _ = @import("searcher_inner_test.zig");
     _ = @import("searcher_second_test.zig");
+    _ = @import("searcher_window_test.zig");
     _ = @import("searcher_claim_test.zig");
     _ = @import("searcher_account.zig");
 }

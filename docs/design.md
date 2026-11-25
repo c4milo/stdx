@@ -10491,6 +10491,56 @@ to 12 are reordered and nothing else changes.
       comparison, and a line kept. A new test of the replay holds them. The first form of the
       third mutant did not compile, and was not counted.
 
+  The window (decision 86 as amended on 2026-11-25):
+  - `imported/sherlock/ing-suffix-limited-space` and `imported/leipzig/ing-whitespace`,
+    `\s[a-zA-Z]{0,12}ing\s`, ran at 1/3.5 and 1/2.8 of Rust's crate on the N2. The part before
+    `ing` may hold `i`, so no rule of claim R4 or R14 held, and the forward DFA read every byte.
+  - Every match holds `ing` at most 13 bytes after its start. So the forward DFA's state that
+    waits goes to 13 bytes before the next place of `ing`, and from there claim R1's skip goes
+    on (`dfa_window.zig`). `dfa_inner.window_of` reads the literal and the bound from claim
+    R14's candidates and the length walk.
+  - `spec/lean/Stdx/Regex/Window.lean` proves the search from `Within`, and
+    `spec/lean/Stdx/Regex/RulesWindow.lean` decides `Within` from a program with claim R14's
+    structure and a bound on the part before the literal. `window_program` gives the answer.
+  - The dump writes a `claim window` line with `before` and the bound, and the Lean side judges
+    it. A new shape draws a bounded run before a word, and a canary holds a window with no
+    bound.
+  **Check:** which patterns take a window and with what bound; a searcher with a window gives
+  what the matcher gives from every offset of seeded texts, in a cache of each size; two scans
+  pass the bytes before two far places with no state; the replay refuses a wrong bound,
+  `before`, literal or rule; the script runs `windowOn` for each window; two paired runs of the
+  `bench` workflow on each runner, by decision 20's rule; mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `zig build lean` exits 0, with 119 theorems pinned.
+  - `tools/matcher_model_check.sh` passes seeds 7, 11 and 13. Their dumps hold 828 `claim
+    window` lines, and Lean judged each sound.
+  - A filter in the container, built ReleaseSafe and not kept, counted the row's matches. On
+    `sherlock.txt` it ran at 490.2 MB/s at `ca6bb7d` and 1,405.0 MB/s with the window, and on
+    `leipzig-3200.txt` at 504.8 and 1,243.2 MB/s. Two rows that take no window,
+    `quotes-bounded` and `awyer-inn`, stayed within the container's noise. The container is no
+    judge, so these numbers say that the claim runs, and no more.
+  - Mutations: 27. 26 were CAUGHT, and one is equivalent.
+    - Eleven of the Zig side, against `zig build test-regex`: a skip to the place itself; a
+      bound one byte short; a place kept after the scan passed it, which an assertion halts; a
+      place kept from one scan to the next; a cut that not every match passes; no bound; a
+      literal of one byte; a window beside claim R14's literal; the claim's switch not read; a
+      window for a program with an assertion; and of two literals, the larger bound. Two were
+      NOT CAUGHT at first, the last two of R14's literal and the larger bound, and two tests now
+      hold them.
+    - Four against the script alone: a skip to the place itself gave a wrong answer, and a cut
+      that not every match passes, no bound and a bound one byte short each gave `differs claim
+      window`.
+    - Six of the Lean side. Five break a proof or an example: the levels' moves with no byte,
+      the empty last level, `passesOn`, the window's start, and `Within`'s bound. One level
+      fewer in the walk is equivalent: the check of the last level already asks that its byte
+      moves lead into the next level, which is then empty.
+    - Two of the vector program: a line that never says `differs`, which the canary refuses,
+      and a check one byte wider, which was NOT CAUGHT until a second canary held a window one
+      byte short.
+    - Four of the replay: the bound not read, no window held, the bound not compared, and the
+      bound not written.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

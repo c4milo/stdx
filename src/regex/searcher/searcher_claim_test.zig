@@ -108,9 +108,9 @@ test "a searcher with no claim that waits holds none from init on" {
         try testing.expectEqual(case.by_claim, fixture.searcher.by_claim);
     }
     // A claim that is off waits for nothing.
-    try fixture.init_claims("[ab]+x[ab]+", .{ .inner = false }, searcher_test.cache_words_max);
+    try fixture.init_claims("[ab]+x[ab]+", .{ .inner = false, .window = false }, searcher_test.cache_words_max);
     try testing.expect(!fixture.searcher.deferred.any() and !fixture.searcher.by_claim);
-    try fixture.init_claims("[abx]+ +x", .{ .suffix = false, .inner = false }, searcher_test.cache_words_max);
+    try fixture.init_claims("[abx]+ +x", .{ .suffix = false, .inner = false, .window = false }, searcher_test.cache_words_max);
     try testing.expect(!fixture.searcher.deferred.any() and !fixture.searcher.by_claim);
     try fixture.init_claims("^a{2,5}$", .{ .length = false }, searcher_test.cache_words_max);
     try testing.expect(!fixture.searcher.deferred.any() and !fixture.searcher.by_claim);

@@ -6522,6 +6522,35 @@ last part lists what still waits on a ruling.
         a literal that one branch of an alternation holds; and a literal with a letter of two
         cases.
       - `Claims.inner` turns it off. `Matches.count` takes `find` under it.
+    - The window (amended 2026-11-25, design §8 part 22q): where every match holds a literal at
+      most `window_lead_max` bytes after its start, and no claim from R2 to R5 or R14 holds, the
+      forward DFA's state that waits goes to that many bytes before the literal's next place.
+      From there claim R1's skip goes to the next byte that can start a match
+      (`dfa_window.zig`).
+      - No match starts more than the bound before the first place of the literal, so the scan
+        from there gives the answer from the scan's start. Every byte from there on goes through
+        the DFA, so the part of a match before the literal may hold the literal's bytes, which
+        each rule of claims R4 and R14 refuses.
+      - `dfa_inner.window_of` takes claim R14's candidates: an instruction of the reverse
+        program that every match passes, and the literal it reads. The length walk of claim
+        R4's second rule bounds the part before the literal, with paths that reach no `match`
+        counted too. Of several, the longest literal, and of those the smaller bound.
+      - A scan keeps the next place it found while it has not passed it, so a text whose
+        places stand close together pays one search for each place.
+      - It is judged with claim R14, once the searches were given enough text, and only where
+        R14 took no literal. `Claims.window` turns it off. A new field of `SearcherClaims`
+        changes the public API, so the next release is a MINOR one (decision 65).
+      - rebar's `imported/sherlock/ing-suffix-limited-space` and `imported/leipzig/ing-whitespace`
+        ran at 1/3.5 and 1/2.8 of Rust's crate on the N2 before it. Their DFA read every byte,
+        since the part before `ing` may hold `i`.
+      - This is the filter of a regular expression by a factor that every match holds: find the
+        factor, and read a window around it. Navarro and Raffinot describe it in "Flexible
+        Pattern Matching in Strings" (Cambridge University Press, 2002), and GNU grep runs its
+        DFA on the lines that hold the string its `dfamust` finds.
+      - Refused: a set of literals, one for each way, as in `([A-Za-z]awyer|[A-Za-z]inn)\s`. The
+        walk of one cut serves the rows of rebar it was built for.
+      - Refused: a bound past `window_lead_max`. A text of places that stand close together
+        costs each byte up to that many reads of the state that waits.
     - `Searcher.captures` gives a match's groups as `SearcherGroups`: the slots the search wrote,
       read in place, which hold until the searcher's next search (amended 2026-11-23, design §8
       part 22n). It copied each group into the caller's `?Span` values before. rebar's lexer row
@@ -6641,6 +6670,10 @@ last part lists what still waits on a ruling.
       - `Stdx/Regex/Prefix.lean` holds the skip of claims R2, R3 and R5 to a literal that
         starts every match, and `gap_of_byte`: claim R4's first rule holds for any byte of
         the literal. `Stdx/Regex/Count.lean` holds claim R10: `count_eq`.
+      - `Stdx/Regex/Window.lean` proves the window's search, `answer_from_window`, from
+        `Within`: every match holds the literal at most the bound after its start.
+        `Stdx/Regex/RulesWindow.lean` decides it from a program: `windowOn`, with
+        `window_program`. The script runs it for each window that a searcher took.
       - `Stdx/Regex/RulesPrefix.lean` decides from a program that every match starts with a
         literal, for a program with any count of ways to start: `leadsOn`, with
         `leads_program`. The script runs it for each literal that a searcher's forward DFA

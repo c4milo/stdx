@@ -8,6 +8,7 @@ const constants = @import("../constants.zig");
 const Dfa = @import("dfa.zig").Dfa;
 const Skip = @import("dfa_skip.zig").Skip;
 const Pass = @import("dfa_config.zig").Pass;
+const dfa_window = @import("dfa_window.zig");
 
 /// Readies the skip where a scan starts in `row`: it ends a rest that is over, and takes
 /// `row` as the state that waits where the DFA knows none. True when the scan skips.
@@ -34,6 +35,7 @@ pub fn pass(dfa: *Dfa, comptime how: Pass, haystack: []const u8, from: usize) us
         .literal => dfa.literal.?.find(haystack, from) orelse haystack.len,
         .literal_set => dfa.literals.?.find(haystack, from) orelse haystack.len,
         .octet => if (dfa.skip.starts[haystack[from]]) from else dfa.skip.next(haystack, from + 1),
+        .window => dfa_window.pass(dfa, haystack, from),
     };
     dfa.skip_octets += index - from;
     dfa.skip_visits += 1;

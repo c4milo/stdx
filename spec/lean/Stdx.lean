@@ -26,4 +26,6 @@ import Stdx.Regex.RulesPrefix
 import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
+import Stdx.Regex.Window
+import Stdx.Regex.RulesWindow
 import Stdx.Axioms

@@ -63,7 +63,14 @@ const Shape = enum {
     /// Two ways that start with one word after `\b`, then a run, or the other word: the ways
     /// part after the word.
     ways_words,
+    /// A run of a bounded count of bytes that may take the word's bytes, the word, and a run:
+    /// the window (src/regex/dfa/dfa_window.zig).
+    window,
 };
+
+/// Runs of a bounded count of bytes, for the window's shape. Most take a byte of a word, so no
+/// rule of claim R14 holds for them.
+const bounded_runs = [_][]const u8{ "[a-c]{0,3}", "[ab ]{1,2}", "(?:[a-c]|c[ab])", "[a-c]?[a-c]?", "[A-C]{0,2}" };
 
 pub fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
     return list[generator.below(list.len)];
@@ -148,11 +155,12 @@ fn fit_word(generator: *Generator, text: *std.ArrayList(u8), word: []const u8, f
 pub fn draw(generator: *Generator, case: *regex_generate.Case, text_len_max: usize) void {
     case.* = .{};
     var pattern: std.ArrayList(u8) = .initBuffer(&case.pattern.octets);
-    const run = pick(generator, &runs);
+    const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
+    // The window's shape takes a run of a bounded count of bytes before its word.
+    const run = if (shape == .window) pick(generator, &bounded_runs) else pick(generator, &runs);
     const word = pick(generator, &words);
     const other = pick(generator, &words);
     const second = pick(generator, &runs);
-    const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
     const fold: Fold = switch (generator.below(2 * fold_share)) {
         0 => .whole,
         1 => .first,
@@ -188,6 +196,7 @@ fn write_pattern(pattern: *std.ArrayList(u8), shape: Shape, run: []const u8, wor
         .inner_separated => pattern.printAssumeCapacity("{s} +{s}{s}", .{ run, word, second }),
         .ways_lines => pattern.printAssumeCapacity("(?m)^{s}{s}|{s}$", .{ word, run, word }),
         .ways_words => pattern.printAssumeCapacity("\\b{s}{s}|{s}{s}", .{ word, run, word, other }),
+        .window => pattern.printAssumeCapacity("{s}{s}{s}", .{ run, word, second }),
     }
 }
 
@@ -270,6 +279,9 @@ test "the shapes of two ways write the word in each way" {
     pattern.clearRetainingCapacity();
     write_pattern(&pattern, .ways_words, "[ab]*", "ab", "ba", "c");
     try testing.expectEqualStrings("\\bab[ab]*|abba", pattern.items);
+    pattern.clearRetainingCapacity();
+    write_pattern(&pattern, .window, "[a-c]{0,3}", "ab", "ba", "c");
+    try testing.expectEqualStrings("[a-c]{0,3}abc", pattern.items);
 }
 
 test "a word is written whole, in a fold, or with its first byte in a fold" {

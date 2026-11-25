@@ -25,6 +25,7 @@ const Literal = @import("../literal.zig").Literal;
 const LiteralSet = @import("../literal_set.zig").LiteralSet;
 const dfa_literal = @import("dfa_literal.zig");
 const dfa_wait = @import("dfa_wait.zig");
+const dfa_window = @import("dfa_window.zig");
 const dfa_reverse = @import("dfa_reverse.zig");
 const dfa_pairs = @import("dfa_pairs.zig");
 const dfa_run = @import("dfa_run.zig");
@@ -89,6 +90,8 @@ pub const Dfa = struct {
     literal: ?Literal,
     /// Claim R5. The literals one of which every match starts with, where the skip goes instead.
     literals: ?LiteralSet,
+    /// The window: a literal near every match's start, where neither R2 nor R5 holds one.
+    window: ?dfa_window.Window = null,
     /// Claim R3: the program holds an assertion and `literal`, and the scan goes to the literal
     /// from each state with no thread, which `build` marks with `dfa_skip_flag`.
     looking: bool,
@@ -270,6 +273,7 @@ pub const Dfa = struct {
     inline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         if (dfa.literal != null) return dfa.skip_loop_literal(haystack, from, earliest, first);
         if (dfa.literals != null) return dfa.skip_loop_literal_set(haystack, from, earliest, first);
+        if (dfa.window != null) return dfa_window.scan(dfa, haystack, from, earliest, first);
         return dfa.skip_loop(.octet, haystack, from, earliest, first);
     }
 
@@ -284,7 +288,7 @@ pub const Dfa = struct {
         return dfa.skip_loop(.literal_set, haystack, from, earliest, first);
     }
 
-    inline fn skip_loop(dfa: *Dfa, comptime how: dfa_config.Pass, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
+    pub inline fn skip_loop(dfa: *Dfa, comptime how: dfa_config.Pass, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         var state = first;
         var last: ?usize = null;
         const table = dfa.cache.table;

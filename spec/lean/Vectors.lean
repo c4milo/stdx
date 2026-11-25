@@ -270,7 +270,9 @@ third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. A `claim inne
 the literal of claim R14, after the instruction where the reverse program stands after it,
 and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule. A `prefix` line holds the literal
 that a searcher's forward DFA goes to by claim R2 or claim R3, and `leadsOn` of
-`Stdx/Regex/RulesPrefix.lean` decides that every match starts with it.
+`Stdx/Regex/RulesPrefix.lean` decides that every match starts with it. A `claim window` line
+holds the window's `before`, its bound and its literal, and `windowOn` of
+`Stdx/Regex/RulesWindow.lean` decides its rule.
 
 A `slots` line names the slots of the program's capture groups. After each `find` line of
 such a program, a `groups` line holds the groups of the search's match, which `capturesAt` of
@@ -433,6 +435,21 @@ def wideClaimLines (dump : Dump) (literal : List (Nat × Nat)) : List String :=
     if wideOn dump.prog reverse literal.reverse then [] else ["differs claim suffix-wide"]
 
 open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where the window's rule does not hold for a literal and a bound
+that a Zig searcher took. `before` is where the reverse program stands after the literal.
+`windowOn` decides the rule from the program for a cut: the walk of the literal from the cut
+stands at `before`, every match passes the cut, and every path from `before` takes at most
+`lead` bytes. The rule must hold for some cut, and `window_program` proves the search from it. -/
+def windowClaimLines (dump : Dump) (before lead : Option Nat) (literal : List (Nat × Nat)) :
+    List String :=
+  match dump.reverse, before, lead with
+  | some reverse, some before, some lead =>
+    if (List.range dump.prog.size).any fun cut =>
+        windowOn dump.prog reverse cut before literal.reverse lead then []
+    else ["differs claim window"]
+  | _, _, _ => ["differs claim window"]
+
+open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where a literal that a Zig searcher's forward DFA goes to, by
 claim R2 or claim R3, does not start every match. `leadsOn` decides that from the program for
 every way the program starts, and `leads_program` proves the search from it. -/
@@ -465,6 +482,9 @@ def answerLine (dump : Dump) (line : String) : List String × Dump :=
     (line :: wideClaimLines dump (placesOf literal), { dump with claimed := true })
   | "claim" :: "inner" :: before :: _ :: literal =>
     (line :: innerClaimLines dump before.toNat? (placesOf literal),
+      { dump with claimed := true })
+  | "claim" :: "window" :: before :: lead :: _ :: literal =>
+    (line :: windowClaimLines dump before.toNat? lead.toNat? (placesOf literal),
       { dump with claimed := true })
   | "prefix" :: _ :: literal =>
     (line :: prefixLines dump (placesOf literal), { dump with claimed := true })
