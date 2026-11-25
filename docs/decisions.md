@@ -5898,9 +5898,16 @@ last part lists what still waits on a ruling.
         10 ranges, with four reads in a chain (design §8 part 22n).
       - The forward automaton of a class of many ranges (`syntax_atom_utf8.zig`) writes each
         node this way: two sequences that share the octets before a node take apart octets there.
-      - A class of three sequences or more whose first ranges stand apart is one node, each range
-        going on to the rest of its sequence (`syntax_atom_ranges.zig`): `[^ ]`, `.`, `[A-Za-z_]`.
-        Two sequences keep their split, which claim R2 reads as a letter in either case.
+      - A class of two sequences or more whose first ranges stand apart is one node, each range
+        going on to the rest of its sequence (`syntax_atom_ranges.zig`): `[^ ]`, `.`, `[A-Za-z_]`,
+        and in bytes `[^u-z]`. Two single octets keep their split, which claim R2 reads as a
+        letter in either case, as `(?i)a` writes it.
+        - Amended by the owner's ruling of 2026-11-25 (design §8 part 22q). The node held three
+          sequences or more, so a class of two kept two threads. On rebar's
+          `huge-ascii-nosuffixlit`, whose DFAs give up, the matcher ran at 3.3 MB/s and Rust's
+          crate at 11. With one thread for each `[^u-z]` it runs at 6.4 to 6.8 MB/s.
+        - The wider form, every pair a node with claim R2 reading a node of two single octets,
+          lost: it changes claim R2's code and its rule for no row that needs it.
       - Read back, sequences that end in continuation octets overlap: `[D0][80-8F]` and
         `[D1][80-BF]` both start from `80-8F`. Such a node keeps its ranges joined by splits, as
         Rust's crate keeps it by default (regex-automata 0.4.19, `Config::shrink`). Cut into apart

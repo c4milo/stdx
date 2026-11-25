@@ -294,7 +294,9 @@ test "a range of one octet a scalar value writes the program its split writes" {
     for (sets) |scalars| {
         var builder: Builder = .{ .instructions = &storage, .direction = .forward };
         var split: Builder = .{ .instructions = &split_storage, .direction = .forward };
-        _ = try scalar_ranges(&builder, scalars);
+        // `scalar_ranges` writes a node for a class of two ranges or more (syntax_atom_ranges.zig):
+        // the alternatives are what it writes where no node takes the class.
+        _ = try alternatives(&builder, scalars);
         _ = try split_ranges(&split, scalars);
         try testing.expectEqualSlices(program.Instruction, split_storage[0..split.len], storage[0..builder.len]);
     }

@@ -19,9 +19,23 @@ const Holes = fragment.Holes;
 const ScalarRange = utf8_ranges.ScalarRange;
 const Sequence = utf8_ranges.Sequence;
 
-/// The fewest sequences a node holds. Two keep their split, whose two threads a node would save
-/// one of: claim R2 reads such a split as a letter in either case, as `(?i)a` writes it.
-const node_sequences_min = 3;
+/// The fewest sequences a node holds (decision 86 as amended on 2026-11-25). Two single octets
+/// keep their split, as `(?i)a` writes a letter in either case: claim R2 reads such a split as the
+/// letter (`is_letter_pair`).
+const node_sequences_min = 2;
+
+/// True for two members of one octet each, the shape of a letter in either case. Such a class
+/// keeps its split, whose two threads a node would save one of.
+fn is_letter_pair(first: utf8_ranges.OctetRange, second: utf8_ranges.OctetRange) bool {
+    return first.lo == first.hi and second.lo == second.hi;
+}
+
+/// True for two sequences of one octet each (`is_letter_pair`).
+fn is_letter_sequences(gathered: []const Sequence) bool {
+    if (gathered.len != node_sequences_min) return false;
+    if (gathered[0].len != 1 or gathered[1].len != 1) return false;
+    return is_letter_pair(gathered[0].ranges[0], gathered[1].ranges[0]);
+}
 
 /// The sequences of a class's scalar values, in ascending order.
 const Sequences = struct {
@@ -52,8 +66,9 @@ const Sequences = struct {
 };
 
 /// The class as a `ranges` node, or null where its sequences' first ranges do not stand apart,
-/// where it holds fewer than `node_sequences_min` sequences or more than one for each octet, or,
-/// read back, where a sequence holds more than one octet.
+/// where it holds fewer than `node_sequences_min` sequences or more than one for each octet,
+/// where it is two single octets (`is_letter_pair`), or, read back, where a sequence holds more
+/// than one octet.
 pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fragment {
     // Three refusals that need no sequence: an empty class; read back, a value past U+007F, a
     // sequence of more than one octet; and one range of single octets, one sequence.
@@ -65,6 +80,7 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
     const count = gather(builder.direction, scalars, &sequences) orelse return null;
     if (count < node_sequences_min) return null;
     const gathered = sequences[0..count];
+    if (is_letter_sequences(gathered)) return null;
     // `program.step_ranges` reads `arg` members, each a range, and asserts neither.
     assert(count >= 1 and count <= constants.octet_values);
     const head = try builder.emit(.{ .kind = .ranges, .arg = @intCast(count) });
@@ -92,9 +108,11 @@ pub fn node(builder: *Builder, scalars: []const ScalarRange) fragment.Error!?Fra
 
 /// A class of bytes as one `ranges` node (`Encoding.bytes`). Each member is one byte, so the
 /// ranges stand apart as the set's do, and a reverse program takes the node too. Null where
-/// the class holds fewer than `node_sequences_min` ranges.
+/// the class holds fewer than `node_sequences_min` ranges, or is two single octets
+/// (`is_letter_pair`).
 pub fn octets(builder: *Builder, ranges: []const utf8_ranges.OctetRange) fragment.Error!?Fragment {
     if (ranges.len < node_sequences_min) return null;
+    if (ranges.len == node_sequences_min and is_letter_pair(ranges[0], ranges[1])) return null;
     // `program.step_ranges` reads `arg` members, each a range, and asserts neither.
     assert(ranges.len <= constants.octet_ranges_max);
     const head = try builder.emit(.{ .kind = .ranges, .arg = @intCast(ranges.len) });
@@ -152,7 +170,7 @@ test "a class whose sequences start apart is one node, each range going on to it
     try testing.expect(program.step(written, whole.entry, 0x80) == null);
 }
 
-test "a class whose sequences share a lead octet, or of fewer than three sequences, is no node" {
+test "a class whose sequences share a lead octet, of one sequence, or of two single octets, is no node" {
     var storage: [test_storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .forward };
     // `а` to `я` and `ё`: U+0430 to U+044F, and U+0451, whose sequences share 0xD1.
@@ -165,6 +183,25 @@ test "a class whose sequences share a lead octet, or of fewer than three sequenc
     try testing.expectEqual(@as(u32, 0), builder.len);
 }
 
+test "a class of two sequences is one node, where one of them is more than one octet" {
+    var storage: [test_storage_len]program.Instruction = undefined;
+    // A range and a letter, a letter and a range, and a letter and `é`, 0xC3 0xA9.
+    const classes = [_][2]ScalarRange{
+        .{ .{ .lo = 'a', .hi = 'z' }, .{ .lo = '~', .hi = '~' } },
+        .{ .{ .lo = '0', .hi = '0' }, .{ .lo = 'a', .hi = 'f' } },
+        .{ .{ .lo = 'e', .hi = 'e' }, .{ .lo = 0xE9, .hi = 0xE9 } },
+    };
+    for (&classes) |*class| {
+        var builder: Builder = .{ .instructions = &storage, .direction = .forward };
+        const whole = (try node(&builder, class)) orelse return error.TestExpectedNode;
+        const written = storage[0..builder.len];
+        try testing.expectEqual(program.Kind.ranges, written[whole.entry].kind);
+        try testing.expectEqual(@as(u32, 2), written[whole.entry].arg);
+        try testing.expect(program.step(written, whole.entry, @intCast(class[0].lo)) != null);
+        try testing.expect(program.step(written, whole.entry, 'A') == null);
+    }
+}
+
 test "read back, a class of single octets is a node, and one of longer sequences is none" {
     var storage: [test_storage_len]program.Instruction = undefined;
     var builder: Builder = .{ .instructions = &storage, .direction = .reverse };
@@ -175,7 +212,7 @@ test "read back, a class of single octets is a node, and one of longer sequences
     try testing.expect(try node(&builder, &wide) == null);
 }
 
-test "a class of bytes is one node in both directions, and two ranges keep their split" {
+test "a class of bytes is one node in both directions, and two single octets keep their split" {
     var storage: [test_storage_len]program.Instruction = undefined;
     const ranges = [_]utf8_ranges.OctetRange{ .{ .lo = 'a', .hi = 'z' }, .{ .lo = 0x80, .hi = 0xBF }, .{ .lo = 0xFF, .hi = 0xFF } };
     for ([_]fragment.Direction{ .forward, .reverse }) |direction| {
@@ -190,4 +227,11 @@ test "a class of bytes is one node in both directions, and two ranges keep their
     const two = [_]utf8_ranges.OctetRange{ .{ .lo = 'A', .hi = 'A' }, .{ .lo = 'a', .hi = 'a' } };
     try testing.expect(try octets(&builder, &two) == null);
     try testing.expectEqual(@as(u32, 0), builder.len);
+    // `[^u-z]` in bytes: two ranges, one node, which keeps one thread for the class.
+    const apart = [_]utf8_ranges.OctetRange{ .{ .lo = 0, .hi = 'u' - 1 }, .{ .lo = 'z' + 1, .hi = 0xFF } };
+    const whole = (try octets(&builder, &apart)) orelse return error.TestExpectedNode;
+    try testing.expectEqual(@as(u32, 2), storage[whole.entry].arg);
+    // A letter and a range: one node too.
+    const mixed = [_]utf8_ranges.OctetRange{ .{ .lo = '-', .hi = '-' }, .{ .lo = '0', .hi = '9' } };
+    try testing.expect(try octets(&builder, &mixed) != null);
 }

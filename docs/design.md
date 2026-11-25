@@ -10847,6 +10847,42 @@ to 12 are reordered and nothing else changes.
       searcher's count not compared. The second was NOT CAUGHT until the test held a searcher
       with the claim off.
 
+  The matcher's threads where both DFAs give up (decision 86 as amended on 2026-11-25):
+  - `reported/i13-subset-regex/huge-ascii-nosuffixlit` counts `[a-q][^u-z]{80}[x\xE0-\xFF]` in
+    16 MB of text, at 0.32 of Rust's crate on the N2. Each state of its DFAs is about one
+    octet's, so both give up, and the matcher runs at 3.3 MB/s where Rust's runs at 11.
+  - Each thread copied its two slots of a span with `@memcpy` of a length known only at run
+    time, which calls `memcpy`. Two moves now copy them (`copy_slots`).
+  - `[^u-z]` in bytes was a split of two ranges, two threads. A class of two ranges is now one
+    `ranges` node, but for two single octets, which claim R2 reads as a letter in either case:
+    the owner's ruling of 2026-11-25.
+  - `count` judges claim R13's least length once, before its first search, and `find_end` no
+    longer judges it: there the check made the DFA's loop below it take 2.6% more instructions
+    of `quotes-bounded`.
+  **Check:** a search for the span alone gives the span of a search for every group, from every
+  offset; each two-range class's program; no DFA builds a state for a short text; callgrind's
+  count of the row at each commit; two paired runs of the `bench` workflow on each runner;
+  mutations.
+  **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
+  cloud container. The paired runs are not recorded yet.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13
+    with the two-range node.
+  - The matcher alone, built ReleaseSafe for x86-64-v3, ran the row's 16 MB at 3.3 MB/s at
+    `9e61c55`, 3.6 to 4.0 with the two moves, and 6.4 to 6.8 with the node too. Under
+    callgrind, a count of the row's first 2 MB through a searcher took 9.97, 8.48 and 5.68
+    billion instructions. A count of `quotes-bounded` took 6,005,074, and 6,005,058 at
+    `6370426`, before the least length.
+  - Mutations: 15, each CAUGHT.
+    - Four of the copy, against `zig build test-regex`: the second slot from the first, no copy
+      of the span, the start alone, and no copy of a search's groups. The first two only ran
+      the tests past 10 minutes, so a new test holds a search for the span alone; it fails on
+      each, run alone with `--test-filter`.
+    - Three of the least length, against a new test that no DFA builds a state for a short
+      text: the check removed from `count`, from `is_match` and from `find`.
+    - Eight of the node, against `zig build test-regex`: the old minimum of three; no letter
+      pair in bytes; no letter pair in UTF-8, twice; a pair judged by its first member alone,
+      and by its second alone; and a pair of sequences of any length, twice.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
