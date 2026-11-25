@@ -325,7 +325,7 @@ pub const Matcher = struct {
         matcher.visited.clear();
         matcher.threads_len = 0;
         for (matcher.seeds.slice()) |seed| {
-            @memcpy(matcher.current(), matcher.slots(matcher.seed_slots, seed));
+            copy_slots(matcher.current(), matcher.slots(matcher.seed_slots, seed));
             if (matcher.follow(seed, ahead_context)) break;
         }
         matcher.take_match();
@@ -408,7 +408,7 @@ pub const Matcher = struct {
             .range, .ranges, .match => {
                 matcher.threads[matcher.threads_len] = index;
                 matcher.threads_len += 1;
-                @memcpy(matcher.slots(matcher.thread_slots, index), matcher.current());
+                copy_slots(matcher.slots(matcher.thread_slots, index), matcher.current());
                 return null;
             },
             .fail => return null,
@@ -424,13 +424,28 @@ pub const Matcher = struct {
         for (matcher.threads[0..matcher.threads_len]) |index| {
             const next = program_file.step(matcher.program.instructions, index, octet) orelse continue;
             if (!matcher.seeds.insert(next)) continue;
-            @memcpy(matcher.slots(matcher.seed_slots, next), matcher.slots(matcher.thread_slots, index));
+            copy_slots(matcher.slots(matcher.seed_slots, next), matcher.slots(matcher.thread_slots, index));
         }
         matcher.position += 1;
         matcher.behind = Context.of(octet);
         matcher.closed = .none;
     }
 };
+
+/// Copies a thread's slots, as each thread of each position does. A search for a span keeps
+/// `group_slots` slots a thread, which take two moves. `@memcpy` of a length known only at run
+/// time calls `memcpy`, at about 20 instructions a copy.
+inline fn copy_slots(target: []u64, source: []const u64) void {
+    comptime assert(constants.group_slots == 2);
+    switch (target.len) {
+        0 => {},
+        constants.group_slots => {
+            target[0] = source[0];
+            target[1] = source[1];
+        },
+        else => @memcpy(target, source),
+    }
+}
 
 fn take(memory: anytype, len: usize) @TypeOf(memory.*) {
     const taken = memory.*[0..len];
@@ -440,4 +455,5 @@ fn take(memory: anytype, len: usize) @TypeOf(memory.*) {
 
 test {
     _ = @import("matcher_test.zig");
+    _ = @import("matcher_span_test.zig");
 }
