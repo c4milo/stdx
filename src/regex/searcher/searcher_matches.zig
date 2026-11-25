@@ -44,15 +44,14 @@ pub const Matches = struct {
     /// give. A count needs each match's end alone (claim R10).
     pub fn count(matches: *Matches) u64 {
         var total: u64 = 0;
-        if (matches.position <= matches.haystack.len and holds_none(matches.searcher, matches.haystack.len, matches.position)) {
-            matches.position = matches.haystack.len + 1;
-            return 0;
-        }
         const by_ends = counts_ends(matches.searcher);
         // Each turn counts a match that ends past the last one, or the first match: at most the
         // haystack's offsets and one. No match is left after that many.
         for (0..matches.haystack.len + 1) |_| {
             if (matches.position > matches.haystack.len) break;
+            // Claim R13 refuses the rest of the text by its length, before each search. Here, and
+            // not in `find_end`, where the check changed how the compiler built the DFA's loop.
+            if (holds_none(matches.searcher, matches.haystack.len, matches.position)) break;
             const end = if (by_ends) matches.next_end() else matches.next_span_end();
             matches.position = end orelse break;
             matches.last_end = end;
@@ -101,8 +100,8 @@ pub const Matches = struct {
 /// Where the first match at or after `from` ends, or null where none does, for a searcher
 /// that `counts_ends`. Where its forward DFA is ready and has not given up too often, the
 /// DFA finds the end alone, with no read back to the start. Otherwise `find` finds the match.
-/// It does not judge claim R13's least length: `count` judges it once, before its first search,
-/// and a check here changed how the compiler built the DFA's loop that is inlined below it.
+/// It does not judge claim R13's least length: `count` judges it before each search, and a check
+/// here changed how the compiler built the DFA's loop that is inlined below it.
 fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
     assert(counts_ends(searcher));
     if (searcher.forward_ready and searcher.give_ups < constants.dfa_give_ups_max) {

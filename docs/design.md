@@ -10856,29 +10856,45 @@ to 12 are reordered and nothing else changes.
   - `[^u-z]` in bytes was a split of two ranges, two threads. A class of two ranges is now one
     `ranges` node, but for two single octets, which claim R2 reads as a letter in either case:
     the owner's ruling of 2026-11-25.
-  - `count` judges claim R13's least length once, before its first search, and `find_end` no
-    longer judges it: there the check made the DFA's loop below it take 2.6% more instructions
-    of `quotes-bounded`.
+  - `count` judges claim R13's least length before each search, in its own loop, and
+    `find_end` no longer judges it: there the check made the DFA's loop below it take 2.6% more
+    instructions of `quotes-bounded`.
   **Check:** a search for the span alone gives the span of a search for every group, from every
   offset; each two-range class's program; no DFA builds a state for a short text; callgrind's
   count of the row at each commit; two paired runs of the `bench` workflow on each runner;
   mutations.
   **Check passed in part, 2026-11-25.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a
-  cloud container. The paired runs are not recorded yet.
+  cloud container, and two paired runs of the copy on GitHub's runners. The node's runs are not
+  recorded yet.
   - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13
     with the two-range node.
+  - The `bench` workflow's runs 45690968421 and 45690976230 measured `2111e8f`, the copy and
+    the check out of `find_end`, against `9e61c55`, each in one job on the N2 and one on
+    x86-64, the EPYC 9V74 and the EPYC 9V45. By decision 20's rule, 4 of the 284 rows ran
+    faster in all four jobs, and 2 slower.
+    - `huge-ascii-nosuffixlit` ran 1.11 times as fast on the N2 and 1.20 to 1.23 on x86-64,
+      `huge-unicode-nosuffixlit` 1.13 and 1.26 to 1.32, and `word-repetition/unicode-search`
+      1.11 and 1.16 to 1.28.
+    - The two `opt/reverse-suffix/unsound-*` rows, which count the matches in `zabb`, ran 12% to
+      18% slower. Under callgrind a count took 483 and 475 instructions at `9e61c55` and 585 and
+      579 at `2111e8f`: the last search, from the text's end, ran the forward DFA where the
+      check had refused it. `count` now judges the length in its own loop, and a count takes
+      458 and 450. A count of `quotes-bounded` takes 6,014,121, 0.15% over `6370426`'s.
   - The matcher alone, built ReleaseSafe for x86-64-v3, ran the row's 16 MB at 3.3 MB/s at
     `9e61c55`, 3.6 to 4.0 with the two moves, and 6.4 to 6.8 with the node too. Under
     callgrind, a count of the row's first 2 MB through a searcher took 9.97, 8.48 and 5.68
     billion instructions. A count of `quotes-bounded` took 6,005,074, and 6,005,058 at
     `6370426`, before the least length.
-  - Mutations: 15, each CAUGHT.
+  - Mutations: 17. 16 were CAUGHT, and 1 is equivalent.
     - Four of the copy, against `zig build test-regex`: the second slot from the first, no copy
       of the span, the start alone, and no copy of a search's groups. The first two only ran
       the tests past 10 minutes, so a new test holds a search for the span alone; it fails on
       each, run alone with `--test-filter`.
     - Three of the least length, against a new test that no DFA builds a state for a short
-      text: the check removed from `count`, from `is_match` and from `find`.
+      text: the check removed from `count`, from `is_match` and from `find`. With the check in
+      `count`'s loop, its removal was CAUGHT again by the same test.
+    - Equivalent: `count`'s check before its first search alone. It gives every answer the
+      check before each search gives, and callgrind's count above holds its cost.
     - Eight of the node, against `zig build test-regex`: the old minimum of three; no letter
       pair in bytes; no letter pair in UTF-8, twice; a pair judged by its first member alone,
       and by its second alone; and a pair of sequences of any length, twice.
