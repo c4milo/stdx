@@ -3,8 +3,9 @@
 //! write.
 const std = @import("std");
 const regex = @import("regex");
-const matcher_replay = @import("matcher_replay.zig");
+const matcher_replay = @import("../matcher_replay.zig");
 const replay_dump = @import("matcher_replay_dump.zig");
+const matcher_replay_claim = @import("matcher_replay_claim.zig");
 const Instruction = regex.Instruction;
 const Replay = matcher_replay.Replay;
 const replay_text = matcher_replay.replay_text;
@@ -113,7 +114,7 @@ fn answered_claim(arena: std.mem.Allocator) ![]const u8 {
     var scratch = try replay_dump.Scratch.init(arena);
     const pattern = "[0-9]+ab";
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.suffix_claim(&program), "x12ab", &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "x12ab", &.{0});
     return std.mem.replaceOwned(u8, arena, lines.bytes.items, "search 0", "find 0 1 5");
 }
 
@@ -130,7 +131,8 @@ test "a replay requires its new searcher to hold the literal of a claim line" {
         .{ .old = "claim suffix 2 97 98", .new = "claim suffix 2 97 99", .cause = error.ClaimDiffers },
         .{ .old = "claim suffix 2 97 98", .new = "claim suffix 1 98", .cause = error.ClaimDiffers },
         .{ .old = "claim suffix 2 97 98\n", .new = "", .cause = error.ClaimDiffers },
-        .{ .old = "claim suffix 2 97 98", .new = "claim inner 2 97 98", .cause = error.VectorClaim },
+        // A word that names no rule, and a literal of no byte.
+        .{ .old = "claim suffix 2 97 98", .new = "claim prefix 2 97 98", .cause = error.VectorClaim },
         .{ .old = "claim suffix 2 97 98", .new = "claim suffix 0", .cause = error.VectorClaim },
     };
     for (cases) |case| {
@@ -158,7 +160,7 @@ test "a replay holds the searcher that read its long text to a literal of a rule
     // first. A new searcher holds no literal, and one that read enough text holds `shing`.
     const pattern = "[a-z]shing";
     const program = try regex.compile(pattern, .{}, scratch.storage);
-    try lines.add_case(pattern, &program, scratch.suffix_claim(&program), "xashing", &.{0});
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "xashing", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 7");
     try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix-wide 5 115 104 105 110 103\n") != null);
     var replay = try Replay.init(arena.allocator());
@@ -179,22 +181,64 @@ test "a replay holds the searcher that read its long text to a literal of a rule
     }
 }
 
+test "a replay holds the searcher that read its long text to the literal of claim R14" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var lines: replay_dump.Lines = .{ .arena = arena.allocator() };
+    var scratch = try replay_dump.Scratch.init(arena.allocator());
+    // Every match holds `@` in its middle, and no letter before it is `@`. A new searcher
+    // holds no literal, and one that read enough text holds `@`.
+    const pattern = "[a-c]+@[a-c]+";
+    const program = try regex.compile(pattern, .{}, scratch.storage);
+    const claim = scratch.taker.claim(&program).?;
+    try lines.add_case(pattern, &program, claim, "xab@ca", &.{0});
+    const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 6");
+    var named_buffer: [replay_dump.line_len_max]u8 = undefined;
+    const named = try std.fmt.bufPrint(&named_buffer, "claim inner {d} 1 64", .{claim.before});
+    try testing.expect(std.mem.indexOf(u8, text, named) != null);
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, text) == null);
+    try testing.expectEqual(@as(usize, 1), replay.claims);
+    // The third searcher ran the one search from the literal's places.
+    try testing.expectEqual(@as(usize, 1), replay.finds_by_inner);
+    var other_buffer: [replay_dump.line_len_max]u8 = undefined;
+    const cases = [_][]const u8{
+        // Another instruction after the literal, another literal, another rule, and no line.
+        try std.fmt.bufPrint(&other_buffer, "claim inner {d} 1 64", .{claim.before + 1}),
+        "claim inner 0 1 65",
+        "claim suffix-wide 1 64",
+        "",
+    };
+    for (cases) |case| {
+        const old = if (case.len == 0) try std.fmt.allocPrint(arena.allocator(), "{s}\n", .{named}) else named;
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), text, old, case);
+        try testing.expect(!std.mem.eql(u8, changed, text));
+        var other = try Replay.init(arena.allocator());
+        const failed = replay_text(&other, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(error.ClaimDiffers, failed.cause);
+    }
+}
+
 test "the long text judges each claim that waits, in the third searcher alone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var lines: replay_dump.Lines = .{ .arena = arena.allocator() };
-    const storage = try arena.allocator().alloc(Instruction, replay_dump.instructions_max);
+    var scratch = try replay_dump.Scratch.init(arena.allocator());
     // A searcher of this pattern waits before it judges claim R14 (decision 86, the claims
     // that wait). Its reverse program is long enough that a text of one byte an instruction,
     // read twice, judges nothing.
     const pattern = "[ab]+x[ab]{20}";
-    const program = try regex.compile(pattern, .{}, storage);
-    try lines.add_case(pattern, &program, null, "axb", &.{0});
+    const program = try regex.compile(pattern, .{}, scratch.storage);
+    const claim = scratch.taker.claim(&program).?;
+    try testing.expectEqual(matcher_replay_claim.Rule.inner, claim.rule);
+    try lines.add_case(pattern, &program, claim, "axb", &.{0});
     const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 none");
     var replay = try Replay.init(arena.allocator());
     try testing.expect(replay_text(&replay, text) == null);
     try testing.expect(replay.searchers[0].deferred.any());
+    try testing.expect(matcher_replay_claim.held(&replay.searchers[0]) == null);
     try testing.expect(!replay.searchers[long_read_searcher].deferred.any());
+    try testing.expect(matcher_replay_claim.held(&replay.searchers[long_read_searcher]) != null);
 }
 
 test "a replay refuses a program that is not the one its pattern compiles to" {

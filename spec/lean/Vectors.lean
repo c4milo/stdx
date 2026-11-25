@@ -265,7 +265,12 @@ A `claim suffix` line holds the literal that a Zig searcher took for claim R4 by
 rule. The lines below decide that rule from the program, with `apartOn` of
 `Stdx/Regex/Rules.lean`, and write such a line where it does not hold. A `claim suffix-wide`
 line holds a literal that a searcher took after it read enough text, by the second rule or the
-third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. -/
+third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. A `claim inner` line holds
+the literal of claim R14, after the instruction where the reverse program stands after it,
+and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule.
+
+The theorems of the claims take `StartsClean` in the place of `EmptyElsewhere`. So after a
+`claim` line, the lines below decide `StartsClean` for each short text too. -/
 
 open Stdx.Regex.Program in
 /-- An assertion from the name `program.Look` gives it. -/
@@ -303,6 +308,8 @@ structure Dump where
   reverse : Option Nat := none
   /-- The text of the searches that follow. -/
   text : List Nat := []
+  /-- Whether the program has a `claim` line. -/
+  claimed : Bool := false
 
 /-- The longest text whose two hypotheses the lines below decide. `reversesOn` reads each pair
 of offsets, so a long text costs too much, and the answer of a search needs neither. -/
@@ -313,13 +320,16 @@ open Stdx.Regex.Matcher in
 pass: `Exact` for the program, and for a text of at most `hypothesisLenMax` bytes
 `EmptyElsewhere`, and `Reverses` for the program's two halves. With the three, `byDfa_answer`
 proves that the forward and the reverse scan of `Stdx/Regex/Searcher.lean` give each answer
-below. -/
+below. For a program with a `claim` line, also `StartsClean`, which the theorem of each claim
+takes. -/
 def hypothesisLines (dump : Dump) : List String :=
   let starts := Stdx.Regex.Dfa.startsOf dump.text (mayStart dump.utf8)
   let short := dump.text.length ≤ hypothesisLenMax
   (if isExact dump.prog then [] else ["differs exact"]) ++
     (if !short || emptyElsewhereOn dump.prog dump.forward dump.text starts then []
       else ["differs starts"])
+    ++ (if !short || !dump.claimed || startsCleanOn dump.prog dump.forward dump.text starts
+      then [] else ["differs starts-clean"])
     ++ match dump.reverse with
     | none => []
     | some reverse =>
@@ -372,18 +382,36 @@ def wideClaimLines (dump : Dump) (literal : List Nat) : List String :=
   | some reverse =>
     if wideOn dump.prog reverse literal.reverse then [] else ["differs claim suffix-wide"]
 
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where claim R14's rule does not hold for a literal that a Zig
+searcher took by it. `before` is the reverse DFA's second entry, where the reverse program
+stands after the literal. `innerOn` decides the rule from the program for a cut: the walk of
+the literal from the cut stands at `before`, every match passes the cut, and one of claim R4's
+rules holds for the part of a match before the literal. The rule must hold for some cut, and
+`inner_program` proves the search from it. -/
+def innerClaimLines (dump : Dump) (before : Option Nat) (literal : List Nat) : List String :=
+  match dump.reverse, before with
+  | some reverse, some before =>
+    if (List.range dump.prog.size).any fun cut =>
+        innerOn dump.prog reverse cut before literal.reverse then []
+    else ["differs claim inner"]
+  | _, _ => ["differs claim inner"]
+
 /-- The lines that answer one line of a dump, and what the dump holds after it. A line that
 holds no program, text, claim or search is written as it is. -/
 def answerLine (dump : Dump) (line : String) : List String × Dump :=
   match line.splitOn " " with
   | "claim" :: "suffix" :: _ :: bytes =>
-    (line :: claimLines dump (bytes.filterMap String.toNat?), dump)
+    (line :: claimLines dump (bytes.filterMap String.toNat?), { dump with claimed := true })
   | "claim" :: "suffix-wide" :: _ :: bytes =>
-    (line :: wideClaimLines dump (bytes.filterMap String.toNat?), dump)
+    (line :: wideClaimLines dump (bytes.filterMap String.toNat?), { dump with claimed := true })
+  | "claim" :: "inner" :: before :: _ :: bytes =>
+    (line :: innerClaimLines dump before.toNat? (bytes.filterMap String.toNat?),
+      { dump with claimed := true })
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
       utf8 := encoding == "utf8", prog := #[], forward := forward.toNat?.getD 0,
-      reverse := reverse.toNat? })
+      reverse := reverse.toNat?, claimed := false })
   | "text" :: _ :: bytes =>
     let read := { dump with text := bytes.filterMap String.toNat? }
     (line :: hypothesisLines read, read)

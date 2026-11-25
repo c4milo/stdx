@@ -22,4 +22,6 @@ import Stdx.Regex.Searcher
 import Stdx.Regex.Rules
 import Stdx.Regex.RulesWide
 import Stdx.Regex.RulesSeparator
+import Stdx.Regex.SearcherInner
+import Stdx.Regex.RulesInner
 import Stdx.Axioms

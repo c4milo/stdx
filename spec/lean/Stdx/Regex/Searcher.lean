@@ -24,9 +24,9 @@ its theorem gives the matcher's answer with no scan taken as given.
 - `bySkip_program` is the skip of claims R2, R3 and R5 to one literal that starts every match,
   from the walk of the forward program.
 
-The claims that this file does not join: R10's count, R13's compare of lengths, R14's search
-from a literal inside a match, a pattern that is its literal and nothing else, and a set of
-literals.
+`SearcherInner.lean` joins claim R14's search from a literal inside a match. The claims that
+no file joins yet: R10's count, R13's compare of lengths, a pattern that is its literal and
+nothing else, and a set of literals.
 
 What the theorems still take as given is the builder's work, and a rule of where a match
 starts:
