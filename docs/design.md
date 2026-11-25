@@ -81,7 +81,8 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec`, `platform` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, read once when the program starts: `probe`'s answers, the one call that may make a syscall (decision 40), and `CpuFeatures`, the CPU features each codec's `init` takes (decision 21 as amended); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode`, `platform` | 9485 |
-| `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
+| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC and SCRAM's hashes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin | none |
+| `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform`, `codec` and `crypto`, as `std` groups its own (decision 6 as amended) | every module above, and the build's options | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision
@@ -91,9 +92,10 @@ Each module whose calls take the CPU features a caller detected reaches `platfor
 `platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `platform` reaches
 nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
 lint rule `cpu-probe` does: outside `platform`, only a test under `src/` calls either (invariant
-14). No module reaches `regex` or `stdx`. No library module receives a package: pepegrillo, the
-oracles and the corpora are requested by `build.zig` for `tools/` and `bench/` only, after the
-point a dependent's build stops.
+14). No module reaches `regex`, `crypto` or `stdx`. One library module receives a package:
+`crypto` receives chapulin's module, and only when a build passes `.crypto = true` (decision 87).
+pepegrillo, the oracles and the corpora are requested by `build.zig` for `tools/` and `bench/`
+only, after the point a dependent's build stops.
 
 Outside the library, and never imported by it:
 
@@ -11731,6 +11733,27 @@ to 12 are reordered and nothing else changes.
     backtracker.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
+
+- **Step 23: `stdx.crypto`, chapulin through stdx (decision 87).** [Issue
+  42](https://github.com/c4milo/stdx/issues/42). stdx pins chapulin at bda41cf6 as a lazy
+  dependency and asks it once for its module of `TRANSPORT=nonblocking`, with the options colibri
+  asked for (`build/crypto.zig`). The module `crypto` names it. A dependent passes `.crypto =
+  true` to have it, and `.crypto_keylog = true` for tests that read a capture.
+  New public names: `stdx.crypto`, with `tcp`, `quic`, `jws`, `dnssec`, `scram` and `Cpu`, and
+  the build options `crypto` and `crypto_keylog`. Every library of the owner that needs chapulin
+  asks for it here, so a program links one chapulin.
+  **Check:**
+  - `zig build test-crypto` names each part of the module and holds `scram.sha256` of "abc" to
+    RFC 6234 §8.5. `zig build test-stdx` requires `stdx.crypto` in stdx's own build.
+  - `zig build graph-check` refuses `crypto` and `chapulin` from `src/compress/deflate/`, and the
+    module-graph rule holds `crypto` and its one import in its table.
+  - `zig build readme-check` builds `tools/consumer/`'s second program, which depends on stdx with
+    `.crypto = true`, runs it, and holds `src/crypto/README.md`'s blocks to it.
+  - Mutations, 4, each `CAUGHT`: a wrong digest in the consumer, against `zig build
+    readme-check`; chapulin given to `deflate`, against `zig build lint`; the root's `crypto`
+    switched off in stdx's own build, against `zig build test-stdx`; and `scram` taken from the
+    QUIC object, which builds no SCRAM, against `zig build test-crypto`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

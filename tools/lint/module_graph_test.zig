@@ -52,6 +52,8 @@ const passing_build: [:0]const u8 =
     \\    regex.addImport("utf8", utf8);
     \\    regex.addImport("unicode", unicode);
     \\    regex.addImport("platform", platform);
+    \\    const crypto = library(b, "crypto", target, optimize);
+    \\    crypto.addImport("chapulin", chapulin);
     \\    const stdx = library(b, "stdx", target, optimize);
     \\    stdx.addImport("codec", codec);
     \\    stdx.addImport("hash", checksum);
@@ -66,6 +68,8 @@ const passing_build: [:0]const u8 =
     \\    stdx.addImport("base64", base64);
     \\    stdx.addImport("platform", platform);
     \\    stdx.addImport("regex", regex);
+    \\    stdx.addImport("stdx_options", stdx_options);
+    \\    stdx.addImport("crypto", crypto);
     \\}
 ;
 
@@ -208,8 +212,8 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(14, calls.modules.len);
-    try testing.expectEqual(40, calls.edges.len);
+    try testing.expectEqual(15, calls.modules.len);
+    try testing.expectEqual(43, calls.edges.len);
     try testing.expectEqualStrings("codec", calls.edges[0].module);
     try testing.expectEqualStrings("platform", calls.edges[0].name);
     try testing.expectEqual(4, calls.edges[0].line);
@@ -280,11 +284,14 @@ test "the expected graph is design §3's table" {
         .{ "stdx", "base64" },
         .{ "stdx", "platform" },
         .{ "stdx", "regex" },
+        .{ "stdx", "stdx_options" },
+        .{ "stdx", "crypto" },
+        .{ "crypto", "chapulin" },
     };
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(14, module_graph.expected_graph.len);
+    try testing.expectEqual(15, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 

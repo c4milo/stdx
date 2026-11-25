@@ -2,14 +2,17 @@
 
 stdx extends Zig's standard library, written from the RFCs, and groups its modules as `std` groups
 its own (decision 6 as amended): `stdx.compress`, `stdx.hash`, `stdx.unicode`, `stdx.encoding`,
-`stdx.regex` and `stdx.platform`. `stdx.encoding` holds `json` and `base64`. It began as compression codecs: DEFLATE with its
+`stdx.regex`, `stdx.platform` and `stdx.crypto`. `stdx.encoding` holds `json` and `base64`. It began as compression codecs: DEFLATE with its
 zlib and gzip containers, Zstandard and brotli, each with an encoder and a decoder. Beside them it
 holds a JSON encoder and decoder (RFC 8259, RFC 7464), under the same rules (decision 27), and
 `platform`, which a program calls once when it starts to learn what its CPU offers (decision 40). It
 holds RFC 4648's base 64 too, in its own module (decision 68), and `regex`, regular expressions
 matched in time linear in the text (decision 86). `json` and `regex` read RFC 3629's UTF-8 through
 one module, `utf8`, and `unicode` holds Unicode 17.0.0's general categories, scripts and case
-folding, with `utf8` as `unicode.utf8` (decision 86 as amended). Home: github.com/c4milo/stdx. It
+folding, with `utf8` as `unicode.utf8` (decision 86 as amended). `stdx.crypto` is chapulin's
+cryptography, which stdx writes none of: a dependent that passes `.crypto = true` gets chapulin's
+Zig module through stdx, and stdx is the one place that asks chapulin for it (decision 87).
+Home: github.com/c4milo/stdx. It
 aims to match or beat zlib, zlib-ng, libdeflate, libzstd, Google's brotli and Wuffs on the
 workloads it measures, with no heap and no I/O.
 
@@ -67,7 +70,9 @@ The architecture depends on every rule in this section.
    way. Other implementations are test oracles and benchmark baselines only. They are compiled in
    `tools/` and `bench/` and never into the library. Their source may be read for its methods
    (decision 67), but no code, table or comment of theirs goes into stdx: a method is written again
-   from the RFC, in stdx's own words.
+   from the RFC, in stdx's own words. chapulin is not another implementation in this sense: it is
+   the owner's own library, written to its own rules, and the module `crypto` links it
+   (decision 87). Its C keeps chapulin's rules, and stdx's lint rules hold stdx's own source.
 6. **Every RFC rule cited by section, in the code.** A check that exists because an RFC demands it
    carries the RFC and the section in a comment on the line that does the checking, so a reader
    can go from any refusal to the sentence that requires it. Cite the RFC that states the rule:
@@ -78,8 +83,8 @@ The architecture depends on every rule in this section.
    production, about two per function, covering positive and negative space, for programmer error
    only (decision 17); the one loop that runs without them is decision 16's ruled exception.
    Hostile input returns an error value and fails closed; no input reaches an assertion.
-8. **One module per codec, plus the checksums, JSON, `platform`, `regex`, `unicode` and
-   `utf8`.** The package exports one module, `stdx`, with `b.addModule`. It names each module under
+8. **One module per codec, plus the checksums, JSON, `platform`, `regex`, `unicode`, `utf8` and
+   `crypto`.** The package exports one module, `stdx`, with `b.addModule`. It names each module under
    its category, as `stdx.compress.gzip`, and no other module imports it. A dependent imports
    `dependency.module("stdx")` alone, and the build refuses a second export (decision 6 as amended
    on 2026-11-25). Each module stays a module of its own inside the build. The library keeps no
@@ -145,7 +150,7 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   `!` optional. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
   `ci`, `chore`. A scope holds lowercase letters and hyphens. Scopes track the module graph:
   `codec`, `checksum`, `deflate`, `zlib`, `gzip`, `zstd`, `brotli`, `json`, `platform`, `regex`,
-  `unicode`, and `bench` and `oracle` for the benchmarks and the differential checks. A scope
+  `unicode`, `crypto`, and `bench` and `oracle` for the benchmarks and the differential checks. A scope
   outside that set is a warning.
 - The description is imperative, starts with a lowercase letter, and ends without a period. The
   subject line stays at or under 72 columns.
@@ -231,8 +236,10 @@ stdx's appendix to it.
 ## Ask before
 
 - Changing a named limit.
-- Adding a dependency. The library has none and imports no package. The ruled exceptions, none of
-  which the library imports:
+- Adding a dependency. The library has one, chapulin, which the module `crypto` imports, pinned
+  by hash as a lazy package and fetched only for a build that passes `.crypto = true`
+  (decision 87). It imports no other package. The ruled exceptions, none of which the library
+  imports:
   - pepegrillo, the tooling `tools/` builds on (decision 7), and the Lean release
     `spec/lean/lean-toolchain` pins, which the proofs of decision 28 build with and which they
     import no package into;
@@ -263,11 +270,14 @@ stdx's appendix to it.
 Change this section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
-  offered, because assertions stay on in production.
+  offered, because assertions stay on in production. `-Dcrypto`, on by default in this build and
+  off for a dependent, fetches chapulin and gives `stdx.crypto`; `-Dcrypto_keylog` builds chapulin
+  with `KEYLOG=on`, for tests that read a capture (`build/crypto.zig`, decision 87).
 - Lint: `zig build lint`: cognitive complexity over `build.zig`, `bench`, `build`, `src` and `tools`, then
   the `tools/lint` rules: heap, io, cpu-probe (outside `platform`, only a test under `src/` calls
   `platform.probe` or `CpuFeatures.detect`), determinism, unbounded-loop, relative-import,
-  global-state, denied-words (no consumer's name in any `.zig` file), module-graph, markdown,
+  global-state, denied-words (no consumer's name in any `.zig` file; chapulin, the library's
+  dependency, is not one), module-graph, markdown,
   file-length, magic-numbers, rfc-citation and input-index (no slice or index bound read from the
   input outside the checked reader and writer, decision 16). Every rule `tools/lint/main.zig`
   registers runs, and a canary tree in `build/lint.zig` proves it.
@@ -328,7 +338,7 @@ Change this section when a step adds or renames a command.
   reaches to equal the counts `tools/checkfree_sites.zig` pins (decision 51); `-- --record` prints
   the table the build gives.
 - Module graph: `zig build graph-check` compiles fixtures that import a wrapper, another codec,
-  `json`, `base64`, `regex`, `utf8`, a package or the oracle bindings from inside `src/compress/deflate/`,
+  `json`, `base64`, `regex`, `utf8`, `crypto`, chapulin, a package or the oracle bindings from inside `src/compress/deflate/`,
   and requires each compile to fail. It first compiles the controls, which import `codec` and
   `platform`, the two modules `deflate` has, and requires each to compile. A module that
   `deflate` must not reach has a fixture in `tools/fixtures/`, and the check fails when one is
@@ -523,10 +533,11 @@ Change this section when a step adds or renames a command.
 - README examples: `zig build readme-check` builds `tools/consumer/`, a project of its own that
   depends on this tree the way the README says, with a nested `zig build`, and runs its program.
   It then requires every Zig block of README.md, and of each module's README, to be an excerpt
-  of that project's `build.zig` or `main.zig` (`tools/readme_examples.zig`). It requires the
+  of that project's `build.zig`, `main.zig` or `crypto.zig` (`tools/readme_examples.zig`). The
+  project's second program depends on stdx with `.crypto = true`, and the nested build reads this
+  tree's `zig-pkg` through `--system` for chapulin. It requires the
   README to link each module's README, and each module that the module `stdx` names to have one
-  (decision 88). The nested build takes an empty package folder through `--system`, so it writes
-  no `zig-pkg` into `tools/`.
+  (decision 88). The nested build writes no `zig-pkg` into `tools/`.
 - Coverage: `zig build coverage` builds every module's tests in Debug with LLVM and runs them under
   kcov 43 through pepegrillo's coverage engine (`tools/coverage.zig`), then prints each module's
   share of lines run and the total. It needs Linux and kcov. The `coverage` job of

@@ -31,7 +31,7 @@ const deflate_imports = [_]Import{
 };
 
 /// Every module name `deflate` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
+const forbidden = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "crypto", "chapulin", "pepegrillo", "oracle" };
 
 /// The exit status of a usage error.
 const usage_exit_status = 2;
@@ -135,9 +135,10 @@ fn compile(
 
 test "the forbidden list names every module of the graph deflate does not import, and a package" {
     // docs/design.md §3: every library module but `deflate` itself, `codec` and `platform`, then
-    // pepegrillo and the oracle bindings of tools/oracle/, which only tools and benchmarks may
-    // import. `stdx`, the root, has no fixture: no module imports it.
-    const expected = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "pepegrillo", "oracle" };
+    // chapulin, which only `crypto` receives (decision 87), and pepegrillo and the oracle bindings
+    // of tools/oracle/, which only tools and benchmarks may import. `stdx`, the root, has no
+    // fixture: no module imports it.
+    const expected = [_][]const u8{ "hash", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "utf8", "unicode", "crypto", "chapulin", "pepegrillo", "oracle" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);

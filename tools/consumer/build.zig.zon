@@ -8,5 +8,5 @@
     .dependencies = .{
         .stdx = .{ .path = "../.." },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "crypto.zig" },
 }

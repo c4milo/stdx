@@ -16,6 +16,8 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
     // kcov's runs are the output, and the engine writes them under zig-out/coverage itself.
     run.has_side_effects = true;
     inline for (@typeInfo(modules.Modules).@"struct".fields) |field| {
+        // `crypto` is optional, and this graph asks for no chapulin (decision 87).
+        if (comptime field.type != *std.Build.Module) continue;
         run.addArtifactArg(b.addTest(.{
             .name = field.name ++ "-coverage",
             .root_module = @field(graph, field.name),

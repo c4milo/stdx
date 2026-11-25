@@ -7109,13 +7109,22 @@ last part lists what still waits on a ruling.
     - chapulin is the owner's own library, written to its own rules, so non-negotiable 5 does not
       bind it. It is the library's first dependency, beside none.
     - The tools keep Zig's own SHA-256 for the pins of the differential checks. They never ship.
-    - **owner** Open for the issue that builds it
-      (https://github.com/c4milo/stdx/issues/42): which objects stdx offers and through which
-      options (colibri builds a TCP object and a QUIC object today, each with KEYLOG off, and on
-      for its tests); how a program's one CPU probe, `stdx.platform`, gives chapulin its `cpu`
-      value; where the hook chapulin calls on a failed assertion, `ch_assert_fail`, is defined;
-      and AEGIS, which stompy's checksum runs on through `std.crypto`, and which chapulin does
-      not hold: chapulin adds it, or stompy keeps Zig's.
+    - Amended on 2026-11-25, on the owner's word that stdx alone asks chapulin, and that
+      `stdx.crypto` holds most of chapulin's public API (design §8 step 23):
+      - stdx asks once for chapulin's module of `TRANSPORT=nonblocking` (chapulin's decision 245),
+        with the options colibri asked for: the TCP object as `tcp` and the QUIC object as `quic`.
+        `stdx.crypto` names both, and lifts `jws`, `dnssec`, `scram` and `Cpu` beside them.
+      - A dependent passes `.crypto = true`, and `.crypto_keylog = true` for tests that read a
+        capture. stdx's own build passes the first.
+      - chapulin's module defines `ch_assert_fail`, and a program that reaches a name of
+        `stdx.crypto` reaches the module and its hook. A program replaces it with
+        `chapulinAssertFail` in its root file.
+      - chapulin leaves the `denied-words` list: it is the library's dependency, not a consumer.
+    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): how a program's one CPU
+      probe, `stdx.platform`, gives chapulin its `cpu` value; the hashes and MACs chapulin exports
+      only behind `SCRAM=on` today, as calls of their own; and AEGIS, which stompy's checksum runs
+      on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or stompy keeps
+      Zig's.
 
     The alternatives refused:
     - No crypto in stdx, each library pinning chapulin itself. Two pins or two sets of options in

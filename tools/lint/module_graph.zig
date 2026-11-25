@@ -66,9 +66,10 @@ pub const Module = struct {
 
 /// The graph of docs/design.md §3, with `codec` as decision 11 rules it, `json` as decisions 27 and
 /// 73 do, `platform` as decision 40 does, `regex`, `utf8` and `unicode` as decision 86 does, and
-/// `stdx` as decision 6 as amended does. `platform` imports nothing. Each module whose calls take
-/// `platform.CpuFeatures` imports `platform` for that type (decisions 21 and 40 as amended on
-/// 2026-11-24), and the `cpu-probe` rule holds that none of them calls its probe or its detection.
+/// `stdx` as decision 6 as amended does, and `crypto` over chapulin's module as decision 87 does.
+/// `platform` imports nothing. Each module whose calls take `platform.CpuFeatures` imports
+/// `platform` for that type (decisions 21 and 40 as amended on 2026-11-24), and the `cpu-probe`
+/// rule holds that none of them calls its probe or its detection.
 pub const expected_graph = [_]Module{
     .{ .name = "codec", .imports = &.{"platform"} },
     .{ .name = "hash", .imports = &.{} },
@@ -83,7 +84,8 @@ pub const expected_graph = [_]Module{
     .{ .name = "base64", .imports = &.{ "codec", "platform" }, .directory = "encoding/base64" },
     .{ .name = "platform", .imports = &.{} },
     .{ .name = "regex", .imports = &.{ "codec", "utf8", "unicode", "platform" } },
-    .{ .name = "stdx", .imports = &.{ "codec", "hash", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex" } },
+    .{ .name = "crypto", .imports = &.{"chapulin"} },
+    .{ .name = "stdx", .imports = &.{ "codec", "hash", "deflate", "zlib", "gzip", "zstd", "brotli", "utf8", "unicode", "json", "base64", "platform", "regex", "stdx_options", "crypto" } },
 };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.

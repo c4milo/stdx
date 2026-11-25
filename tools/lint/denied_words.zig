@@ -8,7 +8,8 @@
 //! not depend on it.
 //!
 //! The list holds the projects of the same owner that consume stdx or sit next to one that does:
-//! the first consumer, its HTTP/1.1 module, and the projects around it.
+//! the first consumer, its HTTP/1.1 module, and the projects around it. chapulin is not on it: it
+//! is the library's dependency, which `stdx.crypto` names (decision 87).
 //!
 //! The rule is pepegrillo's `denied_words` (decision 7). This file holds stdx's configuration of
 //! it and the fixtures that pin that configuration.
@@ -19,7 +20,7 @@ const lint = pepegrillo.lint;
 const denied_words = lint.rules.denied_words;
 
 /// The names no stdx source spells.
-const consumer_names = [_][]const u8{ "colibri", "h11", "stompy", "chapulin", "cocuyo" };
+const consumer_names = [_][]const u8{ "colibri", "h11", "stompy", "cocuyo" };
 
 /// The configuration: every `.zig` file but this one, which spells the names.
 pub const config: denied_words.Config = .{
@@ -53,14 +54,13 @@ test "denied-words flags every consumer's name, in any case" {
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/compress/gzip/gzip.zig",
         \\// Colibri's h11 decodes gzip with this.
-        \\// STOMPY, chapulin and cocuyo too.
+        \\// STOMPY and cocuyo too.
     );
     const label = "a consumer's name (decision 1, invariant 15): ";
     try harness.expect_messages(findings, &.{
         label ++ "\"Colibri\"",
         label ++ "\"h11\"",
         label ++ "\"STOMPY\"",
-        label ++ "\"chapulin\"",
         label ++ "\"cocuyo\"",
     });
 }
