@@ -6553,7 +6553,9 @@ last part lists what still waits on a ruling.
         of those instructions, and the part before each literal must take at most
         `window_lead_max` bytes. Claim R5's `LiteralSet` then finds the next place of any of
         them, from the first bytes of each, as many as the shortest literal holds. At most
-        `window_ways_max` ways. A way whose literal holds a place that folds gives no set.
+        `window_ways_max` ways. A way whose literal holds a place that folds gives no set. The
+        set stands in the forward DFA's `literals`, which claim R5 leaves empty wherever the
+        window takes a set, so a `Searcher` holds no second `LiteralSet`.
         rebar's `imported/leipzig/awyer-inn`, `([A-Za-z]awyer|[A-Za-z]inn)\s`, ran at 0.18 of
         Rust's crate on the N2 before it. This entry refused the set first, since one cut served
         the rows it was built for, and the owner's ruling admits it.

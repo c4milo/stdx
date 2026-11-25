@@ -272,8 +272,9 @@ pub const Dfa = struct {
     /// takes a copy of the loop of its own, so that R1's loop holds no test of R2.
     inline fn scan_skipping(dfa: *Dfa, haystack: []const u8, from: usize, earliest: bool, first: u32) Scan {
         if (dfa.literal != null) return dfa.skip_loop_literal(haystack, from, earliest, first);
-        if (dfa.literals != null) return dfa.skip_loop_literal_set(haystack, from, earliest, first);
+        // A window over a set holds its literals in `literals`, so the window goes first.
         if (dfa.window != null) return dfa_window.scan(dfa, haystack, from, earliest, first);
+        if (dfa.literals != null) return dfa.skip_loop_literal_set(haystack, from, earliest, first);
         return dfa.skip_loop(.octet, haystack, from, earliest, first);
     }
 
