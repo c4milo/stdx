@@ -33,7 +33,7 @@ test "a searcher takes the window for a literal after a part of a bounded length
     for (windows, expected) |pattern, wanted| {
         try fixture.init(pattern, searcher_test.cache_words_max);
         const window = fixture.searcher.forward.window orelse return error.TestExpectedWindow;
-        try testing.expect(std.ascii.eqlIgnoreCase(wanted.literal, window.literal.slice()));
+        try testing.expect(std.ascii.eqlIgnoreCase(wanted.literal, window.finder.one.slice()));
         try testing.expectEqual(wanted.lead, window.lead);
         try testing.expect(fixture.searcher.inner == null and fixture.searcher.suffix == null);
     }
@@ -82,8 +82,55 @@ test "a searcher takes no window where the part before the literal has no bound,
     try testing.expect(fixture.searcher.forward.window == null);
 }
 
+/// Patterns each of whose matches holds one literal of a set after a part of a bounded length,
+/// and no one literal in every match.
+const window_sets = [_][]const u8{
+    "([A-Za-z]awyer|[A-Za-z]inn)\\s",
+    "(?:[a-z]{0,2}xy|[a-z]zw)[a-c]",
+    "(?:[a-z]?abc|[a-z]?xab|[a-z]?zz)",
+    // The shortest literal first.
+    "([A-Za-z]inn|[A-Za-z]awyer)\\s",
+    // Two splits that each hold a set, in both orders: the longer literals win.
+    "(?:[A-Za-z]wxyz|[A-Za-z]abcd)(?:[a-c]pq|[a-c]rs)",
+    "(?:[a-c]pq|[a-c]rs)(?:[A-Za-z]wxyz|[A-Za-z]abcd)",
+};
+
+test "a searcher takes a window over a set where each match holds one literal of the set" {
+    // The set's literals, cut to the shortest's bytes, and the most bytes before one.
+    const expected = [window_sets.len]struct { count: u8, len: u8, lead: u32 }{
+        .{ .count = 2, .len = 3, .lead = 1 },
+        .{ .count = 2, .len = 2, .lead = 2 },
+        .{ .count = 3, .len = 2, .lead = 1 },
+        .{ .count = 2, .len = 3, .lead = 1 },
+        .{ .count = 2, .len = 4, .lead = 1 },
+        .{ .count = 2, .len = 4, .lead = 4 },
+    };
+    var fixture: Fixture = .{ .encoding = .bytes };
+    for (window_sets, expected) |pattern, wanted| {
+        try fixture.init(pattern, searcher_test.cache_words_max);
+        const window = fixture.searcher.forward.window orelse return error.TestExpectedWindow;
+        const set = &window.finder.set;
+        try testing.expectEqual(wanted.count, set.literals.count);
+        try testing.expectEqual(wanted.len, set.literals.len);
+        try testing.expectEqual(wanted.lead, window.lead);
+    }
+    // A way whose literal folds, a way past the bound, a literal of one byte, a way with no
+    // literal, and a match that passes no way: no set.
+    const others = [_][]const u8{
+        "(?:[a-z]xy|[a-z](?i:zw))[a-c]",
+        "(?:[a-z]{0,20}xy|[a-z]zw)[a-c]",
+        "(?:[a-z]xy|[a-z]z)[a-c]",
+        "(?:[a-z]xy|[a-z]zw|[0-9])[a-c]",
+        "(?:[a-z]xy|[a-z]zw)[a-c]|q[a-c]",
+    };
+    for (others) |pattern| {
+        try fixture.init(pattern, searcher_test.cache_words_max);
+        try testing.expect(fixture.searcher.forward.window == null);
+    }
+}
+
 /// The bytes a haystack draws from: each case's literal and its parts, and a space.
-const alphabet = "aabbcing ABxyz";
+const alphabet = "aabbcing ABxyzwrnie";
 
 /// The bytes of a test's haystack: some steps of `skip_lanes` bytes, and a part of one.
 const haystack_steps = 6;
@@ -94,7 +141,7 @@ test "a searcher with a window gives what the matcher gives, from every offset a
     var fixture: Fixture = .{ .encoding = .bytes };
     var generator = codec.testing.split.Generator.init(0x51D0);
     var haystack: [haystack_len]u8 = undefined;
-    for (windows) |pattern| {
+    for (windows ++ window_sets) |pattern| {
         try fixture.init(pattern, 0);
         const sizes = searcher_test.cache_sizes(&fixture.program);
         for ([_]usize{ sizes.most, sizes.least }) |cache_words| {

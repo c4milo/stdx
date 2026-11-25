@@ -11,6 +11,7 @@
 //! Rules.lean, RulesSeparator.lean and RulesInner.lean). A rule holds for every text or for
 //! none, so a literal that fails there is a wrong choice for some text.
 const std = @import("std");
+const assert = std.debug.assert;
 const regex = @import("regex");
 const platform = @import("platform");
 
@@ -25,6 +26,9 @@ pub const Rule = enum {
     inner,
     /// The window's rule (src/regex/dfa/dfa_window.zig), which a searcher judges then too.
     window,
+    /// The window's rule over a set of literals (src/regex/dfa/dfa_window_set.zig), which a
+    /// searcher judges then too.
+    windows,
 
     /// The word of a claim line for the rule.
     pub fn word(rule: Rule) []const u8 {
@@ -33,6 +37,7 @@ pub const Rule = enum {
             .wide => "suffix-wide",
             .inner => "inner",
             .window => "window",
+            .windows => "windows",
         };
     }
 
@@ -55,15 +60,101 @@ pub const Claim = struct {
     /// Such a place holds the lower-case letter.
     folds: u64 = 0,
     /// For claim R14 and the window, the instruction where the reverse program stands after the
-    /// literal, from which it reads the part of a match before the literal. Zero for claim R4.
+    /// literal, from which it reads the part of a match before the literal. For a window over a
+    /// set, the bytes of each literal that the set compares. Zero for claim R4.
     before: u32 = 0,
     /// For the window, the most bytes of a match before the literal. Zero for the others.
     lead: u32 = 0,
+    /// For the window over a set, the ways, in place of `literal`.
+    ways: Ways = .{},
+
+    /// What a claim line writes after the bound: the literal, or a set's ways.
+    pub fn bytes(claim: *const Claim) []const u8 {
+        return if (claim.rule == .windows) claim.ways.slice() else claim.literal;
+    }
 
     pub fn same(claim: Claim, other: Claim) bool {
-        return claim.rule == other.rule and claim.before == other.before and claim.lead == other.lead and claim.folds == other.folds and std.mem.eql(u8, claim.literal, other.literal);
+        return claim.rule == other.rule and claim.before == other.before and claim.lead == other.lead and claim.folds == other.folds and std.mem.eql(u8, claim.bytes(), other.bytes());
     }
 };
+
+/// The bytes of one way's cut and `before`, each least significant first, and its literal's
+/// length.
+const way_head_len = 2 * @sizeOf(u32) + 1;
+
+/// The most bytes the ways of a set take.
+pub const ways_len_max = regex.constants.window_ways_max * (way_head_len + regex.constants.literal_len_max);
+
+/// The ways of a window over a set, as a claim line writes them: for each way, its cut and its
+/// `before`, four bytes each, least significant first, then its literal's length and bytes in
+/// the text's order. `Vectors.lean` reads the same bytes.
+pub const Ways = struct {
+    bytes: [ways_len_max]u8 = undefined,
+    len: usize = 0,
+
+    fn add(ways: *Ways, cut: u32, before: u32, literal: []const u8) void {
+        assert(ways.len + way_head_len + literal.len <= ways.bytes.len);
+        std.mem.writeInt(u32, ways.bytes[ways.len..][0..@sizeOf(u32)], cut, .little);
+        std.mem.writeInt(u32, ways.bytes[ways.len + @sizeOf(u32) ..][0..@sizeOf(u32)], before, .little);
+        ways.bytes[ways.len + 2 * @sizeOf(u32)] = @intCast(literal.len);
+        @memcpy(ways.bytes[ways.len + way_head_len ..][0..literal.len], literal);
+        ways.len += way_head_len + literal.len;
+    }
+
+    pub fn slice(ways: *const Ways) []const u8 {
+        return ways.bytes[0..ways.len];
+    }
+};
+
+/// The `claim` line of a program, as a replay reads it.
+pub const Named = struct {
+    bytes: [ways_len_max]u8 = undefined,
+    len: ?usize = null,
+    rule: Rule = .first,
+    before: u32 = 0,
+    lead: u32 = 0,
+    folds: u64 = 0,
+
+    /// Reads a `claim` line after its first word: the word of the rule, for claim R14 and the
+    /// window the instruction where the reverse program stands after the literal, or a set's
+    /// width, for a window its bound, and then the literal's length and bytes, or a set's ways.
+    /// The places that fold follow the word `folds`, where the literal has one.
+    pub fn read(named: *Named, tokens: *Tokens) !void {
+        named.rule = Rule.of_word(tokens.next() orelse return error.VectorClaim) orelse return error.VectorClaim;
+        named.before = if (named.rule != .first and named.rule != .wide) try number(u32, tokens) else 0;
+        named.lead = if (named.rule == .window or named.rule == .windows) try number(u32, tokens) else 0;
+        const len = try number(usize, tokens);
+        if (len == 0 or len > named.bytes.len) return error.VectorClaim;
+        for (named.bytes[0..len]) |*byte| byte.* = try number(u8, tokens);
+        named.folds = 0;
+        if (tokens.next()) |word| {
+            if (!std.mem.eql(u8, word, "folds")) return error.VectorClaim;
+            named.folds = try number(u64, tokens);
+        }
+        named.len = len;
+    }
+
+    /// The claim of the line, where the searcher at this point must hold it: a new searcher
+    /// holds a literal of claim R4's first rule alone, and a searcher that read the long text
+    /// holds a literal of any rule.
+    pub fn claim(named: *const Named, judged: bool) ?Claim {
+        const len = named.len orelse return null;
+        if (!judged and named.rule != .first) return null;
+        var taken: Claim = .{ .rule = named.rule, .literal = named.bytes[0..len], .folds = named.folds, .before = named.before, .lead = named.lead };
+        if (named.rule == .windows) {
+            @memcpy(taken.ways.bytes[0..len], named.bytes[0..len]);
+            taken.ways.len = len;
+            taken.literal = &.{};
+        }
+        return taken;
+    }
+};
+
+const Tokens = std.mem.TokenIterator(u8, .scalar);
+
+fn number(comptime T: type, tokens: *Tokens) !T {
+    return std.fmt.parseInt(T, tokens.next() orelse return error.VectorClaim, 10) catch error.VectorClaim;
+}
 
 /// The claim that a searcher holds, or null where it holds none.
 pub fn held(searcher: *const regex.Searcher) ?Claim {
@@ -74,7 +165,14 @@ pub fn held(searcher: *const regex.Searcher) ?Claim {
         return .{ .rule = .inner, .literal = literal.slice(), .folds = literal.folds, .before = searcher.reverse.second_entry };
     }
     const window = &(searcher.forward.window orelse return null);
-    return .{ .rule = .window, .literal = window.literal.slice(), .folds = window.literal.folds, .before = window.before, .lead = window.lead };
+    switch (window.finder) {
+        .one => |*literal| return .{ .rule = .window, .literal = literal.slice(), .folds = literal.folds, .before = window.before, .lead = window.lead },
+        .set => |*set| {
+            var claim: Claim = .{ .rule = .windows, .literal = &.{}, .before = set.literals.len, .lead = window.lead };
+            for (0..set.literals.count) |way| claim.ways.add(set.cuts[way], set.befores[way], set.literals.octets[way][0..set.literals.lens[way]]);
+            return claim;
+        },
+    }
 }
 
 /// A searcher with its memory, which says what claim a searcher takes for a program.
@@ -193,6 +291,31 @@ test "a claim line's word names its rule" {
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "aa", .before = 7 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 7, .folds = 1 }));
     try testing.expect(!claim.same(.{ .rule = .inner, .literal = "ab", .before = 7, .lead = 3 }));
+}
+
+test "a taker names the ways and the bound of a window over a set" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var taker = try Taker.init(arena.allocator(), test_instructions_max, test_slots_max);
+    const storage = try arena.allocator().alloc(regex.Instruction, test_instructions_max);
+    const program = try regex.compile("([A-Za-z]awyer|[A-Za-z]inn)\\s", .{}, storage);
+    const taken = taker.claim(&program) orelse return error.TestExpectedClaim;
+    try testing.expectEqual(Rule.windows, taken.rule);
+    try testing.expectEqual(@as(u32, 1), taken.lead);
+    try testing.expectEqual(@as(usize, 0), taken.literal.len);
+    // Two ways, the first way first: each a cut and a `before` of the reverse program, the
+    // literal's length and its bytes.
+    const ways = taken.bytes();
+    const second = way_head_len + "awyer".len;
+    try testing.expectEqual(second + way_head_len + "inn".len, ways.len);
+    try testing.expectEqualStrings("awyer", ways[way_head_len..second]);
+    try testing.expectEqualStrings("inn", ways[second + way_head_len ..]);
+    for ([_]usize{ 0, second }) |at| {
+        const cut = std.mem.readInt(u32, ways[at..][0..@sizeOf(u32)], .little);
+        const before = std.mem.readInt(u32, ways[at + @sizeOf(u32) ..][0..@sizeOf(u32)], .little);
+        try testing.expect(cut >= program.forward_len and cut < program.instructions.len);
+        try testing.expect(before >= program.forward_len and before < program.instructions.len);
+    }
 }
 
 test "a taker names the literal and the bound of a window" {

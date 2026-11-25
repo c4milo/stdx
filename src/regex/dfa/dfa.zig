@@ -490,5 +490,6 @@ test {
     _ = @import("dfa_wait.zig");
     _ = @import("dfa_length.zig");
     _ = @import("dfa_inner.zig");
+    _ = @import("dfa_window_set.zig");
     _ = @import("dfa_second.zig");
 }

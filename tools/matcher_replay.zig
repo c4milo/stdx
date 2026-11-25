@@ -166,14 +166,8 @@ pub const Replay = struct {
     searcher_finds: usize = 0,
     long_reads: usize = 0,
     is_matches: usize = 0,
-    /// The program's `claim` line: its literal, its rule and, for claim R14, the instruction
-    /// where the reverse program stands after the literal. Then the lines of the file so far.
-    claim: [regex.constants.literal_len_max]u8 = undefined,
-    claim_len: ?usize = null,
-    claim_rule: matcher_replay_claim.Rule = .first,
-    claim_before: u32 = 0,
-    claim_lead: u32 = 0,
-    claim_folds: u64 = 0,
+    /// The program's `claim` line, and the lines of the file so far.
+    named_claim: matcher_replay_claim.Named = .{},
     claims: usize = 0,
     /// The program's `prefix` line: the literal that the forward DFA goes to.
     prefix: matcher_replay_prefix.Named = .{},
@@ -255,7 +249,7 @@ pub const Replay = struct {
         replay.pattern_pending = false;
         replay.ready = false;
         replay.listed_len = 0;
-        replay.claim_len = null;
+        replay.named_claim.len = null;
         replay.prefix.clear();
         replay.slots = null;
         replay.programs += 1;
@@ -302,37 +296,15 @@ pub const Replay = struct {
     /// A `claim` line: the literal that a searcher took for the program, under the word of the
     /// rule it took it by. The Lean side judged that rule for the literal.
     fn set_claim(replay: *Replay, tokens: *Tokens) !void {
-        replay.claim_rule = matcher_replay_claim.Rule.of_word(try take(tokens)) orelse return error.VectorClaim;
-        const rule = replay.claim_rule;
-        replay.claim_before = if (rule == .inner or rule == .window) try number(u32, tokens) else 0;
-        replay.claim_lead = if (rule == .window) try number(u32, tokens) else 0;
-        const len = try number(usize, tokens);
-        if (len == 0 or len > replay.claim.len) return error.VectorClaim;
-        for (replay.claim[0..len]) |*byte| byte.* = try number(u8, tokens);
-        // The places that fold follow the word `folds`, where the literal has one.
-        replay.claim_folds = 0;
-        if (tokens.next()) |word| {
-            if (!std.mem.eql(u8, word, "folds")) return error.VectorClaim;
-            replay.claim_folds = try number(u64, tokens);
-        }
-        replay.claim_len = len;
+        try replay.named_claim.read(tokens);
         replay.claims += 1;
-    }
-
-    /// The claim of the file's `claim` line, where the searcher at this point must hold it: a
-    /// new searcher holds a literal of claim R4's first rule alone, and a searcher that read
-    /// the long text holds a literal of any rule.
-    fn claimed(replay: *const Replay, judged: bool) ?Claim {
-        const len = replay.claim_len orelse return null;
-        if (!judged and replay.claim_rule != .first) return null;
-        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .folds = replay.claim_folds, .before = replay.claim_before, .lead = replay.claim_lead };
     }
 
     /// Requires a searcher to hold the claim that the file names at this point, and none where
     /// the file names none: the literal, the places of it that fold, its rule and, for claim
     /// R14, the reverse DFA's second entry. So what the Lean side judged is what this build's searcher takes.
     fn expect_claim(replay: *const Replay, searcher: *const Searcher, judged: bool) !void {
-        const named = replay.claimed(judged);
+        const named = replay.named_claim.claim(judged);
         const held = matcher_replay_claim.held(searcher) orelse return if (named == null) {} else error.ClaimDiffers;
         if (!held.same(named orelse return error.ClaimDiffers)) return error.ClaimDiffers;
     }
@@ -490,6 +462,7 @@ pub fn main(init: std.process.Init) !void {
 
 test {
     _ = @import("matcher_replay/matcher_replay_test.zig");
+    _ = @import("matcher_replay/matcher_replay_window_test.zig");
     _ = replay_dump;
     _ = matcher_replay_claim;
     _ = matcher_replay_prefix;

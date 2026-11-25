@@ -6547,8 +6547,16 @@ last part lists what still waits on a ruling.
         factor, and read a window around it. Navarro and Raffinot describe it in "Flexible
         Pattern Matching in Strings" (Cambridge University Press, 2002), and GNU grep runs its
         DFA on the lines that hold the string its `dfamust` finds.
-      - Refused: a set of literals, one for each way, as in `([A-Za-z]awyer|[A-Za-z]inn)\s`. The
-        walk of one cut serves the rows of rebar it was built for.
+      - Over a set of literals, one for each way (the owner's ruling of 2026-11-25): where no one
+        literal holds, and the ways from one split of the reverse program each take a literal
+        from their first instruction, `dfa_window_set.window_set_of` reads them. Every match must pass one
+        of those instructions, and the part before each literal must take at most
+        `window_lead_max` bytes. Claim R5's `LiteralSet` then finds the next place of any of
+        them, from the first bytes of each, as many as the shortest literal holds. At most
+        `window_ways_max` ways. A way whose literal holds a place that folds gives no set.
+        rebar's `imported/leipzig/awyer-inn`, `([A-Za-z]awyer|[A-Za-z]inn)\s`, ran at 0.18 of
+        Rust's crate on the N2 before it. This entry refused the set first, since one cut served
+        the rows it was built for, and the owner's ruling admits it.
       - Refused: a bound past `window_lead_max`. A text of places that stand close together
         costs each byte up to that many reads of the state that waits.
     - `Searcher.captures` gives a match's groups as `SearcherGroups`: the slots the search wrote,
@@ -6673,7 +6681,9 @@ last part lists what still waits on a ruling.
       - `Stdx/Regex/Window.lean` proves the window's search, `answer_from_window`, from
         `Within`: every match holds the literal at most the bound after its start.
         `Stdx/Regex/RulesWindow.lean` decides it from a program: `windowOn`, with
-        `window_program`. The script runs it for each window that a searcher took.
+        `window_program`. `Stdx/Regex/RulesWindowSet.lean` decides it for a set: `windowSetOn`,
+        with `windowSet_program`, from `passesAnyOn`, which shows that every match passes one
+        of several instructions. The script runs each for each window that a searcher took.
       - `Stdx/Regex/RulesPrefix.lean` decides from a program that every match starts with a
         literal, for a program with any count of ways to start: `leadsOn`, with
         `leads_program`. The script runs it for each literal that a searcher's forward DFA

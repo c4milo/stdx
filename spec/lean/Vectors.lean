@@ -272,7 +272,9 @@ and `innerOn` of `Stdx/Regex/RulesInner.lean` decides its rule. A `prefix` line 
 that a searcher's forward DFA goes to by claim R2 or claim R3, and `leadsOn` of
 `Stdx/Regex/RulesPrefix.lean` decides that every match starts with it. A `claim window` line
 holds the window's `before`, its bound and its literal, and `windowOn` of
-`Stdx/Regex/RulesWindow.lean` decides its rule.
+`Stdx/Regex/RulesWindow.lean` decides its rule. A `claim windows` line holds the bytes of
+each literal that a window over a set compares, its bound and the set's ways, and `windowSetOn`
+of `Stdx/Regex/RulesWindowSet.lean` decides its rule.
 
 A `slots` line names the slots of the program's capture groups. After each `find` line of
 such a program, a `groups` line holds the groups of the search's match, which `capturesAt` of
@@ -449,6 +451,37 @@ def windowClaimLines (dump : Dump) (before lead : Option Nat) (literal : List (N
     else ["differs claim window"]
   | _, _, _ => ["differs claim window"]
 
+/-- A byte of a word, least significant first, and the three after it. -/
+def wordOf (b0 b1 b2 b3 : Nat) : Nat :=
+  b0 + 256 * b1 + 65536 * b2 + 16777216 * b3
+
+/-- The ways of a `claim windows` line, from its bytes: for each way, its cut and its `before`,
+four bytes each, least significant first, then its literal's length and bytes in the text's
+order. A way's literal is read back to its places from its last to its first, as `Way` holds
+them. None where the bytes end inside a way. -/
+def waysOf : Nat → List Nat → Option (List Stdx.Regex.Matcher.Way)
+  | _, [] => some []
+  | 0, _ => none
+  | fuel + 1, c0 :: c1 :: c2 :: c3 :: b0 :: b1 :: b2 :: b3 :: len :: rest =>
+    if len ≤ rest.length then
+      (waysOf fuel (rest.drop len)).map fun ways =>
+        (wordOf c0 c1 c2 c3, ((rest.take len).map fun b => (b, b)).reverse, wordOf b0 b1 b2 b3) ::
+          ways
+    else none
+  | _ + 1, _ => none
+
+open Stdx.Regex.Matcher in
+/-- A line that begins `differs` where the rule of the window over a set does not hold for the
+ways, the width and the bound that a Zig searcher took. The width is the bytes of each literal
+that the set compares, `LiteralSet`'s `len`. `windowSetOn` decides the rule from the program,
+and `windowSet_program` proves the search from it. -/
+def windowsClaimLines (dump : Dump) (width lead : Option Nat) (bytes : List Nat) :
+    List String :=
+  match dump.reverse, width, lead, waysOf (bytes.length + 1) bytes with
+  | some reverse, some width, some lead, some ways =>
+    if windowSetOn dump.prog reverse ways width lead then [] else ["differs claim windows"]
+  | _, _, _, _ => ["differs claim windows"]
+
 open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where a literal that a Zig searcher's forward DFA goes to, by
 claim R2 or claim R3, does not start every match. `leadsOn` decides that from the program for
@@ -482,6 +515,9 @@ def answerLine (dump : Dump) (line : String) : List String × Dump :=
     (line :: wideClaimLines dump (placesOf literal), { dump with claimed := true })
   | "claim" :: "inner" :: before :: _ :: literal =>
     (line :: innerClaimLines dump before.toNat? (placesOf literal),
+      { dump with claimed := true })
+  | "claim" :: "windows" :: width :: lead :: _ :: bytes =>
+    (line :: windowsClaimLines dump width.toNat? lead.toNat? (bytes.filterMap String.toNat?),
       { dump with claimed := true })
   | "claim" :: "window" :: before :: lead :: _ :: literal =>
     (line :: windowClaimLines dump before.toNat? lead.toNat? (placesOf literal),
