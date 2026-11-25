@@ -380,6 +380,13 @@ pub const case_bit = 0x20;
 /// octet is claim R1's skip, which judges `skip_ranges_max` ranges a step.
 pub const literal_prefix_len_min = 2;
 
+/// The most bytes that the part of a match before the window's literal may take
+/// (dfa_window.zig). A scan of the window before each place of the literal reads that many bytes
+/// at most, and a text whose places stand that close together costs each byte up to that many
+/// reads of the DFA's state that waits. 16 holds rebar's `\s[a-zA-Z]{0,12}ing\s`, whose part
+/// before `ing` takes 13 bytes at most.
+pub const window_lead_max = 16;
+
 /// The instructions that take a byte at one place of the literal that every way of a pattern
 /// starts with, at most: one for each way (literal_common.zig). `(?m)^ab|ab$` has two. The walk
 /// runs in `Searcher.init`, so the limit bounds what it costs a pattern that it does not serve.

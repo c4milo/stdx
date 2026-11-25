@@ -55,9 +55,10 @@ pub const Config = struct {
 };
 
 /// What a visit of a scan to the state that waits goes to (dfa_wait.zig): the next octet that
-/// can start a match (claim R1), the next place of the literal (claim R2), or of one of the
-/// literals (claim R5).
-pub const Pass = enum { octet, literal, literal_set };
+/// can start a match (claim R1), the next place of the literal (claim R2), of one of the
+/// literals (claim R5), or the next octet that can start a match in the window before the next
+/// place of a literal (dfa_window.zig).
+pub const Pass = enum { octet, literal, literal_set, window };
 
 /// What a scan found: the offset its last match ended at in the scan's direction, none, or
 /// nothing, because the cache thrashed.

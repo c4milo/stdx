@@ -198,6 +198,38 @@ test "a replay requires its new searcher's forward DFA to go to the literal of a
     try testing.expectEqual(@as(usize, 2), third.programs);
 }
 
+test "a replay requires the searcher that read a long text to hold the window of a claim line" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const window = try answered_groups(arena.allocator(), "[a-c]{0,3}ab[a-c]", "xcabc", "find 0 1 5", "groups 0 1 1:5");
+    const at = std.mem.indexOf(u8, window, "\nclaim window ") orelse return error.TestExpectedWindow;
+    const line = window[at + 1 ..][0..std.mem.indexOfScalar(u8, window[at + 1 ..], '\n').?];
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, window) == null);
+    try testing.expectEqual(@as(usize, 1), replay.claims);
+    // Its words: the rule, `before`, the bound, the literal's length and its bytes.
+    var words = std.mem.tokenizeScalar(u8, line, ' ');
+    var parts: [7][]const u8 = undefined;
+    for (&parts) |*part| part.* = words.next() orelse return error.TestExpectedWord;
+    try testing.expectEqualStrings("3", parts[3]);
+    const before = parts[2];
+    const lines = [_][]const u8{
+        // Another bound, another `before`, and another literal.
+        try std.fmt.allocPrint(arena.allocator(), "claim window {s} 4 2 97 98", .{before}),
+        try std.fmt.allocPrint(arena.allocator(), "claim window {d} 3 2 97 98", .{(try std.fmt.parseInt(u32, before, 10)) + 1}),
+        try std.fmt.allocPrint(arena.allocator(), "claim window {s} 3 2 97 99", .{before}),
+        // The same literal and bound under claim R14's word.
+        try std.fmt.allocPrint(arena.allocator(), "claim inner {s} 2 97 98", .{before}),
+    };
+    for (lines) |other| {
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), window, line, other);
+        try testing.expect(!std.mem.eql(u8, changed, window));
+        var wrong = try Replay.init(arena.allocator());
+        const failed = replay_text(&wrong, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(error.ClaimDiffers, failed.cause);
+    }
+}
+
 test "a replay holds the matcher and each searcher to the groups of a line" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

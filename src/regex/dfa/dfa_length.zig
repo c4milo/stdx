@@ -28,8 +28,9 @@ const Dfa = @import("dfa.zig").Dfa;
 /// The instructions a split goes to.
 const split_targets = 2;
 
-/// The counts of bytes between which every match of a part of a program lies, both included.
-pub const Lengths = struct { least: usize, most: usize };
+/// The counts of bytes between which every match of a part of a program lies, both included,
+/// and the most bytes that any path of the part takes, whether it reaches `match` or not.
+pub const Lengths = struct { least: usize, most: usize, bound: usize };
 
 /// A node that the pass did not meet yet, one whose targets it is still at, and one that reaches
 /// no `match`, in the list of least lengths. A length is under each: a path takes at most one
@@ -57,7 +58,7 @@ pub fn of(dfa: *Dfa) ?Lengths {
     if (first == none) return null;
     const last = most[dfa.config.entry - base];
     assert(first <= last and last <= least.len);
-    return .{ .least = first, .most = last };
+    return .{ .least = first, .most = last, .bound = last };
 }
 
 /// Computes the lengths of each node that `entry` reaches, the targets of a node before the
@@ -176,7 +177,8 @@ pub fn from(dfa: *Dfa, entry: u32, most_max: usize) ?Lengths {
         if (dfa.next.len == 0) {
             const first = least orelse return null;
             assert(first <= most and most <= level);
-            return .{ .least = first, .most = most };
+            // The level after this one holds no instruction, so no path takes more bytes.
+            return .{ .least = first, .most = most, .bound = level };
         }
     }
     // A level past `most_max` holds an instruction.

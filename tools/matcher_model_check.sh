@@ -134,6 +134,54 @@ claim suffix 2 97 98
 text 3 99 97 98
 search 0
 DUMP
+# `c*ab` and its reverse half `bac*`, with the claim of a window of three bytes before `ab`. The
+# part before the literal takes any count of bytes, so no bound holds.
+canary "claim window" <<'DUMP'
+program bytes 10 0 5
+split 1 2
+range 99 99 0
+range 97 97 3
+range 98 98 4
+match
+range 98 98 6
+range 97 97 7
+split 8 9
+range 99 99 7
+match
+claim window 7 3 2 97 98
+text 3 99 97 98
+search 0
+DUMP
+# `c{0,4}ab` and its reverse half, with the claim of a window of three bytes before `ab`. The part
+# before the literal takes four bytes at most: one more than the claim.
+canary "claim window" <<'DUMP'
+program bytes 22 0 11
+split 1 8
+range 99 99 2
+split 3 8
+range 99 99 4
+split 5 8
+range 99 99 6
+split 7 8
+range 99 99 8
+range 97 97 9
+range 98 98 10
+match
+range 98 98 12
+range 97 97 13
+split 14 21
+range 99 99 15
+split 16 21
+range 99 99 17
+split 18 21
+range 99 99 19
+split 20 21
+range 99 99 21
+match
+claim window 13 3 2 97 98
+text 4 99 99 97 98
+search 0
+DUMP
 # `\bab|cb` and its reverse half, with the claim that its forward DFA goes to the places of
 # `ab` (claim R3). The second way starts with `c`, so `ab` does not start every match.
 canary prefix <<'DUMP'

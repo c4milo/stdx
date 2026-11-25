@@ -24,6 +24,7 @@ import Stdx.Regex.RulesPrefix
 import Stdx.Regex.RulesSeparator
 import Stdx.Regex.SearcherInner
 import Stdx.Regex.RulesInner
+import Stdx.Regex.RulesWindow
 
 /-!
 # What the proofs rest on
@@ -288,6 +289,33 @@ namespace Stdx.Regex
 
 /-- info: 'Stdx.Regex.Matcher.fixed_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.fixed_program
+
+/-- info: 'Stdx.Regex.Search.window_start' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.window_start
+
+/-- info: 'Stdx.Regex.Search.answer_from_window' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.answer_from_window
+
+/-- info: 'Stdx.Regex.Search.window_none' does not depend on any axioms -/
+#guard_msgs in #print axioms Search.window_none
+
+/-- info: 'Stdx.Regex.Search.within_of_inner' does not depend on any axioms -/
+#guard_msgs in #print axioms Search.within_of_inner
+
+/-- info: 'Stdx.Regex.Search.within_wider' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Search.within_wider
+
+/-- info: 'Stdx.Regex.Matcher.bounded_of_boundsOk' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.bounded_of_boundsOk
+
+/-- info: 'Stdx.Regex.Matcher.boundedLength_sound' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.boundedLength_sound
+
+/-- info: 'Stdx.Regex.Matcher.window_within' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.window_within
+
+/-- info: 'Stdx.Regex.Matcher.window_program' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Matcher.window_program
 
 /-- info: 'Stdx.Regex.Matcher.fits_of_takesFit' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms Matcher.fits_of_takesFit

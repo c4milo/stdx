@@ -172,6 +172,7 @@ pub const Replay = struct {
     claim_len: ?usize = null,
     claim_rule: matcher_replay_claim.Rule = .first,
     claim_before: u32 = 0,
+    claim_lead: u32 = 0,
     claim_folds: u64 = 0,
     claims: usize = 0,
     /// The program's `prefix` line: the literal that the forward DFA goes to.
@@ -302,7 +303,9 @@ pub const Replay = struct {
     /// rule it took it by. The Lean side judged that rule for the literal.
     fn set_claim(replay: *Replay, tokens: *Tokens) !void {
         replay.claim_rule = matcher_replay_claim.Rule.of_word(try take(tokens)) orelse return error.VectorClaim;
-        replay.claim_before = if (replay.claim_rule == .inner) try number(u32, tokens) else 0;
+        const rule = replay.claim_rule;
+        replay.claim_before = if (rule == .inner or rule == .window) try number(u32, tokens) else 0;
+        replay.claim_lead = if (rule == .window) try number(u32, tokens) else 0;
         const len = try number(usize, tokens);
         if (len == 0 or len > replay.claim.len) return error.VectorClaim;
         for (replay.claim[0..len]) |*byte| byte.* = try number(u8, tokens);
@@ -322,7 +325,7 @@ pub const Replay = struct {
     fn claimed(replay: *const Replay, judged: bool) ?Claim {
         const len = replay.claim_len orelse return null;
         if (!judged and replay.claim_rule != .first) return null;
-        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .folds = replay.claim_folds, .before = replay.claim_before };
+        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .folds = replay.claim_folds, .before = replay.claim_before, .lead = replay.claim_lead };
     }
 
     /// Requires a searcher to hold the claim that the file names at this point, and none where
