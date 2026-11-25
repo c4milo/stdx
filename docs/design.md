@@ -11739,12 +11739,15 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
   dependency and asks it once for its module of `TRANSPORT=nonblocking`, with the options colibri
   asked for (`build/crypto.zig`). The module `crypto` names it. A dependent passes `.crypto =
   true` to have it, and `.crypto_keylog = true` for tests that read a capture.
-  New public names: `stdx.crypto`, with `tcp`, `quic`, `jws`, `dnssec`, `scram` and `Cpu`, and
-  the build options `crypto` and `crypto_keylog`. Every library of the owner that needs chapulin
+  New public names: `stdx.crypto`, with `tls`, `quic`, `jws`, `dnssec`, `scram` and `Cpu`, and
+  the build options `crypto` and `crypto_keylog`. `tls` and `quic` each flatten one of chapulin's
+  objects, its sessions and its types into one namespace, as the owner chose on 2026-11-25:
+  `tls.Client` in place of chapulin's `tcp.tcp.Client`. Every library of the owner that needs chapulin
   asks for it here, so a program links one chapulin.
   **Check:**
-  - `zig build test-crypto` names each part of the module and holds `scram.sha256` of "abc" to
-    RFC 6234 §8.5. `zig build test-stdx` requires `stdx.crypto` in stdx's own build.
+  - `zig build test-crypto` names each part of the module, requires `tls` and `quic` to repeat
+    every public name of chapulin's two objects, and holds `scram.sha256` of "abc" to RFC 6234
+    §8.5. `zig build test-stdx` requires `stdx.crypto` in stdx's own build.
   - `zig build graph-check` refuses `crypto` and `chapulin` from `src/compress/deflate/`, and the
     module-graph rule holds `crypto` and its one import in its table.
   - `zig build readme-check` builds `tools/consumer/`'s second program, which depends on stdx with
@@ -11753,7 +11756,7 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     readme-check`; chapulin given to `deflate`, against `zig build lint`; the root's `crypto`
     switched off in stdx's own build, and the module's reference to chapulin's module removed,
     against `zig build test-stdx`; and `scram` taken from the QUIC object, which builds no SCRAM,
-    against `zig build test-crypto`.
+    and `tls.Ticket` and `quic.KeySet` each left out, against `zig build test-crypto`.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance

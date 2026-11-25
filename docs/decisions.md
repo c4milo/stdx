@@ -7112,8 +7112,11 @@ last part lists what still waits on a ruling.
     - Amended on 2026-11-25, on the owner's word that stdx alone asks chapulin, and that
       `stdx.crypto` holds most of chapulin's public API (design §8 step 23):
       - stdx asks once for chapulin's module of `TRANSPORT=nonblocking` (chapulin's decision 245),
-        with the options colibri asked for: the TCP object as `tcp` and the QUIC object as `quic`.
-        `stdx.crypto` names both, and lifts `jws`, `dnssec`, `scram` and `Cpu` beside them.
+        with the options colibri asked for. chapulin compiles the TCP object and the QUIC object
+        apart, so each has its own types. `stdx.crypto.tls` holds the TCP object's sessions and
+        types in one namespace, and `stdx.crypto.quic` the QUIC object's, as the owner chose:
+        `tls.Client`, where chapulin names it `tcp.tcp.Client`. `jws`, `dnssec`, `scram` and
+        `Cpu` stand beside them.
       - A dependent passes `.crypto = true`, and `.crypto_keylog = true` for tests that read a
         capture. stdx's own build passes the first.
       - chapulin's module defines `ch_assert_fail`, and the module `crypto` references it, so a

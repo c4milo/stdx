@@ -27,17 +27,21 @@ through stdx links one chapulin, which chapulin requires.
 
 ## What it holds
 
-The module is chapulin's Zig module of `TRANSPORT=nonblocking`, and chapulin's
-[docs/zig.md](https://github.com/c4milo/chapulin/blob/main/docs/zig.md) describes each name.
+The module names chapulin's Zig module of `TRANSPORT=nonblocking`. chapulin compiles its two
+objects apart, so each has its own types, and each gets one flat namespace here. chapulin's
+[docs/zig.md](https://github.com/c4milo/chapulin/blob/main/docs/zig.md) describes each name, under
+the object it comes from.
 
-| Name | What it is |
-| --- | --- |
-| `tcp` | The TCP object: TLS record sessions as `tcp.tcp.Client` and `tcp.tcp.Server`, their options, and the readers of PEM keys, chains and anchors |
-| `quic` | The QUIC object: the TLS handshake and packet protection under a QUIC stack, as `quic.quic.Client` and `quic.quic.Server` |
-| `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)) |
-| `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) |
-| `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) |
-| `Cpu` | The CPU a session runs on, which the program describes from its one probe, [`stdx.platform`](../platform/README.md) |
+| Name | What it is | chapulin's name |
+| --- | --- | --- |
+| `tls` | TLS 1.3 over TCP: `tls.Client` and `tls.Server`, their options, the readers of PEM keys, chains and anchors, and the values a session negotiates | `tcp`, with its sessions in `tcp.tcp` |
+| `quic` | TLS 1.3 under QUIC: `quic.Client` and `quic.Server`, the handshake and packet protection a QUIC stack drives, and the QUIC object's own options and keys | `quic`, with its sessions in `quic.quic` |
+| `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)) | `tcp.jws` |
+| `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
+| `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
+| `Cpu` | The CPU the calls beside `tls` and `quic` take, which the program describes from its one probe, [`stdx.platform`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
+
+A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.ClientOptions`.
 
 ## Options
 
