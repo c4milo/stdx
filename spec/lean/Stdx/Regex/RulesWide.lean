@@ -161,10 +161,11 @@ theorem fixedLength_sound {prog : Array Inst} {text : List Nat} {before most n :
 
 /-! ## Claim R4's second rule -/
 
-/-- Claim R4's second rule for a literal with no place that folds. `walked` holds the literal's
-bytes from its last to its first. The reverse program takes those bytes from its entry, and
-then one count of bytes, of at most `most`, on each path to `match`. Gives that count. -/
-def fixedOn (rev : Array Inst) (reventry : Nat) (walked : List Nat) (most : Nat) : Option Nat :=
+/-- Claim R4's second rule. `walked` holds the literal's places from its last to its first.
+The reverse program takes them from its entry, and then one count of bytes, of at most `most`,
+on each path to `match`. Gives that count. -/
+def fixedOn (rev : Array Inst) (reventry : Nat) (walked : List (Nat × Nat)) (most : Nat) :
+    Option Nat :=
   match chainStop rev (chainFuel rev walked) reventry walked with
   | some before => fixedLength rev before most
   | none => none
@@ -173,8 +174,8 @@ def fixedOn (rev : Array Inst) (reventry : Nat) (walked : List Nat) (most : Nat)
 `Searcher.find_by_suffix` over the model's scans gives the matcher's answer from `low`, for a
 text that has the builder's hypotheses. -/
 theorem fixed_program {prog rev : Array Inst} {entry reventry most n : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts)
     (hrule : fixedOn rev reventry walked most = some n) (hlit : 0 < walked.reverse.length)
     {low : Nat} (hlow : low ≤ text.length) :
@@ -206,9 +207,10 @@ the rule holds with the count 1. `[a-c]+ab` has `ba[a-c]+`, whose part from 2 ta
 more: no one count holds. -/
 example :
     fixedOn #[.range 103 103 1, .range 110 110 2, .range 105 105 3, .range 104 104 4,
-        .range 115 115 5, .range 97 99 6, .done] 0 [103, 110, 105, 104, 115] 8 = some 1 ∧
-      fixedOn #[.range 98 98 1, .range 97 97 2, .range 97 99 3, .split 2 4, .done] 0 [98, 97] 8
-        = none ∧
+        .range 115 115 5, .range 97 99 6, .done] 0
+        [(103, 103), (110, 110), (105, 105), (104, 104), (115, 115)] 8 = some 1 ∧
+      fixedOn #[.range 98 98 1, .range 97 97 2, .range 97 99 3, .split 2 4, .done] 0
+        [(98, 98), (97, 97)] 8 = none ∧
       levelsFrom #[.range 98 98 1, .range 97 97 2, .range 97 99 3, .split 2 4, .done] 3 [2]
         = [[2], [3, 2, 4], [3, 2, 4]] := by decide
 

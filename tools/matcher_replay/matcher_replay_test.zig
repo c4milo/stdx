@@ -151,6 +151,34 @@ test "a replay requires its new searcher to hold the literal of a claim line" {
     try testing.expectEqual(error.ClaimDiffers, failed.cause);
 }
 
+test "a replay holds a searcher to the places of its literal that fold" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var lines: replay_dump.Lines = .{ .arena = arena.allocator() };
+    var scratch = try replay_dump.Scratch.init(arena.allocator());
+    // The literal's first place takes `a` in either case, and no digit is `a` or `A`.
+    const pattern = "[0-9]+(?i:a)b";
+    const program = try regex.compile(pattern, .{}, scratch.storage);
+    try lines.add_case(pattern, &program, scratch.taker.claim(&program), "x1Ab", &.{0});
+    const text = try std.mem.replaceOwned(u8, arena.allocator(), lines.bytes.items, "search 0", "find 0 1 4");
+    try testing.expect(std.mem.indexOf(u8, text, "\nclaim suffix 2 97 98 folds 1\n") != null);
+    var replay = try Replay.init(arena.allocator());
+    try testing.expect(replay_text(&replay, text) == null);
+    const cases = [_]struct { new: []const u8, cause: anyerror }{
+        // Another place that folds, no place that folds, and a word that is not `folds`.
+        .{ .new = "claim suffix 2 97 98 folds 3", .cause = error.ClaimDiffers },
+        .{ .new = "claim suffix 2 97 98", .cause = error.ClaimDiffers },
+        .{ .new = "claim suffix 2 97 98 fold 1", .cause = error.VectorClaim },
+    };
+    for (cases) |case| {
+        const changed = try std.mem.replaceOwned(u8, arena.allocator(), text, "claim suffix 2 97 98 folds 1", case.new);
+        try testing.expect(!std.mem.eql(u8, changed, text));
+        var other = try Replay.init(arena.allocator());
+        const failed = replay_text(&other, changed) orelse return error.TestExpectedFailure;
+        try testing.expectEqual(case.cause, failed.cause);
+    }
+}
+
 test "a replay holds the searcher that read its long text to a literal of a rule that waits" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

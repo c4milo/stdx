@@ -6,10 +6,8 @@
 //! answered, and `matcher_replay` replays that file.
 //!
 //! The patterns come from two places in turn. One is tools/differential/regex_generate.zig,
-//! which draws each form of the syntax. The other is `claim_case` below, which draws the shapes
-//! the searcher's claims read: a literal that starts every match, one that ends every match,
-//! one inside, and an alternation of literals, each beside a part that may take the literal's
-//! bytes. Half of their texts hold the literal twice.
+//! which draws each form of the syntax. The other is matcher_replay_shapes.zig, which draws the
+//! shapes the searcher's claims read.
 //!
 //! A text holds at most `text_len_max` bytes, or for one case in `long_case_share` at most
 //! `long_text_len_max`, with more searches.
@@ -23,6 +21,9 @@ const std = @import("std");
 const regex = @import("regex");
 const regex_generate = @import("../differential/regex_generate.zig");
 const matcher_replay_claim = @import("matcher_replay_claim.zig");
+const matcher_replay_shapes = @import("matcher_replay_shapes.zig");
+const pick = matcher_replay_shapes.pick;
+const fit = matcher_replay_shapes.fit;
 const Claim = matcher_replay_claim.Claim;
 const Generator = @import("codec").testing.split.Generator;
 const Instruction = regex.Instruction;
@@ -76,111 +77,6 @@ pub fn line_of(buffer: []u8, instruction: Instruction) ![]const u8 {
     };
 }
 
-/// The parts of a pattern shaped for the searcher's claims. A run takes some bytes, and most
-/// runs take a byte of a word, so a search from the word's place must read past it.
-const runs = [_][]const u8{
-    "[ab]*",         "[a-c]+",          "(?:a|ba)*",          ".*",    "\\w+",   "[^b]*",   "a?", "(?:ab)*?", "", "[b ]+", "\\w*?", "(?:[ab]|c[ab]ab)", "c", "(?i:b)*",
-    // Runs whose DFA holds a state for each set of the last few bytes: more states than a small
-    // cache holds, over a text of mixed letters.
-    "[ab]*a[ab]{5}", "[a-c]*b[a-c]{3}", "(?:a|ba)*b[ab ]{4}",
-    // Runs of one count of bytes, which may be a word's first: claim R4's second rule.
-    "[a-c]", "\\w\\w", "[ab]{2}",
-};
-const words = [_][]const u8{ "ab", "ba", "abc", "aab", "b a", "cab", "aa", "abab" };
-const tails = [_][]const u8{ "", "", "", "$", "\\b", "c*", "[ab]?" };
-
-/// The pieces of a text for such a pattern: the words' bytes, so that a word stands in a text
-/// more than once.
-const claim_text_pieces = [_][]const u8{ "a", "b", "ab", "ba", "c", " ", "abc", "a", "b" };
-
-/// The pieces such a text holds at most before its two words, and after them.
-const claim_text_pieces_max = 3;
-
-/// The letters that the nested shape's first branch takes.
-const letters = [_][]const u8{ "a", "b" };
-
-/// The shapes of such a pattern.
-const Shape = enum {
-    /// A run, then a word: the word ends every match.
-    suffix,
-    /// A word, then a run: the word starts every match.
-    prefix,
-    /// A run, a word, and a run: the word stands inside every match.
-    inner,
-    /// Two words in an alternation, then a run.
-    set,
-    /// A run and a word, or a word alone.
-    either,
-    /// `(?:[ab]|c[ab]W)W` for a word W, then a run: a match from `c` holds a shorter match that
-    /// starts later and ends sooner. A search from the word's places then needs a rule, which
-    /// spec/lean/Stdx/Regex/Required.lean names `NoEarlier` (`needs_no_earlier`).
-    nested,
-    /// A run, a space or more, then a word: claim R4's third rule, where the run takes no
-    /// space.
-    separated,
-    /// The same, and then a run: claim R14, by the third rule for the part before the word.
-    inner_separated,
-};
-
-fn pick(generator: *Generator, comptime list: []const []const u8) []const u8 {
-    return list[generator.below(list.len)];
-}
-
-/// Adds a piece to a text where it fits.
-fn fit(text: *std.ArrayList(u8), piece: []const u8) void {
-    if (text.unusedCapacitySlice().len >= piece.len) text.appendSliceAssumeCapacity(piece);
-}
-
-fn fit_pieces(generator: *Generator, text: *std.ArrayList(u8)) void {
-    for (0..generator.below(claim_text_pieces_max + 1)) |_| fit(text, pick(generator, &claim_text_pieces));
-}
-
-/// Draws the text of such a case. Half of the texts hold the pattern's word twice: a search
-/// from the word's places then has two places to judge. For the nested shape the two words
-/// follow `c` and a letter, as in `cbabab` for `(?:[ab]|c[ab]ab)ab`, which is the text that
-/// holds both of that shape's matches.
-fn claim_text(generator: *Generator, case: *regex_generate.Case, shape: Shape, word: []const u8) void {
-    var text: std.ArrayList(u8) = .initBuffer(case.text[0..text_len_max]);
-    fit_pieces(generator, &text);
-    if (generator.below(2) == 0) {
-        if (shape == .nested) {
-            fit(&text, "c");
-            fit(&text, pick(generator, &letters));
-            fit(&text, word);
-        } else {
-            fit(&text, word);
-            fit_pieces(generator, &text);
-        }
-        fit(&text, word);
-    }
-    fit_pieces(generator, &text);
-    case.text_len = text.items.len;
-}
-
-/// Draws a case shaped for the searcher's claims.
-fn claim_case(generator: *Generator, case: *regex_generate.Case) void {
-    case.* = .{};
-    var pattern: std.ArrayList(u8) = .initBuffer(&case.pattern.octets);
-    const run = pick(generator, &runs);
-    const word = pick(generator, &words);
-    const other = pick(generator, &words);
-    const second = pick(generator, &runs);
-    const shape: Shape = @enumFromInt(generator.below(std.meta.fields(Shape).len));
-    switch (shape) {
-        .suffix => pattern.printAssumeCapacity("{s}{s}", .{ run, word }),
-        .prefix => pattern.printAssumeCapacity("{s}{s}", .{ word, run }),
-        .inner => pattern.printAssumeCapacity("{s}{s}{s}", .{ run, word, second }),
-        .set => pattern.printAssumeCapacity("(?:{s}|{s}){s}", .{ word, other, run }),
-        .either => pattern.printAssumeCapacity("(?:{s}{s}|{s})", .{ run, word, other }),
-        .nested => pattern.printAssumeCapacity("(?:[ab]|c[ab]{s}){s}{s}", .{ word, word, second }),
-        .separated => pattern.printAssumeCapacity("{s} +{s}", .{ run, word }),
-        .inner_separated => pattern.printAssumeCapacity("{s} +{s}{s}", .{ run, word, second }),
-    }
-    pattern.appendSliceAssumeCapacity(pick(generator, &tails));
-    case.pattern.len = pattern.items.len;
-    claim_text(generator, case, shape, word);
-}
-
 /// The entry of a program with no reverse half (`program.no_entry`).
 pub const no_entry = std.math.maxInt(u32);
 
@@ -224,13 +120,14 @@ pub const Lines = struct {
 
     /// The literal a searcher took, under the word of its rule: for claim R14 the instruction
     /// where the reverse program stands after the literal, then the literal's length and its
-    /// bytes, in the text's order.
+    /// bytes, in the text's order. Where a place folds, the word `folds` and the places' bits.
     fn add_claim(lines: *Lines, claim: Claim) !void {
         var buffer: [line_len_max]u8 = undefined;
         try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, "claim {s}", .{claim.rule.word()}));
         if (claim.rule == .inner) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.before}));
         try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{claim.literal.len}));
         for (claim.literal) |byte| try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " {d}", .{byte}));
+        if (claim.folds != 0) try lines.bytes.appendSlice(lines.arena, try std.fmt.bufPrint(&buffer, " folds {d}", .{claim.folds}));
         try lines.bytes.append(lines.arena, '\n');
     }
 
@@ -267,7 +164,7 @@ fn long_text(generator: *Generator, short: []const u8, buffer: *[long_text_len_m
         const mixed = generator.below(2) == 0;
         const filler = pick(generator, &fillers);
         for (0..generator.between(filler_len_min, filler_len_max) / filler.len) |_| {
-            fit(&text, if (mixed) pick(generator, &claim_text_pieces) else filler);
+            fit(&text, if (mixed) pick(generator, &matcher_replay_shapes.text_pieces) else filler);
         }
         fit(&text, short);
     }
@@ -307,7 +204,7 @@ pub fn dump(arena: std.mem.Allocator, seed: u64, count: usize) ![]const u8 {
     for (0..count * draws_per_case) |draw| {
         if (kept == count) break;
         // Two draws of each source in turn, so that each source is read as UTF-8 and as bytes.
-        if (draw / 2 % 2 == 0) regex_generate.next(&generator, &case) else claim_case(&generator, &case);
+        if (draw / 2 % 2 == 0) regex_generate.next(&generator, &case) else matcher_replay_shapes.draw(&generator, &case, text_len_max);
         const encoding: regex.Encoding = if (draw % 2 == 0) .utf8 else .bytes;
         if (try add_drawn(&lines, &generator, &case, encoding, &scratch)) kept += 1;
     }
@@ -385,6 +282,7 @@ test "a dump names the literal that a searcher took, after the program and befor
     const text = try dump(arena_state.allocator(), 1, cases);
     var claims: usize = 0;
     var inner: usize = 0;
+    var folded: usize = 0;
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     var before: []const u8 = "";
     while (lines.next()) |line| {
@@ -392,20 +290,32 @@ test "a dump names the literal that a searcher took, after the program and befor
             claims += 1;
             inner += @intFromBool(std.mem.startsWith(u8, line, "claim inner "));
             try testing.expect(!std.mem.startsWith(u8, before, "text ") and !std.mem.startsWith(u8, before, "search "));
-            var tokens = std.mem.tokenizeScalar(u8, line, ' ');
-            _ = tokens.next();
-            const rule = matcher_replay_claim.Rule.of_word(tokens.next().?).?;
-            // Claim R14's line names an instruction before the literal's length.
-            if (rule == .inner) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
-            const len = try std.fmt.parseInt(usize, tokens.next().?, text_len_radix);
-            var bytes: usize = 0;
-            while (tokens.next()) |_| bytes += 1;
-            try testing.expect(len > 0 and len == bytes);
+            folded += @intFromBool(try expect_claim_line(line));
         }
         before = line;
     }
     try testing.expect(claims > 0 and claims < cases);
     try testing.expect(inner > 0 and inner < claims);
+    try testing.expect(folded > 0 and folded < claims);
+}
+
+/// Requires a claim line's parts: its rule, for claim R14 an instruction, the literal's length
+/// and that many bytes, and for a literal with a place that folds the word `folds` and the
+/// places' bits, which name no place past the literal. True for a literal with such a place.
+fn expect_claim_line(line: []const u8) !bool {
+    var tokens = std.mem.tokenizeScalar(u8, line, ' ');
+    _ = tokens.next();
+    const rule = matcher_replay_claim.Rule.of_word(tokens.next().?).?;
+    if (rule == .inner) _ = try std.fmt.parseInt(u32, tokens.next().?, text_len_radix);
+    const len = try std.fmt.parseInt(usize, tokens.next().?, text_len_radix);
+    try testing.expect(len > 0);
+    for (0..len) |_| _ = try std.fmt.parseInt(u8, tokens.next().?, text_len_radix);
+    const word = tokens.next() orelse return false;
+    try testing.expectEqualStrings("folds", word);
+    const folds = try std.fmt.parseInt(u64, tokens.next().?, text_len_radix);
+    try testing.expect(folds != 0 and folds >> @intCast(len) == 0);
+    try testing.expect(tokens.next() == null);
+    return true;
 }
 
 test "line_of writes each kind as the Lean model reads it" {

@@ -204,19 +204,19 @@ def separatedSets (prog : Array Inst) (before : Nat) : List Nat × List Nat × L
   (first, inside, past)
 
 /-- The rule for the walk of one literal: the reverse program takes `walked` from its entry,
-and the three sets from the instruction after it are right. -/
-def separatedAt (rev : Array Inst) (reventry : Nat) (walked : List Nat) : Bool :=
+the three sets from the instruction after it are right, and no byte of the literal's first
+place is a separator. -/
+def separatedAt (rev : Array Inst) (reventry : Nat) (walked : List (Nat × Nat)) : Bool :=
   match walked.reverse[0]?, chainStop rev (chainFuel rev walked) reventry walked with
-  | some b, some before =>
+  | some place, some before =>
     let sets := separatedSets rev before
-    separatedOk rev before sets.1 sets.2.1 sets.2.2 b
+    separatedOk rev before sets.1 sets.2.1 sets.2.2 place.1 && !separator rev sets.1 place.2
   | _, _ => false
 
-/-- Claim R4's third rule for a literal with no place that folds: the rule holds for the
-literal, or for the literal past some of its first bytes. `walked` holds the literal's bytes
-from its last to its first, so such a literal is a first part of `walked`. Gives the count of
-the bytes of that part. -/
-def separatedOn (rev : Array Inst) (reventry : Nat) (walked : List Nat) : Option Nat :=
+/-- Claim R4's third rule: the rule holds for the literal, or for the literal past some of its
+first places. `walked` holds the literal's places from its last to its first, so such a
+literal is a first part of `walked`. Gives the count of the places passed. -/
+def separatedOn (rev : Array Inst) (reventry : Nat) (walked : List (Nat × Nat)) : Option Nat :=
   (List.range walked.length).find? fun short =>
     separatedAt rev reventry (walked.take (walked.length - short))
 
@@ -229,20 +229,21 @@ theorem mirrored_byte {text : List Nat} {q : Nat} (hq : q < text.length) :
 
 /-- The third rule for the walk of one literal gives `Rising`. -/
 theorem separated_rising {prog rev : Array Inst} {entry reventry : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts)
     (hrule : separatedAt rev reventry walked = true) (hlit : 0 < walked.reverse.length) :
     Rising (textOf prog entry text starts hexact) := by
   unfold separatedAt at hrule
   cases hbyte : walked.reverse[0]? with
   | none => simp [hbyte] at hrule
-  | some b0 =>
+  | some place =>
+    obtain ⟨b0, b1⟩ := place
     cases hstop : chainStop rev (chainFuel rev walked) reventry walked with
     | none => simp [hbyte, hstop] at hrule
     | some before =>
       simp only [hbyte, hstop, separatedOk, Bool.and_eq_true, Bool.not_eq_true'] at hrule
-      obtain ⟨⟨⟨⟨⟨hstart, hfirst⟩, hsub⟩, hinside⟩, hpast⟩, hnotsep⟩ := hrule
+      obtain ⟨⟨⟨⟨⟨⟨hstart, hfirst⟩, hsub⟩, hinside⟩, hpast⟩, hnotsep⟩, hnotsep'⟩ := hrule
       have hchain := chain_of_chainStop _ _ _ _ hstop
       have hends := endsWith_of_chain hexact hrevexact hrev hclean hchain hlit
       have hlen : walked.reverse.length = walked.length := List.length_reverse
@@ -284,19 +285,25 @@ theorem separated_rising {prog rev : Array Inst} {entry reventry : Nat}
         exact ⟨b', by rw [← mirrored_byte (by omega)]; exact hb', hsep'⟩
       · intro p hp hsep
         obtain ⟨b, hb, hs⟩ := hsep
-        have hat := hp.2 0 hlit
-        rw [Nat.add_zero, hbyte] at hat
-        rw [hat] at hb
-        have hbb : b0 = b := Option.some.inj hb
-        rw [← hbb, hnotsep] at hs
-        cases hs
+        have ⟨c, hc, hfits⟩ := hp.2 0 (b0, b1) hbyte
+        rw [Nat.add_zero, hb] at hc
+        have hbc : b = c := Option.some.inj hc
+        cases hfits with
+        | inl h =>
+          have h' : c = b0 := h
+          rw [hbc, h', hnotsep] at hs
+          cases hs
+        | inr h =>
+          have h' : c = b1 := h
+          rw [hbc, h', hnotsep'] at hs
+          cases hs
 
 /-- Claim R4 over a program, from the third rule: where `separatedOn` holds for a literal,
 `Searcher.find_by_suffix` over the model's scans gives the matcher's answer from `low`, for a
 text that has the builder's hypotheses. The search goes to the places of the whole literal. -/
 theorem separated_program {prog rev : Array Inst} {entry reventry before short : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts)
     (hchain : Chain rev reventry walked before)
     (hrule : separatedOn rev reventry walked = some short) (hlit : 0 < walked.reverse.length)
@@ -319,9 +326,9 @@ walk stops at `suffix_before_len_max`, which is 8. A greater bound here refuses 
 the Zig rule takes, and the proof holds for each bound. -/
 def fixedMost : Nat := 16
 
-/-- Claim R4's second rule or its third, for a literal with no place that folds: what a
-searcher judges after its searches were given enough text (`dfa_suffix.wide`). -/
-def wideOn (rev : Array Inst) (reventry : Nat) (walked : List Nat) : Bool :=
+/-- Claim R4's second rule or its third: what a searcher judges after its searches were given
+enough text (`dfa_suffix.wide`). -/
+def wideOn (rev : Array Inst) (reventry : Nat) (walked : List (Nat × Nat)) : Bool :=
   (chainStop rev (chainFuel rev walked) reventry walked).isSome &&
     ((fixedOn rev reventry walked fixedMost).isSome || (separatedOn rev reventry walked).isSome)
 
@@ -329,8 +336,8 @@ def wideOn (rev : Array Inst) (reventry : Nat) (walked : List Nat) : Bool :=
 literal, `Searcher.find_by_suffix` over the model's scans gives the matcher's answer from
 `low`, for a text that has the builder's hypotheses. -/
 theorem wide_program {prog rev : Array Inst} {entry reventry : Nat}
-    {text walked : List Nat} {starts : Nat → Bool} (hexact : Exact prog) (hrevexact : Exact rev)
-    (hrev : Reverses prog entry rev reventry text)
+    {text : List Nat} {walked : List (Nat × Nat)} {starts : Nat → Bool} (hexact : Exact prog)
+    (hrevexact : Exact rev) (hrev : Reverses prog entry rev reventry text)
     (hclean : StartsClean prog entry text starts)
     (hrule : wideOn rev reventry walked = true) (hlit : 0 < walked.reverse.length)
     {low : Nat} (hlow : low ≤ text.length) :
@@ -360,12 +367,13 @@ the separator is then `x`, which the part before takes once. `[a-cxy ]+ +xy` tak
 too, and the rule holds for no part of the literal. -/
 example :
     separatedOn #[.range 121 121 1, .range 120 120 2, .range 32 32 3, .split 2 4,
-        .range 97 99 5, .split 4 6, .done] 0 [121, 120] = some 0 ∧
+        .range 97 99 5, .split 4 6, .done] 0 [(121, 121), (120, 120)] = some 0 ∧
       separatedOn #[.range 121 121 1, .range 120 120 2, .range 32 32 3, .split 2 4,
-        .ranges 2, .range 32 32 7, .range 97 99 7, .split 4 8, .done] 0 [121, 120] = some 1 ∧
+        .ranges 2, .range 32 32 7, .range 97 99 7, .split 4 8, .done] 0
+        [(121, 121), (120, 120)] = some 1 ∧
       separatedOn #[.range 121 121 1, .range 120 120 2, .range 32 32 3, .split 2 4,
         .ranges 3, .range 32 32 8, .range 97 99 8, .range 120 121 8, .split 4 9, .done] 0
-        [121, 120] = none := by
+        [(121, 121), (120, 120)] = none := by
   decide
 
 end Stdx.Regex.Matcher

@@ -163,6 +163,7 @@ pub const Replay = struct {
     claim_len: ?usize = null,
     claim_rule: matcher_replay_claim.Rule = .first,
     claim_before: u32 = 0,
+    claim_folds: u64 = 0,
     claims: usize = 0,
     /// The searches that the searcher which read a long text ran from the places of claim
     /// R14's literal: it held the literal, and its account was not at rest.
@@ -238,6 +239,12 @@ pub const Replay = struct {
         const len = try number(usize, tokens);
         if (len == 0 or len > replay.claim.len) return error.VectorClaim;
         for (replay.claim[0..len]) |*byte| byte.* = try number(u8, tokens);
+        // The places that fold follow the word `folds`, where the literal has one.
+        replay.claim_folds = 0;
+        if (tokens.next()) |word| {
+            if (!std.mem.eql(u8, word, "folds")) return error.VectorClaim;
+            replay.claim_folds = try number(u64, tokens);
+        }
         replay.claim_len = len;
         replay.claims += 1;
     }
@@ -248,12 +255,12 @@ pub const Replay = struct {
     fn claimed(replay: *const Replay, judged: bool) ?Claim {
         const len = replay.claim_len orelse return null;
         if (!judged and replay.claim_rule != .first) return null;
-        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .before = replay.claim_before };
+        return .{ .rule = replay.claim_rule, .literal = replay.claim[0..len], .folds = replay.claim_folds, .before = replay.claim_before };
     }
 
     /// Requires a searcher to hold the claim that the file names at this point, and none where
-    /// the file names none: the literal, its rule and, for claim R14, the reverse DFA's second
-    /// entry. So what the Lean side judged is what this build's searcher takes.
+    /// the file names none: the literal, the places of it that fold, its rule and, for claim
+    /// R14, the reverse DFA's second entry. So what the Lean side judged is what this build's searcher takes.
     fn expect_claim(replay: *const Replay, searcher: *const Searcher, judged: bool) !void {
         const named = replay.claimed(judged);
         const held = matcher_replay_claim.held(searcher) orelse return if (named == null) {} else error.ClaimDiffers;
@@ -437,4 +444,5 @@ test {
     _ = @import("matcher_replay/matcher_replay_test.zig");
     _ = replay_dump;
     _ = matcher_replay_claim;
+    _ = @import("matcher_replay/matcher_replay_shapes.zig");
 }

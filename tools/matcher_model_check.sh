@@ -12,8 +12,9 @@
 #    with a text and its searches. `lake exe vectors --answers` answers each search, and checks
 #    that each program and text pass the hypotheses of the model's theorems
 #    (spec/lean/Stdx/Regex/Hypotheses.lean). It also checks that a rule of claim R4 or the
-#    rule of claim R14 holds for each literal a searcher took by it
-#    (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean and RulesInner.lean).
+#    rule of claim R14 holds for each literal a searcher took by it, a literal with a place
+#    that folds among them (spec/lean/Stdx/Regex/Rules.lean, RulesSeparator.lean and
+#    RulesInner.lean).
 #    `matcher_replay` compiles each pattern again and requires the answer of `Matcher.find`
 #    and of four searchers: one with every claim, one with none, one with every claim that
 #    read a long text first, and one with every claim and a small cache. One case in eight
@@ -148,6 +149,33 @@ split 7 9
 match
 claim suffix-wide 2 97 98
 text 3 99 97 98
+search 0
+DUMP
+# `[0-9A]+(?i:a)b` and its reverse half `b(?i:a)[0-9A]+`, with the claim that the literal `ab`
+# ends every match under the first rule, its first place in either case. The part before the
+# literal takes `A`, which that place takes, so the rule fails. It holds for `a` alone.
+canary "claim suffix" <<'DUMP'
+program bytes 18 0 9
+ranges 2
+range 48 57 3
+range 65 65 3
+split 0 4
+split 5 6
+range 97 97 7
+range 65 65 7
+range 98 98 8
+match
+range 98 98 10
+split 11 12
+range 97 97 13
+range 65 65 13
+ranges 2
+range 48 57 16
+range 65 65 16
+split 13 17
+match
+claim suffix 2 97 98 folds 1
+text 3 49 65 98
 search 0
 DUMP
 # `[a-c]+@[a-c]+` and its reverse half, which has the same form. Every match holds `@`, and

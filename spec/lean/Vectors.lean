@@ -262,7 +262,8 @@ a reverse half, they also run the model's two scans for each search, and write s
 where the scans do not give the answer.
 
 A `claim suffix` line holds the literal that a Zig searcher took for claim R4 by its first
-rule. The lines below decide that rule from the program, with `apartOn` of
+rule: its length, its bytes, and after the word `folds` the places that take a letter in either
+case. The lines below decide that rule from the program, with `apartOn` of
 `Stdx/Regex/Rules.lean`, and write such a line where it does not hold. A `claim suffix-wide`
 line holds a literal that a searcher took after it read enough text, by the second rule or the
 third, which `wideOn` of `Stdx/Regex/RulesSeparator.lean` decides. A `claim inner` line holds
@@ -361,12 +362,24 @@ def searchLines (dump : Dump) (low : Nat) : List String :=
       [s!"find {low} {spanWords (answerFast dump.prog dump.forward dump.text starts low)}",
         s!"differs dfa {low} gives {spanWords scanned}"]
 
+/-- The bit that an ASCII letter's two cases differ in (`constants.case_bit`). -/
+def caseBit : Nat := 0x20
+
+/-- The places of a claim line's literal, in the text's order, from the line's words after the
+literal's length: its bytes, and after the word `folds` a number whose bit `i` is set where
+place `i` folds. A place that folds holds a letter's two cases (`Literal.fold_at`). -/
+def placesOf (words : List String) : List (Nat × Nat) :=
+  let bytes := (words.takeWhile (· != "folds")).filterMap String.toNat?
+  let mask := (((words.dropWhile (· != "folds")).drop 1).head?.bind String.toNat?).getD 0
+  (List.range bytes.length).filterMap fun i =>
+    bytes[i]?.map fun b => if mask.testBit i then (b, b ^^^ caseBit) else (b, b)
+
 open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where claim R4's first rule does not hold for a literal that a
-Zig searcher took by it. `literal` holds the bytes in the text's order. `apartOn` decides the
+Zig searcher took by it. `literal` holds the places in the text's order. `apartOn` decides the
 rule from the program, and `apart_program` proves the search from it for each text that has
 the builder's hypotheses. So a literal that fails is a wrong choice for some text. -/
-def claimLines (dump : Dump) (literal : List Nat) : List String :=
+def claimLines (dump : Dump) (literal : List (Nat × Nat)) : List String :=
   match dump.reverse with
   | none => ["differs claim suffix"]
   | some reverse =>
@@ -376,7 +389,7 @@ open Stdx.Regex.Matcher in
 /-- A line that begins `differs` where neither the second rule of claim R4 nor the third holds
 for a literal that a Zig searcher took after it read enough text. `wideOn` decides both from
 the program, and `wide_program` proves the search from it. -/
-def wideClaimLines (dump : Dump) (literal : List Nat) : List String :=
+def wideClaimLines (dump : Dump) (literal : List (Nat × Nat)) : List String :=
   match dump.reverse with
   | none => ["differs claim suffix-wide"]
   | some reverse =>
@@ -389,7 +402,8 @@ stands after the literal. `innerOn` decides the rule from the program for a cut:
 the literal from the cut stands at `before`, every match passes the cut, and one of claim R4's
 rules holds for the part of a match before the literal. The rule must hold for some cut, and
 `inner_program` proves the search from it. -/
-def innerClaimLines (dump : Dump) (before : Option Nat) (literal : List Nat) : List String :=
+def innerClaimLines (dump : Dump) (before : Option Nat) (literal : List (Nat × Nat)) :
+    List String :=
   match dump.reverse, before with
   | some reverse, some before =>
     if (List.range dump.prog.size).any fun cut =>
@@ -401,12 +415,12 @@ def innerClaimLines (dump : Dump) (before : Option Nat) (literal : List Nat) : L
 holds no program, text, claim or search is written as it is. -/
 def answerLine (dump : Dump) (line : String) : List String × Dump :=
   match line.splitOn " " with
-  | "claim" :: "suffix" :: _ :: bytes =>
-    (line :: claimLines dump (bytes.filterMap String.toNat?), { dump with claimed := true })
-  | "claim" :: "suffix-wide" :: _ :: bytes =>
-    (line :: wideClaimLines dump (bytes.filterMap String.toNat?), { dump with claimed := true })
-  | "claim" :: "inner" :: before :: _ :: bytes =>
-    (line :: innerClaimLines dump before.toNat? (bytes.filterMap String.toNat?),
+  | "claim" :: "suffix" :: _ :: literal =>
+    (line :: claimLines dump (placesOf literal), { dump with claimed := true })
+  | "claim" :: "suffix-wide" :: _ :: literal =>
+    (line :: wideClaimLines dump (placesOf literal), { dump with claimed := true })
+  | "claim" :: "inner" :: before :: _ :: literal =>
+    (line :: innerClaimLines dump before.toNat? (placesOf literal),
       { dump with claimed := true })
   | "program" :: encoding :: _ :: forward :: reverse :: _ =>
     ([line], { dump with
