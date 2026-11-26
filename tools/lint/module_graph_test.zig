@@ -52,6 +52,9 @@ const passing_build: [:0]const u8 =
     \\    regex.addImport("utf8", utf8);
     \\    regex.addImport("unicode", unicode);
     \\    regex.addImport("platform", platform);
+    \\    const crypto = library(b, "crypto", target, optimize);
+    \\    crypto.addImport("chapulin", chapulin);
+    \\    crypto.addImport("platform", platform);
     \\    const stdx = library(b, "stdx", target, optimize);
     \\    stdx.addImport("codec", codec);
     \\    stdx.addImport("hash", checksum);
@@ -66,6 +69,8 @@ const passing_build: [:0]const u8 =
     \\    stdx.addImport("base64", base64);
     \\    stdx.addImport("platform", platform);
     \\    stdx.addImport("regex", regex);
+    \\    stdx.addImport("stdx_options", stdx_options);
+    \\    stdx.addImport("crypto", crypto);
     \\}
 ;
 
@@ -208,8 +213,8 @@ test "module-graph reads the created modules and the edges of every receiver" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const calls = try module_graph.collect_calls(arena, &tree);
-    try testing.expectEqual(14, calls.modules.len);
-    try testing.expectEqual(40, calls.edges.len);
+    try testing.expectEqual(15, calls.modules.len);
+    try testing.expectEqual(44, calls.edges.len);
     try testing.expectEqualStrings("codec", calls.edges[0].module);
     try testing.expectEqualStrings("platform", calls.edges[0].name);
     try testing.expectEqual(4, calls.edges[0].line);
@@ -280,19 +285,24 @@ test "the expected graph is design §3's table" {
         .{ "stdx", "base64" },
         .{ "stdx", "platform" },
         .{ "stdx", "regex" },
+        .{ "stdx", "stdx_options" },
+        .{ "stdx", "crypto" },
+        .{ "crypto", "chapulin" },
+        .{ "crypto", "platform" },
     };
     var edge_count: usize = 0;
     for (module_graph.expected_graph) |module| edge_count += module.imports.len;
     try testing.expectEqual(table.len, edge_count);
-    try testing.expectEqual(14, module_graph.expected_graph.len);
+    try testing.expectEqual(15, module_graph.expected_graph.len);
     for (table) |edge| try testing.expect(expected_edge(edge[0], edge[1]));
 }
 
-test "platform imports nothing, and only the modules whose calls take CpuFeatures import it" {
+test "platform imports nothing, and only the modules whose calls take its types import it" {
     // Decisions 21 and 40 as amended on 2026-11-24: a codec imports `platform` for the type
-    // `CpuFeatures`, and the cpu-probe rule, not the graph, keeps the probe out of its reach. A
-    // module that takes no CPU features does not import it, and no module imports the root.
-    const takes_features = [_][]const u8{ "codec", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "stdx" };
+    // `CpuFeatures`, and the cpu-probe rule, not the graph, keeps the probe out of its reach.
+    // `crypto` imports it for `Cpu`, which `init` takes (decision 87 as amended on 2026-11-25). A
+    // module that takes neither does not import it, and no module imports the root.
+    const takes_features = [_][]const u8{ "codec", "deflate", "zlib", "gzip", "zstd", "brotli", "json", "base64", "regex", "crypto", "stdx" };
     for (module_graph.expected_graph) |module| {
         if (std.mem.eql(u8, module.name, "platform")) try testing.expectEqual(0, module.imports.len);
         try testing.expect(!expected_edge(module.name, "stdx"));

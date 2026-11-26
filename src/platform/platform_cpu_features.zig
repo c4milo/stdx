@@ -17,11 +17,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const constants = @import("constants.zig");
+const x86_file = @import("platform_cpu_features_x86.zig");
+const midr_file = @import("platform_midr.zig");
+const Midr = midr_file.Midr;
 
 pub const CpuFeatures = struct {
     /// x86-64: SSSE3's PSHUFB, a lookup of 16 entries for each of 16 lanes, which needs no
     /// register the operating system saves beyond SSE2's.
     ssse3: bool = false,
+    /// x86-64: SSE4.1, which the x86-64 baseline does not hold. Code for the SHA extensions and
+    /// for PCLMULQDQ uses it beside them.
+    sse4_1: bool = false,
     /// x86-64: PCLMULQDQ, with SSE4.1.
     pclmul: bool = false,
     /// x86-64: AVX2, with the operating system saving the YMM registers.
@@ -55,6 +62,30 @@ pub const CpuFeatures = struct {
     /// than naming an instruction: XXH64's round is such a chain, which its aarch64 path breaks, at
     /// no gain on a Neoverse N2 (design §8 step 10, decision 21).
     madd_addend_slow: bool = false,
+    /// AES's round instructions: AES-NI on x86-64, FEAT_AES on aarch64. The carry-less multiply
+    /// beside them is `pclmul` or `pmull`.
+    aes: bool = false,
+    /// The SHA-256 instructions: x86-64's SHA extensions with SSSE3 and SSE4.1, which code for
+    /// them uses beside them, and aarch64's FEAT_SHA256.
+    sha256: bool = false,
+    /// The SHA-512 instructions: x86-64's SHA512, with the operating system saving the YMM
+    /// registers, and aarch64's FEAT_SHA512.
+    sha512: bool = false,
+    /// aarch64: FEAT_SHA3, the SHA-3 instructions EOR3, RAX1, XAR and BCAX.
+    sha3: bool = false,
+    /// aarch64: FEAT_SVE2, the second Scalable Vector Extension, whose XAR rotates the XOR of two
+    /// vectors.
+    sve2: bool = false,
+    /// aarch64: FEAT_DIT, the PSTATE.DIT bit, under which the instructions Arm lists take a time
+    /// that does not depend on the values they process. `data_independent_timing` reads a thread's
+    /// bit, and `set_data_independent_timing` sets it.
+    dit: bool = false,
+    /// x86-64: VAES and VPCLMULQDQ on the YMM registers, with `avx2`.
+    vaes: bool = false,
+    /// aarch64: MIDR_EL1 of the core detection ran on, which tells one core from another by its
+    /// implementer and part (platform_midr.zig). null on x86-64, on macOS, on Linux without
+    /// HWCAP_CPUID, and in `target()`, since a target names no core.
+    midr: ?Midr = null,
 
     /// No feature: every codec takes its scalar paths.
     pub fn none() CpuFeatures {
@@ -72,21 +103,25 @@ pub const CpuFeatures = struct {
         return detect_cpu().with(target());
     }
 
-    /// The features both sets hold.
+    /// The features both sets hold, and the core both name, or null where they name two.
     pub fn intersect(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
         var result: CpuFeatures = .{};
         inline for (std.meta.fields(CpuFeatures)) |field| {
+            if (field.type != bool) continue;
             @field(result, field.name) = @field(self, field.name) and @field(other, field.name);
         }
+        result.midr = if (std.meta.eql(self.midr, other.midr)) self.midr else null;
         return result;
     }
 
-    /// The features either set holds.
+    /// The features either set holds, and the core `self` names, or else the one `other` names.
     pub fn with(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
         var result: CpuFeatures = .{};
         inline for (std.meta.fields(CpuFeatures)) |field| {
+            if (field.type != bool) continue;
             @field(result, field.name) = @field(self, field.name) or @field(other, field.name);
         }
+        result.midr = self.midr orelse other.midr;
         return result;
     }
 };
@@ -94,7 +129,7 @@ pub const CpuFeatures = struct {
 /// The features detection finds, before the target's are added.
 fn detect_cpu() CpuFeatures {
     return switch (builtin.cpu.arch) {
-        .x86_64 => detect_x86_64(),
+        .x86_64 => x86_file.detect(),
         .aarch64 => detect_aarch64(),
         else => CpuFeatures.target(),
     };
@@ -104,6 +139,7 @@ fn from_target(cpu: std.Target.Cpu) CpuFeatures {
     return switch (cpu.arch) {
         .x86_64 => .{
             .ssse3 = has_x86(cpu, .ssse3),
+            .sse4_1 = has_x86(cpu, .sse4_1),
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
             .bmi2 = has_x86(cpu, .bmi2) and has_x86(cpu, .ssse3),
@@ -111,12 +147,23 @@ fn from_target(cpu: std.Target.Cpu) CpuFeatures {
             .vpmullq_fast = has_avx512(cpu) and std.mem.startsWith(u8, cpu.model.name, amd_model_prefix),
             .vpclmul = has_x86(cpu, .vpclmulqdq),
             .vnni = has_x86(cpu, .avx512vnni),
+            .aes = has_x86(cpu, .aes),
+            .sha256 = has_x86(cpu, .sha) and has_x86(cpu, .ssse3) and has_x86(cpu, .sse4_1),
+            .sha512 = has_x86(cpu, .sha512) and has_x86(cpu, .avx),
+            .vaes = has_x86(cpu, .vaes) and has_x86(cpu, .vpclmulqdq) and has_x86(cpu, .avx2),
         },
         .aarch64 => .{
             .crc32 = std.Target.aarch64.featureSetHas(cpu.features, .crc),
             .pmull = std.Target.aarch64.featureSetHas(cpu.features, .aes),
             .dotprod = std.Target.aarch64.featureSetHas(cpu.features, .dotprod),
             .madd_addend_slow = std.mem.startsWith(u8, cpu.model.name, apple_model_prefix),
+            .aes = has_aarch64(cpu, .aes),
+            .sha256 = has_aarch64(cpu, .sha2),
+            // Zig's `sha3` names FEAT_SHA512 and FEAT_SHA3 together.
+            .sha512 = has_aarch64(cpu, .sha3),
+            .sha3 = has_aarch64(cpu, .sha3),
+            .sve2 = has_aarch64(cpu, .sve2),
+            .dit = has_aarch64(cpu, .dit),
         },
         else => .{},
     };
@@ -129,6 +176,10 @@ fn has_x86(cpu: std.Target.Cpu, feature: std.Target.x86.Feature) bool {
     return std.Target.x86.featureSetHas(cpu.features, feature);
 }
 
+fn has_aarch64(cpu: std.Target.Cpu, feature: std.Target.aarch64.Feature) bool {
+    return std.Target.aarch64.featureSetHas(cpu.features, feature);
+}
+
 fn has_avx512(cpu: std.Target.Cpu) bool {
     return has_x86(cpu, .avx512f) and has_x86(cpu, .avx512bw) and has_x86(cpu, .avx512dq) and has_x86(cpu, .avx512vl);
 }
@@ -136,152 +187,87 @@ fn has_avx512(cpu: std.Target.Cpu) bool {
 /// The prefix of Zig's names for AMD's Zen cores, the only x86-64 models a target names by vendor.
 const amd_model_prefix = "znver";
 
-/// The bits of CPUID and XCR0 that detection reads, as the Intel and AMD manuals number them.
-const x86 = struct {
-    const leaf_vendor = 0;
-    // Leaf 0's vendor string, "AuthenticAMD" or "GenuineIntel", four octets to EBX, EDX and ECX in
-    // that order.
-    const vendor_amd_ebx = 0x6874_7541;
-    const vendor_amd_edx = 0x6974_6e65;
-    const vendor_amd_ecx = 0x444d_4163;
-    const vendor_intel_ebx = 0x756e_6547;
-    const vendor_intel_edx = 0x4965_6e69;
-    const vendor_intel_ecx = 0x6c65_746e;
-    const leaf_features = 1;
-    const leaf_extended_features = 7;
-    // Leaf 1, ECX: bits 1, 9, 19, 27 and 28.
-    const ecx_pclmulqdq = 0x0000_0002;
-    const ecx_ssse3 = 0x0000_0200;
-    const ecx_sse4_1 = 0x0008_0000;
-    const ecx_osxsave = 0x0800_0000;
-    const ecx_avx = 0x1000_0000;
-    // Leaf 7, EBX: bits 5, 8, 16, 17, 30 and 31; ECX: bits 10 and 11.
-    const ebx_avx2 = 0x0000_0020;
-    const ebx_bmi2 = 0x0000_0100;
-    const ebx_avx512f = 0x0001_0000;
-    const ebx_avx512dq = 0x0002_0000;
-    const ebx_avx512bw = 0x4000_0000;
-    const ebx_avx512vl = 0x8000_0000;
-    const ecx_vpclmulqdq = 0x0000_0400;
-    const ecx_avx512_vnni = 0x0000_0800;
-    /// XCR0: the operating system saves the XMM and YMM registers.
-    const xcr0_ymm = 0b110;
-    /// XCR0: it also saves the opmask and ZMM registers.
-    const xcr0_zmm = 0b1110_0000;
-};
-
-const Registers = struct { eax: u32, ebx: u32, ecx: u32, edx: u32 };
-
-fn cpuid(leaf: u32, subleaf: u32) Registers {
-    var eax: u32 = undefined;
-    var ebx: u32 = undefined;
-    var ecx: u32 = undefined;
-    var edx: u32 = undefined;
-    asm volatile ("cpuid"
-        : [eax] "={eax}" (eax),
-          [ebx] "={ebx}" (ebx),
-          [ecx] "={ecx}" (ecx),
-          [edx] "={edx}" (edx),
-        : [leaf] "{eax}" (leaf),
-          [subleaf] "{ecx}" (subleaf),
-    );
-    return .{ .eax = eax, .ebx = ebx, .ecx = ecx, .edx = edx };
-}
-
-fn xgetbv() u64 {
-    var low: u32 = undefined;
-    var high: u32 = undefined;
-    asm volatile ("xgetbv"
-        : [low] "={eax}" (low),
-          [high] "={edx}" (high),
-        : [register] "{ecx}" (@as(u32, 0)),
-    );
-    return (@as(u64, high) << @bitSizeOf(u32)) | low;
-}
-
-fn all(value: u32, bits: u32) bool {
-    return value & bits == bits;
-}
-
-fn detect_x86_64() CpuFeatures {
-    if (builtin.cpu.arch != .x86_64) unreachable;
-    const vendor = cpuid(x86.leaf_vendor, 0);
-    const basic = cpuid(x86.leaf_features, 0);
-    const saves_registers = all(basic.ecx, x86.ecx_osxsave | x86.ecx_avx);
-    const extended = cpuid(x86.leaf_extended_features, 0);
-    return from_x86(.{
-        .vendor_amd = vendor.ebx == x86.vendor_amd_ebx and vendor.edx == x86.vendor_amd_edx and vendor.ecx == x86.vendor_amd_ecx,
-        .vendor_intel = vendor.ebx == x86.vendor_intel_ebx and vendor.edx == x86.vendor_intel_edx and vendor.ecx == x86.vendor_intel_ecx,
-        .leaf_1_ecx = basic.ecx,
-        .leaf_7_ebx = extended.ebx,
-        .leaf_7_ecx = extended.ecx,
-        // XGETBV faults unless the operating system enabled it, which OSXSAVE reports.
-        .xcr0 = if (saves_registers) xgetbv() else 0,
-    });
-}
-
-/// The registers x86-64 detection reads: whether CPUID leaf 0 names AMD or Intel, leaf 1's ECX,
-/// leaf 7's EBX and ECX, and XCR0, which is 0 when the operating system saves no extended registers.
-const X86Registers = struct { vendor_amd: bool, vendor_intel: bool, leaf_1_ecx: u32, leaf_7_ebx: u32, leaf_7_ecx: u32, xcr0: u64 };
-
-/// The features the registers report. AVX2, AVX-512 and VPCLMULQDQ need the operating system to
-/// save the registers they use, which XCR0 reports.
-fn from_x86(registers: X86Registers) CpuFeatures {
-    const ymm = registers.xcr0 & x86.xcr0_ymm == x86.xcr0_ymm;
-    const zmm = ymm and registers.xcr0 & x86.xcr0_zmm == x86.xcr0_zmm;
-    const avx512_bits = x86.ebx_avx512f | x86.ebx_avx512bw | x86.ebx_avx512dq | x86.ebx_avx512vl;
-    const avx512 = zmm and all(registers.leaf_7_ebx, avx512_bits);
-    return .{
-        .ssse3 = all(registers.leaf_1_ecx, x86.ecx_ssse3),
-        .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
-        .avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2),
-        .bmi2 = all(registers.leaf_1_ecx, x86.ecx_ssse3) and all(registers.leaf_7_ebx, x86.ebx_bmi2),
-        .avx512 = avx512,
-        .vpmullq_fast = avx512 and registers.vendor_amd,
-        .lazy_loop_fast = registers.vendor_intel,
-        .vpclmul = ymm and all(registers.leaf_7_ecx, x86.ecx_vpclmulqdq),
-        .vnni = zmm and all(registers.leaf_7_ecx, x86.ecx_avx512_vnni),
-    };
-}
-
-/// The bits of Linux's arm64 hardware capability word that detection reads.
+/// The bits of Linux's arm64 hardware capability words that detection reads.
 const hwcap = struct {
     // Bits 4, 7 and 20 of AT_HWCAP.
     const pmull = 0x10;
     const crc32 = 0x80;
     const dotprod = 0x10_0000;
+    // Bits 3, 6, 21, 17 and 24 of AT_HWCAP, and bit 1 of AT_HWCAP2.
+    const aes = constants.hwcap_aes;
+    const sha2 = constants.hwcap_sha2;
+    const sha512 = constants.hwcap_sha512;
+    const sha3 = constants.hwcap_sha3;
+    const dit = constants.hwcap_dit;
+    const sve2 = constants.hwcap2_sve2;
 };
 
 fn detect_aarch64() CpuFeatures {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
-        .linux => from_hwcap(hwcap_word()),
-        // Every aarch64 Mac is an Apple M-series part, which has all three and whose MADD's addend
-        // waits for its multiply.
-        .macos => .{ .crc32 = true, .pmull = true, .dotprod = true, .madd_addend_slow = true },
+        .linux => from_linux(hwcap_word(std.elf.AT_HWCAP), hwcap_word(std.elf.AT_HWCAP2)),
+        // Every aarch64 Mac is an Apple M-series part, which has these and whose MADD's addend
+        // waits for its multiply. No M-series part has SVE2 outside SME's streaming mode.
+        .macos => .{
+            .crc32 = true,
+            .pmull = true,
+            .dotprod = true,
+            .madd_addend_slow = true,
+            .aes = true,
+            .sha256 = true,
+            .sha512 = true,
+            .sha3 = true,
+            .dit = true,
+        },
         else => CpuFeatures.target(),
     };
 }
 
-/// Linux's hardware capability word. A program that links libc starts in libc, which keeps the
-/// auxiliary vector itself, so Zig's own reader of it, which the Zig start code fills, finds
-/// nothing there; libc's getauxval reads the same memory.
-fn hwcap_word() usize {
-    if (builtin.link_libc) return std.c.getauxval(std.elf.AT_HWCAP);
-    return std.os.linux.getauxval(std.elf.AT_HWCAP);
+/// One of Linux's hardware capability words, AT_HWCAP or AT_HWCAP2. A program that links libc
+/// starts in libc, which keeps the auxiliary vector itself, so Zig's own reader of it, which the
+/// Zig start code fills, finds nothing there; libc's getauxval reads the same memory.
+fn hwcap_word(entry: usize) usize {
+    if (builtin.link_libc) return std.c.getauxval(entry);
+    return std.os.linux.getauxval(entry);
 }
 
-fn from_hwcap(word: usize) CpuFeatures {
+/// The features of Linux's two words, and MIDR_EL1 where AT_HWCAP lets a program read it.
+fn from_linux(word: usize, word2: usize) CpuFeatures {
+    return with_core(from_hwcap(word, word2), midr_file.read(word));
+}
+
+/// `features` with the core `midr` names, and FEAT_DIT where that core implements it though the
+/// system hides it from AT_HWCAP (platform_midr.zig).
+fn with_core(features: CpuFeatures, midr: ?Midr) CpuFeatures {
+    var result = features;
+    result.midr = midr;
+    result.dit = features.dit or midr_file.implements_dit(midr);
+    return result;
+}
+
+/// The features of Linux's AT_HWCAP word, and of its AT_HWCAP2 word, `word2`, for SVE2.
+fn from_hwcap(word: usize, word2: usize) CpuFeatures {
     return .{
         .crc32 = word & hwcap.crc32 != 0,
         .pmull = word & hwcap.pmull != 0,
         .dotprod = word & hwcap.dotprod != 0,
+        .aes = word & hwcap.aes != 0,
+        .sha256 = word & hwcap.sha2 != 0,
+        .sha512 = word & hwcap.sha512 != 0,
+        .sha3 = word & hwcap.sha3 != 0,
+        .dit = word & hwcap.dit != 0,
+        .sve2 = word2 & hwcap.sve2 != 0,
     };
 }
 
 // Tests.
 
 const testing = std.testing;
+
+test {
+    _ = x86_file;
+    _ = midr_file;
+}
 
 test "detection alone finds at least what the target guarantees" {
     // The target's features are those of the CPU the tests run on, or fewer, so detection must
@@ -299,63 +285,16 @@ test "none holds nothing, and intersect and with combine field by field" {
     try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .crc32 = true }, left.with(right));
 }
 
-test "the x86-64 registers map each feature, and XCR0 gates the vector registers" {
-    const every: X86Registers = .{
-        .vendor_amd = true,
-        .vendor_intel = false,
-        .leaf_1_ecx = 0x0000_0002 | 0x0008_0000,
-        .leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x4000_0000 | 0x8000_0000,
-        .leaf_7_ecx = 0x0000_0400 | 0x0000_0800,
-        .xcr0 = 0b1110_0111,
-    };
-    const all_x86: CpuFeatures = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
-    try testing.expectEqual(all_x86, from_x86(every));
-    // The same features on an Intel CPU, whose VPMULLQ is slow.
-    var intel = every;
-    intel.vendor_amd = false;
-    intel.vendor_intel = true;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
-    // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
-    var no_vnni = intel;
-    no_vnni.leaf_7_ecx = 0x0000_0400;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
-    // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.
-    var no_ymm = every;
-    no_ymm.xcr0 = 0b011;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true }, from_x86(no_ymm));
-    // YMM saved but not ZMM: AVX2 and VPCLMULQDQ, no AVX-512.
-    var no_zmm = every;
-    no_zmm.xcr0 = 0b111;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
-    // PCLMULQDQ without SSE4.1, and AVX-512 F without BW. VNNI is reported as the CPU reports it;
-    // each path that uses it requires AVX-512 as well.
-    var partial = every;
-    partial.leaf_1_ecx = 0x0000_0002;
-    partial.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x0002_0000 | 0x8000_0000;
-    try testing.expectEqual(CpuFeatures{ .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(partial));
-    // AVX-512 F, BW and VL without DQ, whose VPMULLQ the XXH64 path runs: no AVX-512.
-    var no_dq = every;
-    no_dq.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
-}
-
-test "SSSE3 counts alone, BMI2 only with SSSE3, and neither needs a register saved" {
-    const both: X86Registers = .{ .vendor_amd = false, .vendor_intel = false, .leaf_1_ecx = 0x0000_0200, .leaf_7_ebx = 0x0000_0100, .leaf_7_ecx = 0, .xcr0 = 0 };
-    try testing.expectEqual(CpuFeatures{ .ssse3 = true, .bmi2 = true }, from_x86(both));
-    var no_ssse3 = both;
-    no_ssse3.leaf_1_ecx = 0;
-    try testing.expectEqual(CpuFeatures{}, from_x86(no_ssse3));
-    var no_bmi2 = both;
-    no_bmi2.leaf_7_ebx = 0;
-    try testing.expectEqual(CpuFeatures{ .ssse3 = true }, from_x86(no_bmi2));
-    // The target's features: BMI2 alone is not enough, and SSSE3 alone is SSSE3.
-    var cpu = std.Target.x86.cpu.x86_64.toCpu(.x86_64);
-    try testing.expect(!from_target(cpu).ssse3);
-    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.bmi2));
-    try testing.expect(!from_target(cpu).bmi2);
-    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
-    try testing.expect(from_target(cpu).bmi2);
-    try testing.expect(from_target(cpu).ssse3);
+test "intersect keeps the core both name, and with keeps the first core either names" {
+    const n2 = midr_file.from_register(0x410f_d490);
+    const m1 = midr_file.from_register(0x610f_0000);
+    const on_n2: CpuFeatures = .{ .sha3 = true, .midr = n2 };
+    try testing.expectEqual(n2, on_n2.intersect(.{ .midr = n2 }).midr.?);
+    try testing.expectEqual(null, on_n2.intersect(.{ .midr = m1 }).midr);
+    try testing.expectEqual(null, on_n2.intersect(CpuFeatures.target()).midr);
+    try testing.expectEqual(n2, on_n2.with(.{ .midr = m1 }).midr.?);
+    try testing.expectEqual(m1, CpuFeatures.none().with(.{ .midr = m1 }).midr.?);
+    try testing.expectEqual(null, CpuFeatures.target().midr);
 }
 
 test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does not" {
@@ -364,29 +303,71 @@ test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does no
 }
 
 test "the hardware capability word maps CRC32 and PMULL" {
-    try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000));
-    try testing.expectEqual(CpuFeatures{ .crc32 = true }, from_hwcap(0b1000_0000));
-    try testing.expectEqual(CpuFeatures{ .dotprod = true }, from_hwcap(0x10_0000));
-    try testing.expectEqual(CpuFeatures{}, from_hwcap(0x0f_ef6f));
+    try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true }, from_hwcap(0b1001_0000, 0));
+    try testing.expectEqual(CpuFeatures{ .crc32 = true }, from_hwcap(0b1000_0000, 0));
+    try testing.expectEqual(CpuFeatures{ .dotprod = true }, from_hwcap(0x10_0000, 0));
+    // Every other bit of the first 25 maps to nothing.
+    const mapped = hwcap.crc32 | hwcap.pmull | hwcap.dotprod | hwcap.aes | hwcap.sha2 | hwcap.sha512 | hwcap.sha3 | hwcap.dit;
+    try testing.expectEqual(CpuFeatures{}, from_hwcap(0x1ff_ffff & ~@as(usize, mapped), ~@as(usize, hwcap.sve2)));
+}
+
+test "the hardware capability words map the instructions of stdx.crypto, each from its own bit" {
+    try testing.expectEqual(CpuFeatures{ .aes = true }, from_hwcap(hwcap.aes, 0));
+    try testing.expectEqual(CpuFeatures{ .sha256 = true }, from_hwcap(hwcap.sha2, 0));
+    try testing.expectEqual(CpuFeatures{ .sha512 = true }, from_hwcap(hwcap.sha512, 0));
+    try testing.expectEqual(CpuFeatures{ .sha3 = true }, from_hwcap(hwcap.sha3, 0));
+    try testing.expectEqual(CpuFeatures{ .dit = true }, from_hwcap(hwcap.dit, 0));
+    try testing.expectEqual(CpuFeatures{ .sve2 = true }, from_hwcap(0, hwcap.sve2));
+    // AT_HWCAP2's bit names SVE2 there alone, and AT_HWCAP's bit 1 is not it.
+    try testing.expect(!from_hwcap(hwcap.sve2, 0).sve2);
+}
+
+test "a listed core gives FEAT_DIT though AT_HWCAP hides it, and an unlisted one gives AT_HWCAP's" {
+    const n2 = midr_file.from_register(0x410f_d490);
+    const n1 = midr_file.from_register(0x413f_d0c1);
+    // GitHub's arm64 runners: HWCAP_DIT clear, and the core a Neoverse N2.
+    try testing.expectEqual(CpuFeatures{ .aes = true, .dit = true, .midr = n2 }, with_core(from_hwcap(hwcap.aes, 0), n2));
+    try testing.expectEqual(CpuFeatures{ .aes = true, .midr = n1 }, with_core(from_hwcap(hwcap.aes, 0), n1));
+    try testing.expectEqual(CpuFeatures{ .aes = true }, with_core(from_hwcap(hwcap.aes, 0), null));
+    try testing.expectEqual(CpuFeatures{ .dit = true, .midr = n1 }, with_core(from_hwcap(hwcap.dit, 0), n1));
+    try testing.expectEqual(CpuFeatures{ .dit = true }, with_core(from_hwcap(hwcap.dit, 0), null));
+}
+
+test "the targets of an Apple M1 and a Neoverse N2 give the instructions of stdx.crypto they have" {
+    const m1 = from_target(std.Target.aarch64.cpu.apple_m1.toCpu(.aarch64));
+    try testing.expect(m1.aes and m1.sha256 and m1.sha512 and m1.sha3 and m1.dit and !m1.sve2);
+    const n2 = from_target(std.Target.aarch64.cpu.neoverse_n2.toCpu(.aarch64));
+    try testing.expect(n2.sve2 and n2.dit);
+    // A Cortex-A72 has FEAT_SHA256 and no FEAT_SHA512: Zig names the second `sha3`.
+    const a72 = from_target(std.Target.aarch64.cpu.cortex_a72.toCpu(.aarch64));
+    try testing.expect(a72.aes and a72.sha256 and !a72.sha512 and !a72.sha3 and !a72.dit);
+    const x86_64 = from_target(std.Target.x86.cpu.x86_64.toCpu(.x86_64));
+    try testing.expect(!x86_64.aes and !x86_64.sha256 and !x86_64.sha512 and !x86_64.vaes);
+    const zen4 = from_target(std.Target.x86.cpu.znver4.toCpu(.x86_64));
+    try testing.expect(zen4.aes and zen4.sha256 and zen4.vaes and !zen4.sha3 and !zen4.dit);
+}
+
+test "the target's SSSE3 counts alone, and its BMI2 only with SSSE3" {
+    var cpu = std.Target.x86.cpu.x86_64.toCpu(.x86_64);
+    try testing.expect(!from_target(cpu).ssse3);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.bmi2));
+    try testing.expect(!from_target(cpu).bmi2);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
+    try testing.expect(from_target(cpu).bmi2);
+    try testing.expect(from_target(cpu).ssse3);
+    try testing.expect(!from_target(cpu).sse4_1);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.sse4_1));
+    try testing.expect(from_target(cpu).sse4_1);
 }
 
 test "detection on this host finds what its architecture's feature set should" {
     const detected = CpuFeatures.detect();
     switch (builtin.cpu.arch) {
-        .aarch64 => if (builtin.os.tag == .macos) try testing.expect(detected.crc32 and detected.pmull and detected.dotprod and detected.madd_addend_slow),
-        .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod),
+        .aarch64 => if (builtin.os.tag == .macos) {
+            try testing.expect(detected.crc32 and detected.pmull and detected.dotprod and detected.madd_addend_slow);
+            try testing.expect(detected.aes and detected.sha256 and detected.sha512 and detected.sha3 and detected.dit);
+        },
+        .x86_64 => try testing.expect(!detected.crc32 and !detected.pmull and !detected.dotprod and !detected.sha3 and !detected.sve2 and !detected.dit),
         else => try testing.expectEqual(CpuFeatures.target(), detected),
     }
-}
-
-test "detection takes level 6's assembly loop on a CPU whose leaf 0 names Intel, and on no other" {
-    const vendors = [_]struct { amd: bool, intel: bool }{ .{ .amd = false, .intel = true }, .{ .amd = true, .intel = false }, .{ .amd = false, .intel = false } };
-    for (vendors) |vendor| {
-        const registers: X86Registers = .{ .vendor_amd = vendor.amd, .vendor_intel = vendor.intel, .leaf_1_ecx = 0, .leaf_7_ebx = 0, .leaf_7_ecx = 0, .xcr0 = 0 };
-        try testing.expectEqual(vendor.intel, from_x86(registers).lazy_loop_fast);
-    }
-    // Leaf 0's registers spell the vendor's name, 4 octets each, least significant first.
-    try testing.expectEqualStrings("GenuineIntel", std.mem.asBytes(&[_]u32{ x86.vendor_intel_ebx, x86.vendor_intel_edx, x86.vendor_intel_ecx }));
-    try testing.expectEqualStrings("AuthenticAMD", std.mem.asBytes(&[_]u32{ x86.vendor_amd_ebx, x86.vendor_amd_edx, x86.vendor_amd_ecx }));
-    try testing.expect(!CpuFeatures.target().lazy_loop_fast);
 }

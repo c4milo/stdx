@@ -31,6 +31,7 @@ const matcher_replay = @import("build/matcher_replay.zig");
 const checkfree = @import("build/checkfree.zig");
 const coverage = @import("build/coverage.zig");
 const readme = @import("build/readme.zig");
+const crypto = @import("build/crypto.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "src", "tools" };
@@ -77,7 +78,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
-    const graph = modules.add(b, .{ .target = target, .optimize = optimize, .visibility = .exported });
+    const chapulin = crypto.chapulin(b, target, crypto.options(b));
+    const graph = modules.add(b, .{ .target = target, .optimize = optimize, .visibility = .exported, .chapulin = chapulin });
 
     // Everything below is stdx's own build: the tests, the checks and the tools. A project that
     // depends on stdx stops here, before the tools request pepegrillo.
@@ -122,16 +124,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "unicode", .module = graph.unicode },
         .{ .name = "stdx", .module = graph.stdx },
     };
-    for (unit_test_modules) |entry| {
-        // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast
-        // paths' assembly (decision 23), and Zig's own x86-64 backend, the Debug default there,
-        // takes none, which would leave that assembly untested.
-        const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module, .use_llvm = true });
-        install_step.dependOn(&unit_tests.step);
-        const run = &b.addRunArtifact(unit_tests).step;
-        test_step.dependOn(run);
-        add_narrow_test_step(b, entry.name).dependOn(run);
-    }
+    for (unit_test_modules) |entry| add_unit_tests(b, install_step, test_step, entry.name, entry.module);
+    // chapulin's module, which stdx's own build always asks for (decision 87).
+    if (graph.crypto) |module| add_unit_tests(b, install_step, test_step, "crypto", module);
 
     // The tools verify the tree, so they run on the host in Debug: a tool never ships.
     const tool_test_step = add_narrow_test_step(b, "tools");
@@ -202,6 +197,18 @@ pub fn build(b: *std.Build) void {
 /// `zig build test-<name>`: the tests of one module, or of the tools, with nothing else in the
 /// graph. `zig build test` is the check that must pass; these steps are the inner loop of a
 /// mutation, which is run against the narrowest target that can catch it.
+/// A module's unit tests, in `zig build test` and in `zig build test-<name>` alone.
+fn add_unit_tests(b: *std.Build, install_step: *std.Build.Step, test_step: *std.Build.Step, name: []const u8, module: *std.Build.Module) void {
+    // LLVM compiles the tests, as it compiles every release build: its assembler takes the fast
+    // paths' assembly (decision 23), and Zig's own x86-64 backend, the Debug default there, takes
+    // none, which would leave that assembly untested.
+    const unit_tests = b.addTest(.{ .name = name, .root_module = module, .use_llvm = true });
+    install_step.dependOn(&unit_tests.step);
+    const run = &b.addRunArtifact(unit_tests).step;
+    test_step.dependOn(run);
+    add_narrow_test_step(b, name).dependOn(run);
+}
+
 fn add_narrow_test_step(b: *std.Build, name: []const u8) *std.Build.Step {
     return b.step(
         b.fmt("test-{s}", .{name}),

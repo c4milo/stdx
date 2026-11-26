@@ -81,19 +81,22 @@ threads, and formats that are not the four HTTP codings, but for JSON (decision 
 | `base64` | Base 64's encoder and decoder, in both of its alphabets (decision 68) | `codec`, `platform` | 4648 §4, §5 |
 | `platform` | What the CPU a program runs on offers, read once when the program starts: `probe`'s answers, the one call that may make a syscall (decision 40), and `CpuFeatures`, the CPU features each codec's `init` takes (decision 21 as amended); the vector `memset` a program exports on Linux under Zig 0.16 (decision 41 as amended) | nothing | none |
 | `regex` | Regular expressions matched in time linear in the text: a compiler, a matcher for a text in pieces and a searcher for a text in one slice (decision 86) | `codec`, `utf8`, `unicode`, `platform` | 9485 |
-| `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform` and `codec`, as `std` groups its own (decision 6 as amended) | every module above | none |
+| `crypto` | chapulin's Zig module under stdx's names: TLS 1.3 over TCP and QUIC, JSON Web Signatures, DNSSEC, SCRAM's calls, and the hashes, HMAC and HKDF of chapulin's key schedule, and `init`, the value of the CPU and the random source each call takes, for a dependent that passes `.crypto = true` (decision 87) | the package chapulin, `platform` | none |
+| `stdx` | The root a program imports: every module above under its category, `compress`, `hash`, `unicode`, `json`, `base64`, `regex`, `platform`, `codec` and `crypto`, as `std` groups its own (decision 6 as amended) | every module above, and the build's options | none |
 
 The wrappers build on `deflate`, and `deflate` never reaches them. No codec reaches another codec,
 and none reaches `json`. `json` reaches `base64` for the letters of `TextWriter.base64` (decision
 73). `json` and `regex` reach `utf8`, which holds RFC 3629 once for both (decision 86), and no codec
 reaches it. `unicode` reaches `utf8` to name it as `unicode.utf8`, and no codec reaches `unicode`.
 Each module whose calls take the CPU features a caller detected reaches `platform`, for the type
-`platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `platform` reaches
-nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
+`platform.CpuFeatures` alone (decisions 21 and 40 as amended on 2026-11-24). `crypto` reaches
+`platform` for `platform.Cpu`, the probe's answers that its `init` takes (decision 87 as amended
+on 2026-11-25). `platform` reaches nothing. The graph cannot keep its `probe` and `CpuFeatures.detect` out of a codec's reach, so the
 lint rule `cpu-probe` does: outside `platform`, only a test under `src/` calls either (invariant
-14). No module reaches `regex` or `stdx`. No library module receives a package: pepegrillo, the
-oracles and the corpora are requested by `build.zig` for `tools/` and `bench/` only, after the
-point a dependent's build stops.
+14). No module reaches `regex`, `crypto` or `stdx`. One library module receives a package:
+`crypto` receives chapulin's module, and only when a build passes `.crypto = true` (decision 87).
+pepegrillo, the oracles and the corpora are requested by `build.zig` for `tools/` and `bench/`
+only, after the point a dependent's build stops.
 
 Outside the library, and never imported by it:
 
@@ -12543,6 +12546,258 @@ to 12 are reordered and nothing else changes.
     backtracker.
 
 Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 complete version one.
+
+- **Step 23: `stdx.crypto`, chapulin through stdx (decision 87).** [Issue
+  42](https://github.com/c4milo/stdx/issues/42). stdx pins chapulin at bda41cf6 as a lazy
+  dependency and asks it once for its module of `TRANSPORT=nonblocking`, with the options colibri
+  asked for (`build/crypto.zig`). The module `crypto` names it. A dependent passes `.crypto =
+  true` to have it, and `.crypto_keylog = true` for tests that read a capture.
+  New public names: `stdx.crypto`, with `tls`, `quic`, `jws`, `dnssec`, `scram` and `Cpu`, and
+  the build options `crypto` and `crypto_keylog`. `tls` and `quic` each flatten one of chapulin's
+  objects, its sessions and its types into one namespace, as the owner chose on 2026-11-25:
+  `tls.Client` in place of chapulin's `tcp.tcp.Client`. Every library of the owner that needs chapulin
+  asks for it here, so a program links one chapulin.
+  **Check:**
+  - `zig build test-crypto` names each part of the module, requires `tls` and `quic` to repeat
+    every public name of chapulin's two objects, and holds `scram.sha256` of "abc" to RFC 6234
+    §8.5. `zig build test-stdx` requires `stdx.crypto` in stdx's own build.
+  - `zig build graph-check` refuses `crypto` and `chapulin` from `src/compress/deflate/`, and the
+    module-graph rule holds `crypto` and its one import in its table.
+  - `zig build readme-check` builds `tools/consumer/`'s second program, which depends on stdx with
+    `.crypto = true`, runs it, and holds `src/crypto/README.md`'s blocks to it.
+  - Mutations, 5, each `CAUGHT`: a wrong digest in the consumer, against `zig build
+    readme-check`; chapulin given to `deflate`, against `zig build lint`; the root's `crypto`
+    switched off in stdx's own build, and the module's reference to chapulin's module removed,
+    against `zig build test-stdx`; and `scram` taken from the QUIC object, which builds no SCRAM,
+    and `tls.Ticket` and `quic.KeySet` each left out, against `zig build test-crypto`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 24: `stdx.crypto.init`, the value each call takes (decision 87 as amended again).** The
+  owner ruled on 2026-11-25 that crypto as a whole is set up once, with the CPU's features and a
+  random source. A program calls `init` with its probe's answers, its statement of timing and its
+  random source, and passes the `Context` it gets to each session and call. The module `crypto`
+  imports `platform` for the probe's type, which `crypto_init.zig` turns into chapulin's
+  description of the CPU.
+  New public names: `stdx.crypto.init`, `Options`, `Context` and `Timing`, and the fields
+  `cpu`, `quic_cpu` and `random` of `Context`.
+  **Check:**
+  - `zig build test-crypto` holds the description of every answer under both statements of
+    timing, for arm64 and for x86-64 on either host, and holds the probed value and the random
+    source that `init` keeps.
+  - The module-graph rule holds the import of `platform` in its table, and its test names the
+    modules that import `platform` for one of its types.
+  - `zig build readme-check` runs the consumer's `init`, seeded from `std.Io.randomSecure`.
+  - Mutations, 6, each `CAUGHT` against `zig build test-crypto`: AES's bit set without the
+    statement, the multiply's bit set always, the hash bits stated on x86-64, FEAT_DIT not read,
+    and `avx2` and `sve2` set on the other architecture.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 25: a thread's data-independent timing (decision 40 as amended on 2026-11-25).** The
+  owner asked for a read and a set of the mode that `stdx.crypto.init`'s `timing` states.
+  `platform_timing.zig` reads and writes PSTATE.DIT on arm64, one instruction each, and answers
+  `not_known` or refuses on x86-64. The consumer's crypto program sets the mode and states
+  `data_independent` where the set succeeds.
+  New public names: `stdx.platform.data_independent_timing` and `set_data_independent_timing`.
+  **Check:**
+  - `zig build test-platform` holds PSTATE.DIT to bit 24 of the register, refuses a core whose
+    `dit` is `no` or `not_known` without the instruction, and on an arm64 host with FEAT_DIT sets
+    and clears the mode and reads each back, then restores it.
+  - `zig test src/platform/platform.zig -target aarch64-linux --test-no-exec`, and the same for
+    `aarch64-macos`, compile; `llvm-objdump --mattr=+dit` reads `mrs x8, DIT` and `msr DIT, x9`.
+    This x86-64 host runs no arm64 code. CI's arm64 Linux and macOS jobs run the tests.
+  - `zig build test-tools` holds the `cpu-probe` rule to both calls, as written and through a
+    name.
+  - Mutations, 5, each `CAUGHT`: bit 23 for PSTATE.DIT, the register read whatever `dit` says,
+    and x86-64 let through the check that needs no read, against `zig build test-platform`; each
+    call left out of the rule, against `zig build test-tools`. The set's own use of that check
+    runs on arm64 alone, where the test of a core whose `dit` is `no` would catch its removal.
+    This host could not measure it.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 26: chapulin's hashes, HMAC and HKDF as `stdx.crypto.hash` (decision 87 as amended a
+  third time).** stdx pins chapulin at f29c066a, which adds `HASH=on` (chapulin's decision 246),
+  and asks for it beside `SCRAM=on` on a host target. Each call takes `Context.cpu`. The pin's
+  hash was computed from the commit's tree with the method Zig 0.16 uses, which gave the hashes of
+  chapulin bda41cf6 and pepegrillo 10841b3e that the manifests recorded.
+  New public name: `stdx.crypto.hash`.
+  **Check:**
+  - `zig build test-crypto` hashes "abc" through `hash.sha256` and through `hash.Sha256` in two
+    updates, under `init`'s description of the host with each statement of timing, and holds the
+    digest to RFC 6234 §8.5. A bit that chapulin's object does not define makes each call refuse,
+    so the digest shows that chapulin takes `init`'s value.
+  - `zig build readme-check` runs the consumer's `hash.sha256` under its `init` value.
+  - Mutations, 3, each `CAUGHT`: `init` setting `constant_time_eor3` on every architecture, which
+    `init`'s own tests do not read, and the request without `HASH=on`, against `zig build
+    test-crypto`; a wrong digest in the consumer, against `zig build readme-check`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+  - Amended on 2026-11-25 (decision 87 as amended a fourth time): the root `stdx` references
+    `crypto` in a build with `.crypto = true`. `zig build readme-check` now also builds the
+    consumer's first program over that build and runs it. Mutation: the reference removed,
+    `CAUGHT` against `zig build readme-check`, whose link fails on `ch_assert_fail`.
+- **Step 27: `CpuFeatures`, the one CPU type a program passes (decisions 40 and 87 as amended on
+  2026-11-25).** The owner chose `platform.CpuFeatures` as the API a program names, enhanced first
+  to serve what `platform.Cpu` serves. `CpuFeatures` gains `aes`, `sha256`, `sha512`, `sha3`,
+  `sve2`, `dit` and `vaes`. `crypto.init` takes `.features`, and the two timing calls take
+  `CpuFeatures`, the read returning a `bool`. `probe` and `Cpu` stay until their programs move.
+  New public names: the seven fields. The changed calls: `crypto.Options.features` in place of
+  `probe`, and `data_independent_timing(features) bool` in place of `(cpu) Answer`.
+  **Check:**
+  - `zig build test-platform` maps each new field from its own bit of CPUID, of AT_HWCAP and of
+    AT_HWCAP2, with SHA-256's SSSE3 and SSE4.1, SHA512's YMM state, and VAES's AVX2 and
+    VPCLMULQDQ; from the targets of an Apple M1, a Neoverse N2, a Cortex-A72, a Zen 4 and
+    x86-64's baseline; and on the host, against `probe()`'s answer of each field and its read of
+    each CPUID leaf.
+  - `zig build test-crypto` holds `init`'s description to each feature on both architectures, and
+    AES's bit to the carry-less multiply of its own one.
+  - `zig test src/platform/platform.zig -target aarch64-linux --test-no-exec` and `-target
+    aarch64-macos` compile.
+  - Mutations, 14, each `CAUGHT`: the x86-64 bits of AES, SHA-256's SSSE3 and SSE4.1, SHA512's
+    YMM, VAES's AVX2 and VPCLMULQDQ, and leaf 7's subleaf 1 skipped; the arm64 SVE2 from AT_HWCAP
+    and DIT from another bit; the target's DIT dropped and its SHA-512 from `sha2`; and the timing
+    read whatever `dit` says, against `zig build test-platform`. AES's bit without the carry-less
+    multiply, with the other architecture's, and FEAT_DIT unread, against `zig build
+    test-crypto`. The skipped subleaf is caught on a CPU whose leaf 7 gives subleaf 1 a bit, as
+    this host's does.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 28: `stdx.crypto.init(features, random)`, and stdx's map to chapulin (decisions 40 and
+  87 as amended on 2026-11-26).** The owner ruled that `CpuFeatures` is the one CPU API, that
+  stdx maps it to chapulin's description of the CPU, that crypto is set up once, and that stdx
+  adds no type for it. `init` keeps the features and the random source, and each call maps them.
+  On arm64 the map reads the calling thread's PSTATE.DIT. On x86-64 it states the timing always,
+  as the owner chose on 2026-11-26.
+  New public names: `tls.client_options`, `tls.server_options` and `tls.init_from_pem`, and
+  `quic`'s three of the same names. colibri's and connect-zig's sessions, key readers and JWS
+  signer call them. Removed: `stdx.crypto.Cpu`, `Options` and `Timing`, `tls.Cpu`,
+  `tls.cpu_bits`, `quic.Cpu`, `quic.cpu_bits`, `jws.SignOptions`, and the `Context` fields `cpu`
+  and `quic_cpu`. The changed calls: `init(features, random)`, each `hash` call with the
+  `Context` first, each stream's `init` with the `Context`, and `jws.sign(context, out, key,
+  input)`.
+  **Check:**
+  - `zig build test-crypto` holds the map to each feature on both architectures, with and
+    without the statement. It holds the statement to x86-64, to the thread's PSTATE.DIT on
+    arm64, and to none on riscv64. It hashes "abc" under the host's map and holds the digest to
+    RFC 6234 §8.5. It holds a session's options to the map and the random source, and the
+    signature's noise to 32 bytes from the context's source. It requires `tls`, `quic`, `jws` and
+    `hash` to name every name of chapulin's but its description of the CPU.
+  - `zig build test-tools` holds the `cpu-probe` rule to the set, as written and through a
+    name, and passes the read.
+  - `zig build readme-check` runs the consumer's `init(features, random)` and its
+    `hash.sha256(crypto, ...)`.
+  - Mutations, 9, each `CAUGHT`: no statement on x86-64, PSTATE.DIT unread on arm64, AES's bit
+    without the carry-less multiply, the hash bits stated on x86-64, the multiply's bit set
+    without the statement, `vaes` set on arm64, and the options left without the random
+    source, against `zig build test-crypto`; the read refused again and the set let through,
+    against `zig build test-tools`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 29: `CpuFeatures`, the one CPU API (decision 40 as amended a fourth time).** The owner
+  ruled that a program names `CpuFeatures` and `CpuFeatures.detect()` alone. `probe`, `Cpu`,
+  `Answer` and `Midr` go, with platform_answer.zig, platform_linux.zig, platform_x86.zig and the
+  constants only they read. `platform` makes no syscall, and the io rule refuses `sysctlbyname`
+  there. `platform-check` holds the detection to the host's report.
+  Removed public names: `stdx.platform.probe`, `Cpu`, `Answer` and `Midr`. No program of the
+  owner's calls `probe` once colibri, cocuyo, stompy and connect-zig read `CpuFeatures`.
+  **Check:**
+  - `zig build platform-check` on x86-64 Linux, without libc and with it, held each field of
+    `CpuFeatures.detect()` to /proc/cpuinfo's `vendor_id` and `flags` lines, and every aarch64
+    field to false. Its tests hold the reports of x86-64's and aarch64's cpuinfo, of macOS's
+    `sysctl hw.optional` and of `machdep.cpu` to fixtures shaped as each host prints them.
+  - `zig build test-platform` holds x86-64's reads of leaf 1, leaf 7 and its subleaf 1 to CPUID.
+  - `zig build test-tools` holds the io rule to `sysctlbyname` in `platform`, and the `cpu-probe`
+    rule to the detection, as written and through names.
+  - Mutations, 5, each `CAUGHT`: leaf 7's subleaf 1 skipped, against `zig build test-platform`;
+    leaf 7's ECX left unread, against `zig build platform-check`; the report's `vaes` without
+    VPCLMULQDQ, the compare of the fields no report covers, and `sysctlbyname` allowed in
+    `platform`, against `zig build test-tools`. The subleaf is caught on a CPU whose leaf 7 gives
+    subleaf 1 a bit, as this host's does.
+  - CI's arm64 Linux and macOS jobs run `platform-check` there. This x86-64 host ran neither.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 30: `CpuFeatures` holds every answer `probe` gave, and the N2 rule (decisions 40 and 87
+  as amended on 2026-11-26).** The owner asked why step 29 removed features, and ruled that
+  `CpuFeatures` gains them instead. It gains `sse4_1` and `midr`, and `platform.Midr` returns.
+  `stdx.crypto`'s map then applies chapulin's rule for an Arm Neoverse N2: the EOR3 bit beside
+  `sha3`, and no SHA-3 bit on that core.
+  New public names: `CpuFeatures.sse4_1`, `CpuFeatures.midr` and `platform.Midr`, which step 29
+  removed. chapulin's N2 rule reads `midr` through `stdx.crypto`, and a program may read both.
+  **Check:**
+  - `zig build test-platform` holds MIDR_EL1's fields to their bits, its read to HWCAP_CPUID,
+    `intersect` and `with` to their cores, and `sse4_1` to leaf 1's bit 19 and to the target.
+  - `zig build test-crypto` holds the N2 to the EOR3 bit without the SHA-3 bit, and another Arm
+    part, an Apple core and no MIDR to both bits.
+  - `zig build platform-check` on x86-64 Linux held `sse4_1` and a null `midr` to
+    /proc/cpuinfo, without libc and with it. Its tests hold the core's MIDR to a big.LITTLE
+    fixture and to a `Features` line without `cpuid`.
+  - Mutations, 7, each `CAUGHT`: the N2 rule off and EOR3's bit without FEAT_SHA3, against `zig
+    build test-crypto`; `intersect` keeping any core, `with` preferring the other core, and
+    SSE4.1 from SSSE3's bit, against `zig build test-platform`; the MIDR never compared and the
+    first core taken always, against `zig build test-tools`. SSE4.1 from SSSE3's bit passes
+    `zig build platform-check` on this host, which has both.
+  - Detection's own read of MIDR_EL1 runs on aarch64 Linux alone. This x86-64 host compiled it
+    for aarch64-linux and ran none of it, and CI's arm64 Linux job runs `platform-check` there.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 31: stdx's sessions and options over chapulin's (decision 87 as amended a ninth time).**
+  The owner ruled that stdx owns the options structs, and then that it wraps the sessions, so no
+  program can set chapulin's `cpu` or `random`. `crypto_options.zig` holds the options of both
+  objects. `crypto_tls_session.zig` and `crypto_quic_session.zig` hold the sessions, whose `init`
+  fills the two fields from the `Context` and whose other calls forward to chapulin's.
+  New public names: `tls.Client`, `tls.Server`, `tls.ClientOptions` and `tls.ServerOptions` as
+  stdx's types, and `quic`'s four, and `ServerOptions.check(context)`. Removed: `tls.client_options`,
+  `tls.server_options`, `quic.client_options` and `quic.server_options`. colibri's TLS endpoints
+  and connect-zig's call them.
+  **Check:**
+  - `zig build test-crypto` holds each of stdx's options to chapulin's fields but the two, with
+    chapulin's types and defaults, and each session to every call of chapulin's.
+  - `zig build test-crypto` runs a TCP handshake and a QUIC handshake through stdx's sessions on
+    a self-signed P-256 identity in `src/crypto/testdata/`, which the client trusts by its SPKI's
+    SHA-256 alone. Over TCP it moves data both ways, in one write and in parts, exports a secret
+    on both ends, and ends the session. Under QUIC it seals a packet each way, updates the keys
+    and discards the Initial keys.
+  - Mutations, 10, each `CAUGHT`: chapulin's `cpu` given an empty description, `random` left
+    null, a default of stdx's own, `read`'s two buffers swapped, `write_parts` writing one part,
+    the server's `init` dropping `sni_buf`, the export writing zeros, QUIC's `key_update` and
+    `discard` doing nothing, and `reply_len` not forwarded, against `zig build test-crypto`. The
+    first run of the export mutation was `NOT CAUGHT`, since both ends then wrote zeros. A
+    second label must now export another secret.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 32: FEAT_DIT from the core's MIDR, where a hypervisor hides it (decision 40 as amended
+  a sixth time).** GitHub's arm64 runners hide FEAT_DIT from AT_HWCAP on their Neoverse N2 cores.
+  The owner ruled that detection reports it by the MIDR once a probe shows the mode working there.
+  No public name changes.
+  **Check:**
+  - The probe, stdx CI run 551, on ubuntu-24.04-arm and ubuntu-26.04-arm: MIDR_EL1 0x410fd490,
+    HWCAP_DIT clear, and PSTATE.DIT set, read back and cleared on two threads, with no fault.
+  - `zig build test-platform` holds `implements_dit` to the N2 of any revision, and to no other
+    core, and holds Linux's detection to it beside HWCAP_DIT.
+  - `zig build platform-check` on a host whose /proc/cpuinfo lacks FEAT_DIT while detection has
+    it sets PSTATE.DIT on two threads, yields the core 1,000 times, reads it back and clears it.
+    `zig build test-tools` holds that verdict to stand-ins.
+  - Under QEMU 8 as a Neoverse N2 and as a Cortex-A72, the platform tests and the check's tests
+    pass for aarch64 Linux. QEMU reports the N2's FEAT_DIT, so the hidden case runs on the
+    runners alone.
+  - Mutations, 10, each `CAUGHT`: detection without the MIDR, or without HWCAP_DIT; the list
+    matching the part alone, or the maker alone; the N2's part off by one; the check passing a
+    hidden feature without the mode, or asking the mode where the report has it; and a round that
+    ignores the read after the yields, the clear, or a bit already set.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 33: a program calls through the value, and no call regresses (decision 87 as amended a
+  tenth time).** The owner chose grouped methods: `crypto.hash.sha256(&digest, bytes)` and
+  `crypto.jws.sign(&out, key, input)`, where `hash` and `jws` are the namespaces' types and the
+  value's fields. `init` computes chapulin's C values once.
+  Changed public names: `stdx.crypto.hash`'s whole-input calls and `jws.sign` take the field, not
+  the value. `Context` gains the fields `hash`, `jws`, `tcp_description` and `quic_description`.
+  colibri's and connect-zig's hashes and signatures call them.
+  **Check:**
+  - `zig build test-crypto` holds each whole-input call, HMAC, HKDF and each stream to chapulin's
+    own call. A value that names a bit of the other architecture makes a call and a stream fail
+    under the statement, and the unstated value passes without it. The C values equal chapulin's
+    conversion of the descriptions.
+  - Instructions under callgrind, with a test built ReleaseSafe for x86-64-v3 and the value read
+    from memory at each of 100,000 calls, on this x86-64 host:
+    - a SHA-256 of "abc": 57 instructions outside chapulin's C at 9dd95be, 86 with chapulin's
+      description stored and copied, and 22 with the C value;
+    - a description as a session or a signature takes it, with chapulin's conversion: 48 at
+      9dd95be and 38.
+  - Mutations, 8, each `CAUGHT` against `zig build test-crypto`: the unstated value always, no
+    statement on x86-64, the signer without the random source, HMAC's key and message swapped,
+    HKDF's salt and input swapped, a stream and a call each with the unstated value, and SHAKE256
+    running SHAKE128.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

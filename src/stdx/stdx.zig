@@ -1,7 +1,8 @@
 //! stdx: Zig's standard library, extended. It groups its modules by what they do, as `std`
 //! groups its own: `std.compress` and `stdx.compress`, `std.hash` and `stdx.hash`,
 //! `std.unicode` and `stdx.unicode` (decision 6 as amended on 2026-11-22). `stdx.encoding` holds
-//! JSON and base 64, as Go's `encoding` does (decision 6 as amended on 2026-11-25).
+//! JSON and base 64, as Go's `encoding` does (decision 6 as amended on 2026-11-25). `stdx.crypto`
+//! is chapulin's cryptography, for a dependent that passes `.crypto = true` (decision 87).
 //!
 //! ```zig
 //! const stdx = @import("stdx");
@@ -43,17 +44,31 @@ pub const encoding = struct {
 /// (decision 86).
 pub const regex = @import("regex");
 
-/// What the CPU a program runs on offers, read once when the program starts: `probe`'s answers,
-/// and `CpuFeatures`, which a program passes to each codec's `init`. It also holds the `memset` a
-/// program exports (decisions 21, 40 and 41). The codecs name `CpuFeatures`. Outside `platform`,
-/// only a test of stdx calls `probe` or `CpuFeatures.detect` (invariant 14).
+/// What the CPU a program runs on offers, read once when the program starts: `CpuFeatures`, which
+/// a program passes to each codec's `init` and to `crypto.init`, and the read and the set of a
+/// thread's data-independent timing. It also holds the `memset` a program exports (decisions 21,
+/// 40 and 41). Outside `platform`, only a test of stdx calls `CpuFeatures.detect` (invariant 14).
 pub const platform = @import("platform");
 
 /// What every codec shares: the checked reader and writer, and a streaming call's statuses
 /// (decision 11).
 pub const codec = @import("codec");
 
+/// Cryptography: chapulin's TLS 1.3 sessions over TCP and QUIC, JSON Web Signatures, DNSSEC and
+/// SCRAM's hashes, through chapulin's Zig module (decision 87). A dependent passes `.crypto =
+/// true` to stdx's dependency to have it, and a build without it fetches no chapulin.
+pub const crypto = if (options.crypto) @import("crypto") else @compileError("stdx.crypto needs chapulin: pass .crypto = true to stdx's dependency (decision 87)");
+
+comptime {
+    // A build with `.crypto = true` links chapulin's objects into every program that imports
+    // stdx, and their C calls `ch_assert_fail`. chapulin's module exports it from a comptime block
+    // that runs only when something references the module, so this reference keeps the hook in a
+    // program that names no `stdx.crypto` (decision 87 as amended).
+    if (options.crypto) _ = crypto;
+}
+
 const std = @import("std");
+const options = @import("stdx_options");
 
 test "each category names its modules" {
     const categories = .{ compress, encoding, unicode };
@@ -69,4 +84,5 @@ test "each category names its modules" {
     try std.testing.expect(@hasDecl(regex, "Searcher"));
     try std.testing.expect(@hasDecl(platform, "CpuFeatures"));
     try std.testing.expect(!@hasDecl(codec, "Features"));
+    if (options.crypto) try std.testing.expect(@hasDecl(crypto, "jws"));
 }

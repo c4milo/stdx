@@ -2843,6 +2843,121 @@ last part lists what still waits on a ruling.
       - A rule that reads a codec's tests too. A test would lose the detection that reaches every
         path of its host.
 
+    **Amended by the owner on 2026-11-25: `platform` reads and sets a thread's data-independent
+    timing.** The owner asked whether stdx can detect the timing mode, and chose a read and a set
+    when told that Linux and macOS start each thread with PSTATE.DIT clear. "It changes no CPU
+    state" above stays true of `probe`.
+    - `data_independent_timing(cpu)` reads the calling thread's PSTATE.DIT on arm64 with one
+      `mrs`. It answers `no` on a core whose `dit` is `no`, and `not_known` where `dit` is
+      `not_known`, because the read faults on a core without FEAT_DIT. On x86-64 it answers
+      `not_known`: DOITM is a bit of IA32_UARCH_MISC_CTL, which only the operating system reads.
+    - `set_data_independent_timing(cpu, enabled)` sets or clears it with one `msr`, checks the
+      mode it wrote, and returns true. It returns false where the read would answer anything but
+      `yes` or `no`, and on x86-64, where user code cannot set DOITM. A `bool` and not an error:
+      no RFC states the refusal, and a program reads the result as the timing it states.
+    - Neither call is a syscall, and each acts on the calling thread alone. The `cpu-probe` rule
+      refuses both outside `src/platform/` and the tests: a library call runs on a thread it did
+      not start, so only the program sets the mode. `stdx.crypto.init` takes the program's
+      statement, which the program makes after it sets the mode (entry 87 as amended again).
+    - Each instruction names the register by its encoding, `s3_3_c4_c2_5`, which an assembler
+      takes for any CPU model. The name `DIT` needs the target feature `dit`.
+    - The alternatives refused:
+      - A read alone. On a thread the program has not set, it answers `no`, so a program would
+        still write the `msr` itself.
+      - `init` that sets the mode. It would set it on the calling thread alone, and the rule above
+        keeps library code from it.
+      - A read of DOITM through `/dev/cpu/*/msr`. It is a file read, which non-negotiable 1
+        refuses, and it needs root.
+
+    **Amended again by the owner on 2026-11-25: `CpuFeatures` is the one CPU type a program
+    passes.** The owner chose to consolidate on `platform.CpuFeatures` as the API a program
+    names, and to enhance it first, so that it serves what `Cpu` serves.
+    - `CpuFeatures` gains `aes`, `sha256`, `sha512`, `sha3`, `sve2`, `dit` and `vaes`, each read
+      as `probe` reads it. On x86-64 that is CPUID leaves 1 and 7 and leaf 7's subleaf 1, with
+      XCR0. On aarch64 Linux it is AT_HWCAP and AT_HWCAP2. On a Mac it is the M-series facts,
+      which Zig's targets for Apple's cores guarantee. Detection still makes no syscall.
+    - A field is a boolean: false where the CPU lacks the feature or nothing says. `probe`'s
+      `not_known` becomes false, which fails closed. MIDR stays `probe`'s alone, because no
+      program reads it.
+    - `data_independent_timing` and `set_data_independent_timing` take `CpuFeatures`, and the
+      read returns a `bool`. `crypto.init` takes `.features` in place of `.probe` (entry 87 as
+      amended a fifth time). A program then detects once, for its codecs and for `stdx.crypto`.
+    - `probe`, `Cpu` and `Answer` stay until colibri, cocuyo, stompy and connect-zig read
+      `CpuFeatures`. A test holds `CpuFeatures.detect()` to `probe()` on each field both read, on
+      every host the tests run on.
+    - x86-64's detection moves to `platform_cpu_features_x86.zig`, so that each file stays under
+      500 lines.
+
+    **Amended a third time by the owner on 2026-11-26: library code may read a thread's mode.**
+    `stdx.crypto` states the timing of the thread that runs each call, so it reads PSTATE.DIT at
+    each call (entry 87 as amended a sixth time).
+    - The `cpu-probe` rule now refuses `set_data_independent_timing` alone outside
+      `src/platform/` and the tests.
+    - A read is one `mrs`, which changes nothing, and it runs only where `dit` holds.
+    - The set stays the program's: a library call runs on a thread it did not start.
+
+    **Amended a fourth time by the owner on 2026-11-26: `probe`, `Cpu`, `Answer` and `Midr` are
+    gone.** The owner ruled `CpuFeatures` and `CpuFeatures.detect()` the only CPU API a program
+    names, in every library (design §8 step 29).
+    - `platform` exports `CpuFeatures`, the read and the set of a thread's timing, `memset` and
+      `memset_applies`. platform_answer.zig, platform_linux.zig and platform_x86.zig are gone, and
+      so are their constants: macOS's sysctl names, MIDR_EL1's fields and HWCAP_CPUID.
+    - `platform` makes no syscall. Detection on a Mac states the M-series facts, so the probe's
+      `sysctlbyname` was its one syscall. The io rule now refuses `sysctlbyname` in `platform` too.
+    - `zig build platform-check` holds `CpuFeatures.detect()` to the host's report. A report covers
+      the fields its source names, and the fields of the other architecture as absent. On a Mac it
+      leaves out `avx512` and `vnni`, whose registers macOS saves only after a thread's first use.
+    - x86-64's test of detection reads CPUID itself, in place of the probe's reader, and holds leaf
+      1, leaf 7 and leaf 7's subleaf 1 to it.
+    - The alternatives refused:
+      - `probe` kept beside `CpuFeatures`. A program would name two CPU types, and the owner named
+        one.
+      - `CpuFeatures` read from macOS's sysctl names. It would make the syscall that the M-series
+        facts avoid, and only `platform-check` needs the names, as a reference.
+
+    **Amended a fifth time by the owner on 2026-11-26: `CpuFeatures` holds every answer `probe`
+    gave.** The owner asked why the fourth amendment removed features, and ruled that
+    `CpuFeatures` gains them instead (design §8 step 30). `probe`, `Cpu` and `Answer` stay
+    removed.
+    - `CpuFeatures` gains `sse4_1`, CPUID leaf 1's ECX bit 19, which it read before only inside
+      `pclmul` and `sha256`.
+    - `CpuFeatures` gains `midr: ?Midr`, and `platform.Midr` returns as the amendment of
+      2026-11-19 ruled it. The amendment of 2026-11-25 that made `CpuFeatures` the one CPU type
+      kept MIDR with `probe` "because no program reads it". That was wrong: chapulin's decision 240 asks a caller to tell an Arm
+      Neoverse N2 by its MIDR, and `stdx.crypto` now maps for every caller (entry 87 as amended a
+      seventh time).
+    - On aarch64 Linux, detection reads MIDR_EL1 with `mrs` where AT_HWCAP has HWCAP_CPUID. Linux
+      traps the read and emulates it, so detection still makes no syscall. `midr` is null on
+      x86-64, on macOS, on Linux without the bit, and in `target()`.
+    - `intersect` keeps the core both sets name, and null where they name two. `with` keeps the
+      core of `self`, or else that of `other`. A codec's `features.intersect(target())` therefore
+      names no core, which no codec reads.
+    - `platform-check` compares `sse4_1`, and on aarch64 Linux the MIDR of the core whose
+      /proc/cpuinfo lines match detection's, as it did for `probe`.
+
+    **Amended a sixth time by the owner on 2026-11-26: FEAT_DIT from the core's MIDR, where a
+    hypervisor hides it.** GitHub's arm64 Linux runners are Neoverse N2 virtual machines whose
+    AT_HWCAP and /proc/cpuinfo lack FEAT_DIT. So `stdx.crypto` stated no timing there, and
+    chapulin ran ChaCha20 and its portable code. colibri asked for a ruling, since its benchmark
+    judge is such a runner. The owner ruled that detection reports FEAT_DIT by the MIDR only where
+    a probe shows that the mode works.
+    - The probe, stdx CI run 551 on ubuntu-24.04-arm and ubuntu-26.04-arm: MIDR_EL1 0x410fd490,
+      HWCAP_DIT clear, and PSTATE.DIT set, read back and cleared on the main thread and on a new
+      one, with no fault.
+    - platform_midr.zig lists the cores that implement FEAT_DIT, `dit_cores`: Arm's Neoverse N2
+      alone, by implementer and part. On aarch64 Linux, `dit` holds where AT_HWCAP has HWCAP_DIT
+      or the MIDR names a listed core. A core joins the list only with a probe of its own.
+    - `stdx.crypto`'s statement is unchanged: on arm64 it still needs the thread's PSTATE.DIT,
+      which the program sets. Arm's timing guarantee stays the one it rests on.
+    - `platform-check` cannot confirm the field from /proc/cpuinfo there. Where the report lacks
+      FEAT_DIT and detection has it, the check sets PSTATE.DIT on two threads, yields the core 1,000
+      times, reads the bit back and clears it, and passes the field only if each step holds.
+    - The alternatives refused:
+      - The rule as it was. Every Arm machine that hides FEAT_DIT would run ChaCha20 and the
+        portable code, and colibri's judge would measure a path no deployment on such a core takes.
+      - A statement by the MIDR with no PSTATE.DIT. It would rest on a part number, and Arm
+        guarantees the timing only under the mode.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
@@ -7234,13 +7349,154 @@ last part lists what still waits on a ruling.
     - chapulin is the owner's own library, written to its own rules, so non-negotiable 5 does not
       bind it. It is the library's first dependency, beside none.
     - The tools keep Zig's own SHA-256 for the pins of the differential checks. They never ship.
-    - **owner** Open for the issue that builds it
-      (https://github.com/c4milo/stdx/issues/42): which objects stdx offers and through which
-      options (colibri builds a TCP object and a QUIC object today, each with KEYLOG off, and on
-      for its tests); how a program's one CPU probe, `stdx.platform`, gives chapulin its `cpu`
-      value; where the hook chapulin calls on a failed assertion, `ch_assert_fail`, is defined;
-      and AEGIS, which stompy's checksum runs on through `std.crypto`, and which chapulin does
-      not hold: chapulin adds it, or stompy keeps Zig's.
+    - Amended on 2026-11-25, on the owner's word that stdx alone asks chapulin, and that
+      `stdx.crypto` holds most of chapulin's public API (design §8 step 23):
+      - stdx asks once for chapulin's module of `TRANSPORT=nonblocking` (chapulin's decision 245),
+        with the options colibri asked for. chapulin compiles the TCP object and the QUIC object
+        apart, so each has its own types. `stdx.crypto.tls` holds the TCP object's sessions and
+        types in one namespace, and `stdx.crypto.quic` the QUIC object's, as the owner chose:
+        `tls.Client`, where chapulin names it `tcp.tcp.Client`. `jws`, `dnssec`, `scram` and
+        `Cpu` stand beside them.
+      - A dependent passes `.crypto = true`, and `.crypto_keylog = true` for tests that read a
+        capture. stdx's own build passes the first.
+      - chapulin's module defines `ch_assert_fail`, and the module `crypto` references it, so a
+        program that names `stdx.crypto` keeps the hook beside chapulin's objects. A program
+        replaces it with `chapulinAssertFail` in its root file.
+      - chapulin leaves the `denied-words` list: it is the library's dependency, not a consumer.
+    - Amended again on 2026-11-25, on the owner's word that crypto as a whole is set up once,
+      with the CPU's features and a random source (design §8 step 24):
+      - A program calls `stdx.crypto.init` once, when it starts. It passes the answers of its one
+        `stdx.platform.probe()`, its statement of its threads' timing as `Timing`, which has no
+        default, and a cryptographically secure `std.Random`. The `Context` it gets holds the
+        CPU as `tls.Cpu` and as `quic.Cpu`, and the random source.
+      - `init` sets a bit that states timing only under `.data_independent`, and only where the
+        probe answers `yes`. It states the hash instructions' timing on arm64 alone, and a core
+        without FEAT_DIT states none. It sets `avx2`, `vaes` and `sve2` where the probe answers
+        `yes` on the architecture chapulin defines each for.
+      - The module `crypto` imports `platform` for `platform.Cpu`.
+      - The owner asked which shape is safest. A value is: stdx keeps no process-wide mutable
+        state (non-negotiable 8), so no call runs before the value exists, no two threads race to
+        set it, a process that forks holds no random state it did not choose, and a test passes a
+        value of its own. A global that `init` sets was refused for each of those.
+    - Amended a third time on 2026-11-25: chapulin's hashes, HMAC and HKDF are calls of their own
+      (design §8 step 26). The owner ruled a new chapulin axis, `HASH=on`, with a stream and one
+      call over a whole input, SHA-2, HMAC, HKDF, SHA-3 and SHAKE, and no SHA-1. chapulin's
+      decision 246 adds it, and stdx pins chapulin at that commit.
+      - stdx asks for `HASH=on` beside `SCRAM=on`, on a host target alone, and `stdx.crypto.hash`
+        names chapulin's `tcp.hash`. The QUIC object holds none of the calls.
+      - Each call takes `Context.cpu`, so it runs each hash on the instructions that the program's
+        probe and statement of timing allow, as a session would.
+      - `scram` keeps its own SHA-256 and HMAC-SHA-256, which take no CPU value.
+    - Amended a fourth time on 2026-11-25, after colibri's move to `stdx.crypto` found two gaps:
+      - With `.crypto = true`, every program that imports stdx links chapulin's objects. A program
+        that named no `stdx.crypto` lacked `ch_assert_fail` and failed to link. The root `stdx`
+        now references the module `crypto` in such a build, so every program keeps the hook.
+      - Zig gives each file to one module of a compile, so one image holds one stdx. A test image
+        over the stdx of `crypto_keylog` builds its own copy of each module above stdx, as
+        colibri's key-log images do. `src/crypto/README.md` says so.
+    - Amended a fifth time on 2026-11-25, with entry 40: `init` takes the program's
+      `platform.CpuFeatures` as `.features`, the value its codecs take, in place of `probe`'s
+      `Cpu`. AES's bit needs the carry-less multiply of its own architecture beside `aes`: `pmull`
+      on arm64 and `pclmul` on x86-64. On arm64 a core whose features hold no FEAT_DIT states no
+      timing, where `probe`'s `not_known` stated it before.
+    - Amended a sixth time on 2026-11-26, on the owner's word that `CpuFeatures` is the one CPU
+      API a program names, that stdx maps it to chapulin's description of the CPU, that crypto is
+      set up once, and that stdx adds no type for it (design §8 step 28):
+      - `init(features, random)` takes the program's one `CpuFeatures.detect()` and its random
+        source, and returns a `Context` that holds those two alone. `Options`, `Timing` and the
+        `Context` fields `cpu` and `quic_cpu` are gone. No namespace names chapulin's `Cpu` or
+        `cpu_bits`.
+      - Each call that runs chapulin's code takes the `Context`: the `hash` calls and streams,
+        `jws.sign`, `tls.init_from_pem`, and `tls.client_options` and `tls.server_options`,
+        which set chapulin's `cpu` and `random` fields. `quic` has the same three calls.
+        `jws.sign` draws chapulin's 32 bytes of noise from the context's random source, and
+        wipes them before it returns.
+      - stdx maps the features to chapulin's description at each call. The statement of timing
+        comes from what exists, with no field for it:
+        - arm64: stdx reads the calling thread's PSTATE.DIT where `dit` holds, so the statement
+          covers the thread that runs the call.
+        - x86-64: stdx states it always, as Go and BoringSSL do. No program can read DOITM. The
+          owner chose this over an x86-64 without AES-GCM and the fast multiplies.
+        - Any other architecture: no statement.
+      - The `cpu-probe` rule lets library code read the thread's mode, and still refuses its set
+        (entry 40 as amended a third time).
+      - The alternatives refused:
+        - A field of `CpuFeatures`, or a `Timing` the program passes. Each is a new structure,
+          and the owner refused new structures.
+        - A `Context` that holds chapulin's `Cpu`, made once at `init`. A program would name
+          chapulin's type through it. On arm64 the statement would describe the thread that
+          called `init`, and not the thread that runs the call.
+        - No statement on x86-64. Every x86-64 session would run ChaCha20 alone, and the slow
+          multiply.
+    - Amended a seventh time on 2026-11-26: stdx's map applies chapulin's rule for an Arm Neoverse
+      N2 (design §8 step 30). The owner ruled on 2026-11-19 that the rule applies once a chapulin
+      release splits the SHA-3 bit. chapulin's decision 244 split it, and stdx's pin holds it.
+      - On arm64 under the statement, the EOR3 bit follows `sha3`. It states EOR3 alone, which
+        AES-GCM's passes run.
+      - The SHA-3 bit follows `sha3` too, but not on a core whose `midr` names implementer 0x41
+        and part 0xd49. That core runs Keccak 1.8 times slower on its SHA-3 instructions
+        (chapulin's decision 240), so Keccak runs in general registers there, and AES-GCM keeps
+        EOR3.
+      - A `CpuFeatures` that names no core keeps the SHA-3 bit, as stdx's map did before.
+    - Amended an eighth time on 2026-11-26: the program's random source. The owner noted that
+      `std.Random` is not cryptographic as such. It is an interface over any generator, so `init`
+      accepts `std.Random.DefaultPrng` as readily as a CSPRNG, and stdx cannot tell them apart.
+      - The owner chose that a program wraps `io.randomSecure` in a `std.Random` that halts when a
+        draw fails. `src/crypto/README.md` and `tools/consumer/crypto.zig` show it.
+      - `io.randomSecure` is thread-safe, keeps no state that a fork copies, and has no fallback.
+        The consumer's `std.Random.DefaultCsprng` before it had neither of the first two, and a
+        `Context` that threads share raced on its state.
+      - Each draw is a syscall, which the program owns. stdx's API is unchanged.
+      - The alternatives refused:
+        - `io.random`, with no syscall a draw. Zig falls back to "a less secure mechanism" when
+          its seed from `randomSecure` fails.
+        - `init` that takes the program's `std.Io` and draws itself. Non-negotiable 1 and the io
+          rule forbid `std.Io` in `src/`.
+    - Amended a ninth time on 2026-11-26: stdx owns the options of chapulin's sessions, and the
+      sessions too (design §8 step 31). chapulin's options carry `cpu` and `random`, so a program
+      could set chapulin's description of the CPU by hand. The owner ruled that stdx owns the
+      options, and then that stdx wraps the sessions, because a session's own `init` takes
+      chapulin's options, and an anonymous literal reaches its `cpu` field.
+      - `tls.ClientOptions`, `tls.ServerOptions` and `quic`'s two are stdx's. Each holds every
+        field of chapulin's but `cpu` and `random`, with chapulin's type and default. A test fails
+        when chapulin adds a field, changes one, or stdx drifts.
+      - `tls.Client`, `tls.Server` and `quic`'s two are stdx's types over chapulin's sessions. Each
+        `init` takes the `Context` and stdx's options, and fills chapulin's two fields from the
+        `Context`. Every other call forwards to chapulin's, and a test fails when chapulin's
+        session has a call stdx's lacks.
+      - `ServerOptions.check(context)` replaces chapulin's `check`. `tls.client_options` and
+        `tls.server_options`, and `quic`'s, are gone.
+      - The alternatives refused:
+        - stdx's options with stdx's own `init` calls beside chapulin's sessions. A program could
+          still call the session's own `init` with chapulin's options.
+        - stdx's options made with Zig's reflection, field by field. No field would carry a doc
+          comment, and `ServerOptions` would carry no `check`.
+    - Amended a tenth time on 2026-11-26: a program calls through the value (design §8 step 33).
+      The owner found it odd to call `stdx.crypto` functions that take the value `crypto.init`
+      returned, chose methods grouped as the namespaces are, and asked that no call regress.
+      - `stdx.crypto.hash` and `stdx.crypto.jws` are struct types, and each is a field of the
+        value. A program calls `crypto.hash.sha256(&digest, bytes)` and `crypto.jws.sign(&out, key,
+        input)`. The types still name chapulin's constants, options and streams, as
+        `stdx.crypto.hash.Sha256`.
+      - A call that starts something takes the value, as a call takes an allocator: a session's
+        `init`, a stream's `init` and `tls.init_from_pem`.
+      - `init` computes chapulin's C value of each description once, under the statement of timing
+        and without it. A hash, an HMAC, an HKDF step and a stream's start hand that value to
+        chapulin's C call. On arm64 a call reads PSTATE.DIT, one `mrs`, to pick one of the two.
+        Other calls take chapulin's description, mapped from the features as before.
+      - Measured under callgrind on x86-64, ReleaseSafe for x86-64-v3, with the value read from
+        memory at each call. A SHA-256 of "abc" spent 57 instructions outside chapulin's C at
+        9dd95be, and spends 22. A description that a session or a signature takes cost 48
+        instructions with chapulin's conversion, and costs 38.
+      - The alternatives refused:
+        - A description stored as chapulin's `Cpu` and copied at each call. It measured 86
+          instructions a hash: the copy and chapulin's conversion of 13 fields cost more than the
+          map they replaced. The value holds no type of chapulin's.
+        - Flat methods, as `crypto.sha256`. They lose the grouping the namespaces give.
+        - The functions kept, with the value named `context`. The owner chose methods.
+    - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
+      checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
+      stompy keeps Zig's.
 
     The alternatives refused:
     - No crypto in stdx, each library pinning chapulin itself. Two pins or two sets of options in

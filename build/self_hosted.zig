@@ -20,6 +20,8 @@ pub fn add(b: *std.Build) *std.Build.Step {
         b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux });
     const graph = modules.add(b, .{ .target = target, .optimize = .Debug, .visibility = .private });
     inline for (@typeInfo(modules.Modules).@"struct".fields) |field| {
+        // `crypto` is optional, and this graph asks for no chapulin (decision 87).
+        if (comptime field.type != *std.Build.Module) continue;
         const tests = b.addTest(.{
             .name = field.name ++ "-self-hosted",
             .root_module = @field(graph, field.name),

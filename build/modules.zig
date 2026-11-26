@@ -6,8 +6,8 @@
 //!
 //! `platform` imports nothing, and every module whose calls take the CPU features a caller detected
 //! imports it for the type `platform.CpuFeatures` (decisions 21 and 40 as amended on 2026-11-24).
-//! No library code calls its `probe` or `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint
-//! holds that, since the graph no longer can (invariant 14).
+//! No library code calls its `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint holds that,
+//! since the graph no longer can (invariant 14).
 //!
 //! Every module here is library code. The package exports one of them, `stdx`, which names the
 //! others under their categories, so a dependent imports `dependency.module("stdx")` and reaches
@@ -61,6 +61,9 @@ pub const Modules = struct {
     /// Regular expressions that match in linear time, RFC 9485's grammar and RE2's additions
     /// (decision 86).
     regex: *std.Build.Module,
+    /// chapulin's cryptography, through its Zig module (decision 87): null unless the build passed
+    /// `.crypto = true`.
+    crypto: ?*std.Build.Module,
     /// Every module above, grouped by category as `std` groups its own (decision 6 as amended).
     stdx: *std.Build.Module,
 };
@@ -75,6 +78,8 @@ pub const Settings = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     visibility: Visibility,
+    /// chapulin's module, which build/crypto.zig asks for, or null for a graph with no `crypto`.
+    chapulin: ?*std.Build.Module = null,
 };
 
 pub fn add(b: *std.Build, settings: Settings) Modules {
@@ -144,9 +149,17 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
     regex.addImport("platform", platform);
     variants.add_levels(b, regex, "regex", settings.target, settings.optimize, &variants.regex_levels);
 
+    // chapulin's cryptography (decision 87). No other module imports it, and no codec reaches it.
+    const crypto: ?*std.Build.Module = if (settings.chapulin) |chapulin| crypto_module(b, settings, chapulin, platform) else null;
+
     // The root a program imports, which names each module under its category (decision 6 as
     // amended). No codec imports it.
     const stdx = library(b, "stdx", "stdx", settings);
+    const stdx_options = b.addOptions();
+    stdx_options.addOption(bool, "crypto", crypto != null);
+    // Whether the root names `crypto`, or a compile error that names the option.
+    stdx.addImport("stdx_options", stdx_options.createModule());
+    if (crypto) |module| stdx.addImport("crypto", module);
     stdx.addImport("codec", codec);
     stdx.addImport("hash", hash);
     stdx.addImport("deflate", deflate);
@@ -175,8 +188,18 @@ pub fn add(b: *std.Build, settings: Settings) Modules {
         .base64 = base64,
         .platform = platform,
         .regex = regex,
+        .crypto = crypto,
         .stdx = stdx,
     };
+}
+
+/// The module `crypto`: chapulin's Zig module under stdx's names (decision 87).
+fn crypto_module(b: *std.Build, settings: Settings, chapulin: *std.Build.Module, platform: *std.Build.Module) *std.Build.Module {
+    const crypto = library(b, "crypto", "crypto", settings);
+    crypto.addImport("chapulin", chapulin);
+    // The answers of a program's probe, which `init` turns into chapulin's description of the CPU.
+    crypto.addImport("platform", platform);
+    return crypto;
 }
 
 /// The one module the package exports (decision 6 as amended on 2026-11-25).

@@ -47,7 +47,7 @@ const canary_source =
     \\pub fn canary(allocator: std.mem.Allocator) !void {
     \\    _ = allocator;
     \\    _ = std.posix;
-    \\    _ = platform.probe();
+    \\    _ = platform.CpuFeatures.detect();
     \\    _ = std.time;
     \\    while (true) {}
     \\    var buffer: [4096]u8 = undefined;

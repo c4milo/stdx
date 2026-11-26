@@ -29,6 +29,7 @@ const module_readmes = [_]Document{
     embedded("src/compress/gzip/README.md"),
     embedded("src/encoding/json/README.md"),
     embedded("src/platform/README.md"),
+    embedded("src/crypto/README.md"),
     embedded("src/regex/README.md"),
     embedded("src/unicode/README.md"),
     embedded("src/unicode/utf8/README.md"),
@@ -47,6 +48,7 @@ fn embedded(comptime name: []const u8) Document {
 const programs = [_]Document{
     .{ .name = "tools/consumer/build.zig", .text = @embedFile("tools/consumer/build.zig") },
     .{ .name = "tools/consumer/main.zig", .text = @embedFile("tools/consumer/main.zig") },
+    .{ .name = "tools/consumer/crypto.zig", .text = @embedFile("tools/consumer/crypto.zig") },
 };
 
 /// The Zig blocks the README holds at least: the lines of `build.zig` and one example. A README
@@ -66,6 +68,8 @@ const path_len_max = 64;
 const import_open = "@import(\"";
 const comment_open = "//";
 const zig_standard_library = "std";
+/// The options module the build gives the root of `stdx`: whether it names `crypto`.
+const root_options = "stdx_options";
 
 const fence_open = "```zig\n";
 const fence_close = "```";
@@ -186,6 +190,8 @@ test "each module that the module stdx names has a README in its folder" {
         if (std.mem.startsWith(u8, std.mem.trim(u8, line, " "), comment_open)) continue;
         const import = next_import(line) orelse continue;
         if (std.mem.eql(u8, import.name, zig_standard_library)) continue;
+        // The build's options of the root, which hold no module of stdx (decision 87).
+        if (std.mem.eql(u8, import.name, root_options)) continue;
         modules += 1;
         if (!has_readme(import.name)) {
             std.debug.print("the folder of {s} holds no README that this check reads\n", .{import.name});

@@ -1,20 +1,21 @@
 //! cpu-probe: no library code reads the CPU (decisions 21 and 40 as amended on 2026-11-24;
-//! invariant 14). A program calls `platform.probe()` and `platform.CpuFeatures.detect()` once,
-//! when it starts, and passes what they give down its stack. stdx keeps no copy (invariant 4), and
-//! no codec path runs a probe: macOS's probe is a syscall (invariant 2), and CPUID on a virtual
-//! machine is an exit to its hypervisor (decision 21).
+//! invariant 14). A program calls `platform.CpuFeatures.detect()` once, when it starts, and passes
+//! what it gives down its stack. stdx keeps no copy (invariant 4), and no codec path detects:
+//! CPUID on a virtual machine is an exit to its hypervisor (decision 21).
 //!
 //! The codecs import `platform` for the type `CpuFeatures`, which each `init` takes, so the module
 //! graph no longer keeps the probe out of their reach. This rule does. Over every `.zig` file
 //! under `src/` but `src/platform/`, it flags:
-//! - a chain that names `platform.probe` or `platform.CpuFeatures.detect`, called or not;
+//! - a chain that names `platform.CpuFeatures.detect`, called or not;
+//! - a chain that names `platform.set_data_independent_timing`, which sets the calling thread's
+//!   mode (decision 40 as amended on 2026-11-25). A library call runs on a thread it did not
+//!   start, so only the program sets the mode. Library code may read it with
+//!   `platform.data_independent_timing`: `stdx.crypto` reads it at each call, to state the
+//!   timing of the thread that runs chapulin's code (decision 87 as amended on 2026-11-26);
 //! - the same chain through a file-level alias, such as `const CpuFeatures = platform.CpuFeatures;`
 //!   and then `CpuFeatures.detect()`;
 //! - a call of any function named `detect`, whatever its receiver. No function of stdx's but
 //!   `CpuFeatures.detect` has that name, so the rule needs no type to read the call.
-//!
-//! A codec has functions named `probe` of its own, the match finders' among them, so `probe` is
-//! flagged only as `platform.probe`.
 //!
 //! The walk reads a chain that starts with a name, and no chain that starts with
 //! `@import("platform")` written in place. So the rule also requires each `@import("platform")`
@@ -44,9 +45,12 @@ const pepegrillo = @import("pepegrillo");
 const lint = pepegrillo.lint;
 const forbidden_references = lint.rules.forbidden_references;
 
-/// A chain that starts with one of these at a dot boundary is a finding: the probe of the `Cpu`
-/// answers, and the detection of the codecs' features.
-const forbidden_prefixes = [_][]const u8{ "platform.probe", "platform.CpuFeatures.detect" };
+/// A chain that starts with one of these at a dot boundary is a finding: the detection of the
+/// CPU's features, and the set of a thread's mode.
+const forbidden_prefixes = [_][]const u8{
+    "platform.CpuFeatures.detect",
+    "platform.set_data_independent_timing",
+};
 
 /// A call whose callee ends with one of these is a finding, whatever the receiver.
 const forbidden_callees = [_][]const u8{"detect"};
@@ -165,34 +169,59 @@ fn findings_of(
     return harness.run(arena, @This(), path, source);
 }
 
-/// A codec that reads the CPU in its own code: the probe, the detection, and both through names.
+/// A codec that reads the CPU in its own code: the detection, as written and through names.
 const reading_fixture: [:0]const u8 =
     \\const platform = @import("platform");
     \\const CpuFeatures = platform.CpuFeatures;
-    \\const probe_cpu = platform.probe;
+    \\const detect_cpu = platform.CpuFeatures.detect;
     \\
     \\pub fn init(self: *Decoder) void {
-    \\    self.cpu = platform.probe();
     \\    self.features = platform.CpuFeatures.detect();
     \\    self.again = CpuFeatures.detect();
     \\    self.through_value = self.kind.detect();
     \\}
 ;
 
-test "cpu-probe flags the probe and the detection, as written and through a name" {
+test "cpu-probe flags the detection, as written and through a name" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/compress/deflate/decoder.zig", reading_fixture);
     try harness.expect_messages(findings, &.{
-        "reference to platform.probe: " ++ reason,
-        "reference to platform.probe: " ++ reason,
+        "reference to platform.CpuFeatures.detect: " ++ reason,
         "reference to platform.CpuFeatures.detect: " ++ reason,
         "reference to platform.CpuFeatures.detect through CpuFeatures: " ++ reason,
         "reference to self.kind.detect: " ++ reason,
     });
     try testing.expectEqual(3, findings[0].line);
     try testing.expectEqual(6, findings[1].line);
-    try testing.expectEqual(9, findings[4].line);
+    try testing.expectEqual(8, findings[3].line);
+}
+
+/// A library call that reads and sets the calling thread's mode, as written and through a name.
+const timing_fixture: [:0]const u8 =
+    \\const platform = @import("platform");
+    \\const set_timing = platform.set_data_independent_timing;
+    \\const read_timing = platform.data_independent_timing;
+    \\
+    \\pub fn statement(features: platform.CpuFeatures) bool {
+    \\    const read = platform.data_independent_timing(features) and read_timing(features);
+    \\    _ = platform.set_data_independent_timing(features, true);
+    \\    return set_timing(features, read);
+    \\}
+;
+
+test "cpu-probe flags the set of the thread's mode, and passes its read" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/crypto/crypto_init.zig", timing_fixture);
+    try harness.expect_messages(findings, &.{
+        "reference to platform.set_data_independent_timing: " ++ reason,
+        "reference to platform.set_data_independent_timing: " ++ reason,
+        "reference to platform.set_data_independent_timing through set_timing: " ++ reason,
+    });
+    try testing.expectEqual(2, findings[0].line);
+    try testing.expectEqual(7, findings[1].line);
+    try testing.expectEqual(8, findings[2].line);
 }
 
 /// A codec that takes the features its caller passed, names the type, and has a `probe` of its own.
@@ -204,7 +233,6 @@ const passing_fixture: [:0]const u8 =
     \\    self.features = features.intersect(platform.CpuFeatures.target());
     \\    self.none = platform.CpuFeatures.none();
     \\    self.probed = three_module.probe(self.window, self.position);
-    \\    self.answers_type = platform.Cpu;
     \\}
 ;
 
@@ -223,7 +251,7 @@ const test_block_fixture: [:0]const u8 =
     \\test "the loop takes every path the host has" {
     \\    var decoder: Decoder = undefined;
     \\    decoder.init(platform.CpuFeatures.detect());
-    \\    _ = platform.probe();
+    \\    _ = platform.CpuFeatures.target();
     \\}
     \\
     \\fn helper() platform.CpuFeatures {
@@ -265,7 +293,7 @@ const import_fixture: [:0]const u8 =
     \\const Features = @import("platform").CpuFeatures;
     \\
     \\fn read() void {
-    \\    _ = @import("platform").probe();
+    \\    _ = @import("platform").CpuFeatures.detect();
     \\}
     \\
     \\test "a test may write it in place" {
@@ -293,7 +321,7 @@ test "cpu-probe reads src/ but platform and the test files, and nothing outside 
     const arena = arena_state.allocator();
     for ([_][]const u8{ "src/encoding/json/json.zig", "./src/codec/io_reader.zig", "src/regex/literal.zig" }) |path| {
         try testing.expect(config.scope.applies(path));
-        try testing.expectEqual(5, (try findings_of(arena, path, reading_fixture)).len);
+        try testing.expectEqual(4, (try findings_of(arena, path, reading_fixture)).len);
     }
     const left_out = [_][]const u8{
         "src/platform/platform.zig",

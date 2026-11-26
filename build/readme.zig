@@ -6,9 +6,10 @@
 //! module that the module `stdx` names to have one (`tools/readme_examples.zig`, decision 88).
 //! `zig build test` runs it.
 //!
-//! The nested build takes an empty package folder of its own through `--system`. The consumer
-//! needs no package, and without it Zig copies every package of stdx's manifest, some 340 MB, into
-//! `tools/consumer/zig-pkg`, which the lint would read.
+//! The nested build reads this tree's package folder, `zig-pkg`, through `--system`. Its one
+//! package is chapulin, for the consumer's program over `stdx.crypto`, and this build fetched it
+//! already (decision 87). Without `--system` Zig copies every package of stdx's manifest, some
+//! 340 MB, into `tools/consumer/zig-pkg`, which the lint would read.
 const std = @import("std");
 
 /// Every file `tools/readme_examples.zig` reads: the README, the README of each module's folder,
@@ -23,6 +24,7 @@ const excerpted_files = [_][]const u8{
     "src/compress/gzip/README.md",
     "src/encoding/json/README.md",
     "src/platform/README.md",
+    "src/crypto/README.md",
     "src/regex/README.md",
     "src/unicode/README.md",
     "src/unicode/utf8/README.md",
@@ -31,6 +33,7 @@ const excerpted_files = [_][]const u8{
     "src/stdx/stdx.zig",
     "tools/consumer/build.zig",
     "tools/consumer/main.zig",
+    "tools/consumer/crypto.zig",
 };
 
 pub fn add(b: *std.Build) *std.Build.Step {
@@ -45,7 +48,7 @@ fn add_consumer(b: *std.Build) *std.Build.Step {
     const build = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "--build-file" });
     build.addFileArg(b.path("tools/consumer/build.zig"));
     build.addArg("--system");
-    _ = build.addOutputDirectoryArg("consumer-packages");
+    build.addArg(b.pathFromRoot("zig-pkg"));
     build.addArg("--cache-dir");
     _ = build.addOutputDirectoryArg("consumer-cache");
     build.addArg("--prefix");
@@ -55,7 +58,15 @@ fn add_consumer(b: *std.Build) *std.Build.Step {
     const run = std.Build.Step.Run.create(b, "run the README's examples");
     run.addFileArg(prefix.path(b, "bin/consumer"));
     run.has_side_effects = true;
-    return &run.step;
+    const run_crypto = std.Build.Step.Run.create(b, "run stdx.crypto's example");
+    run_crypto.addFileArg(prefix.path(b, "bin/consumer-crypto"));
+    run_crypto.has_side_effects = true;
+    run_crypto.step.dependOn(&run.step);
+    const run_unnamed = std.Build.Step.Run.create(b, "run the README's examples over stdx.crypto's build");
+    run_unnamed.addFileArg(prefix.path(b, "bin/consumer-crypto-unnamed"));
+    run_unnamed.has_side_effects = true;
+    run_unnamed.step.dependOn(&run_crypto.step);
+    return &run_unnamed.step;
 }
 
 /// The test that holds the README's blocks to the consumer's files.

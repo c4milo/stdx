@@ -45,8 +45,6 @@ pub const TextReader = struct {
     consumed: usize,
     storage: []u8,
     framing: Framing,
-    /// The caller's CPU features, which each text's `Decoder.init` takes.
-    features: platform.CpuFeatures,
     /// Whether a text has started, and whether the current one has ended.
     started: bool,
     ended: bool,
@@ -70,7 +68,6 @@ pub const TextReader = struct {
             .consumed = 0,
             .storage = storage,
             .framing = framing,
-            .features = features,
             .started = false,
             .ended = false,
             .queue = undefined,
@@ -87,7 +84,7 @@ pub const TextReader = struct {
         if (self.started) {
             assert(self.ended);
             if (self.framing == .text or self.consumed == self.input.len) return false;
-            self.decoder.init(self.framing, self.features);
+            restart(&self.decoder, self.framing);
             self.ended = false;
         } else {
             self.started = true;
@@ -266,6 +263,15 @@ const in_place: Claims = .{ .decoder_loop_in_place = true };
 comptime {
     // The queue's counts fit their fields.
     assert(constants.reader_queue_len <= std.math.maxInt(u8));
+}
+
+/// Starts the decoder's next text at the vector level its first `init` took from the caller's CPU
+/// features. So the reader keeps no copy of the features: 30 bytes more made the compiler copy a
+/// reader that `init` returns through a memcpy call, about 150 instructions (docs/performance.md).
+fn restart(decoder: *Decoder, framing: Framing) void {
+    const level = decoder.level;
+    decoder.init(framing, .{});
+    decoder.level = level;
 }
 
 fn item(kind: Kind, octets: []const u8) TextReader.Item {

@@ -1,26 +1,36 @@
-//! The check of decision 40: on this host, `platform.probe()` gives the answers the host reports
-//! through a source the probe does not read.
-//! - Linux: /proc/cpuinfo, its `flags` line on x86-64 (`aes`, `pclmulqdq`, `sha_ni`, `sha512`,
-//!   `ssse3`, `sse4_1`, `avx2`, `vaes`, `vpclmulqdq`) and its `Features` line on aarch64 (`aes`,
-//!   `pmull`, `dit`, `sha2`, `sha512`, `sha3`, `sve2`). On aarch64 the MIDR is the one a core's
-//!   `CPU implementer`, `CPU variant`, `CPU part` and `CPU revision` lines give, where `Features`
-//!   names `cpuid`: the probe ran on one of the cores the file lists. Linux prints `CPU
-//!   architecture: 8` for each core, which stands for MIDR_EL1's 0xf.
-//! - macOS on aarch64: `sysctl hw.optional.arm`, its `FEAT_AES`, `FEAT_PMULL`, `FEAT_DIT`,
-//!   `FEAT_SHA256`, `FEAT_SHA512`, `FEAT_SHA3` and `FEAT_SVE2`.
-//! - macOS on x86-64: `sysctl -n machdep.cpu.features machdep.cpu.leaf7_features`, its `AES`,
-//!   `PCLMULQDQ`, `SSSE3`, `SSE4.1`, `SHA`, `AVX2`, `VAES` and `VPCLMULQDQ`. No Intel Mac has the
-//!   SHA-512 instructions, so its `sha512` is `no`.
-//! - On aarch64 `ssse3`, `sse4_1`, `avx2` and `vaes` are `no`, x86-64's instructions. On x86-64
-//!   `sve2` is `no`, and `midr` is null on x86-64 and on macOS.
+//! The check of decision 40: on this host, `platform.CpuFeatures.detect()` gives the features the
+//! host reports through a source that detection does not read.
+//! - Linux on x86-64: /proc/cpuinfo, its `vendor_id` line and its `flags` line.
+//! - Linux on aarch64: /proc/cpuinfo, its `Features` line. Where it names `cpuid`, the MIDR is the
+//!   one a core's `CPU implementer`, `CPU variant`, `CPU part` and `CPU revision` lines give: the
+//!   core whose values match detection's, or the first core. Linux prints `CPU architecture: 8`
+//!   for each core, which stands for MIDR_EL1's 0xf.
+//! - macOS on aarch64: `sysctl hw.optional`, its `armv8_crc32` and its `arm.FEAT_` names.
+//! - macOS on x86-64: `sysctl -n machdep.cpu.vendor machdep.cpu.features
+//!   machdep.cpu.leaf7_features`.
 //!
-//! The answers must be equal, `not_known` included: x86-64 reports no DIT, and a macOS release
-//! older than a sysctl name reports nothing for it. The build compiles `platform` for the generic
-//! CPU of the host's architecture, so no answer comes from what the build target guarantees, and
-//! on Linux it builds this check twice, without libc and with it: the probe reads the auxiliary
-//! vector through Zig's `getauxval` in one and libc's in the other.
+//! A report covers some of the fields of `CpuFeatures`, and the check compares those alone:
+//! - A field the report names a feature for is true where the report holds the feature, and false
+//!   where it does not. A field that needs more than one feature, as `vaes` needs AVX2, VAES and
+//!   VPCLMULQDQ, is true only where the report holds each.
+//! - A field of the other architecture is false, and `midr` is null on x86-64 and on a Mac, since
+//!   detection sets none of them there.
+//! - `madd_addend_slow` names no instruction, and no aarch64 report covers it. On a Mac, `avx512`
+//!   and `vnni` are left out too: macOS saves the AVX-512 registers only from a thread's first use
+//!   of them, so XCR0 can say nothing where the CPU has them.
+//! - A macOS release older than a sysctl name reports nothing for it, and the field is left out.
+//!
+//! The build compiles `platform` for the generic CPU of the host's architecture, so no feature
+//! comes from what the build target guarantees. On Linux it builds this check twice, without libc
+//! and with it: detection reads the auxiliary vector through Zig's `getauxval` in one and libc's
+//! in the other.
 //!
 //! On any other host the check has no reference, says so, and passes having checked nothing.
+//!
+//! A hypervisor may hide FEAT_DIT from /proc/cpuinfo on a core that implements it, and detection
+//! then reports it by the core's MIDR. There the check runs PSTATE.DIT's own instructions in place
+//! of the report, and passes the field only when the mode sets, holds and clears
+//! (platform_check_dit.zig, decision 40 as amended on 2026-11-26).
 //!
 //! The check reads a file and runs a process, which no source under `src/` may do. That is why it
 //! is a tool, and not a unit test of the module.
@@ -29,66 +39,104 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const platform = @import("platform");
+const platform_check_dit = @import("platform_check_dit.zig");
 
-const Answer = platform.Answer;
-const Cpu = platform.Cpu;
+const CpuFeatures = platform.CpuFeatures;
+const Midr = platform.Midr;
 
 /// The program macOS reads its sysctl values with.
 const sysctl_path = "/usr/sbin/sysctl";
 
-/// A report of the host's features and where it came from.
-const Reference = struct { source: []const u8, cpu: Cpu };
+/// The fields of aarch64's features, which detection never sets on x86-64.
+const aarch64_fields = [_][]const u8{ "crc32", "pmull", "dotprod", "madd_addend_slow", "sha3", "sve2", "dit" };
+
+/// The fields of x86-64's features, which detection never sets on aarch64.
+const x86_fields = [_][]const u8{ "ssse3", "sse4_1", "pclmul", "avx2", "avx512", "vpclmul", "vnni", "bmi2", "vpmullq_fast", "lazy_loop_fast", "vaes" };
+
+/// A report of the host's features, where it came from, and the fields it covers.
+const Reference = struct {
+    source: []const u8,
+    /// The features the report holds, in the fields it covers alone.
+    features: CpuFeatures = .{},
+    /// True for each field the report covers. Its `midr` stays null: `midr_covered` says whether
+    /// the report covers that field.
+    covered: CpuFeatures = .{},
+    midr_covered: bool = false,
+
+    /// Records that the report gives `field` as `present`.
+    fn give(self: *Reference, comptime field: []const u8, present: bool) void {
+        @field(self.covered, field) = true;
+        @field(self.features, field) = present;
+    }
+
+    /// Records that the report gives the core as `midr`.
+    fn give_midr(self: *Reference, midr: ?Midr) void {
+        self.midr_covered = true;
+        self.features.midr = midr;
+    }
+
+    /// Records each of `fields` as absent.
+    fn absent(self: *Reference, comptime fields: []const []const u8) void {
+        inline for (fields) |field| self.give(field, false);
+    }
+
+    /// The fields of `detected` that this report covers.
+    fn covered_of(self: Reference, detected: CpuFeatures) CpuFeatures {
+        var compared = detected.intersect(self.covered);
+        compared.midr = if (self.midr_covered) detected.midr else null;
+        return compared;
+    }
+};
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const system = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag);
-    if (guarantees_a_feature(builtin.cpu)) {
-        // The probe answers from the target where its source gives nothing, so a check built for
-        // such a CPU would pass a probe that failed to read its source.
-        std.debug.print("platform-check BROKEN: built for a CPU that guarantees a feature it checks\n", .{});
+    if (!std.meta.eql(CpuFeatures.target(), CpuFeatures.none())) {
+        // Detection adds what the target guarantees, so a check built for such a CPU would pass a
+        // detection that failed to read its source.
+        std.debug.print("platform-check BROKEN: built for a CPU that guarantees a feature\n", .{});
         std.process.exit(1);
     }
-    const probed = platform.probe();
-    const reference = try read_reference(arena, init.io, probed.midr) orelse {
+    const detected = CpuFeatures.detect();
+    var reference = try read_reference(arena, init.io, detected.midr) orelse {
         std.debug.print("platform-check: no reference on {s}; nothing checked\n", .{system});
         return;
     };
+    const reported = reference.features.dit;
+    reference.features.dit = platform_check_dit.reported_dit(reference.covered.dit, reported, detected, platform_check_dit.holds) catch {
+        std.debug.print("platform-check FAILED: detection reports FEAT_DIT, and PSTATE.DIT does not hold\n", .{});
+        std.process.exit(1);
+    };
+    if (reference.features.dit != reported) {
+        std.debug.print("platform-check: {s} hides FEAT_DIT, and PSTATE.DIT sets, holds and clears\n", .{reference.source});
+    }
+    const compared = reference.covered_of(detected);
     std.debug.print(
-        "platform-check, {s}, libc {}: the probe says {any}; {s} says {any}\n",
-        .{ system, builtin.link_libc, probed, reference.source, reference.cpu },
+        "platform-check, {s}, libc {}: detection gives {any}; {s} gives {any}\n",
+        .{ system, builtin.link_libc, compared, reference.source, reference.features },
     );
-    if (std.meta.eql(probed, reference.cpu)) return;
-    std.debug.print("platform-check FAILED: the probe and {s} disagree\n", .{reference.source});
+    if (std.meta.eql(compared, reference.features)) return;
+    std.debug.print("platform-check FAILED: detection and {s} disagree\n", .{reference.source});
     std.process.exit(1);
 }
 
-/// True when the build target guarantees a feature the probe answers about.
-fn guarantees_a_feature(cpu: std.Target.Cpu) bool {
-    return switch (cpu.arch) {
-        .x86_64 => std.Target.x86.featureSetHasAny(cpu.features, .{ .aes, .pclmul, .sha, .sha512, .avx2, .vaes, .vpclmulqdq }),
-        .aarch64 => std.Target.aarch64.featureSetHasAny(cpu.features, .{ .aes, .dit, .sha2, .sha3, .sve2 }),
-        else => false,
-    };
-}
-
-/// The host's report. On Linux the MIDR is the core whose lines match `probed`, or the first
-/// core's when none does.
-fn read_reference(arena: std.mem.Allocator, io: std.Io, probed: ?platform.Midr) !?Reference {
+/// The host's report, or null on a host the check has no source for. On Linux the MIDR is the
+/// core whose lines match `detected`, or the first core's when none does.
+fn read_reference(arena: std.mem.Allocator, io: std.Io, detected: ?Midr) !?Reference {
     switch (builtin.os.tag) {
         .linux => {
             const text = try read_cpuinfo(arena, io);
-            const cpu = from_cpuinfo(builtin.cpu.arch, text, probed) orelse return error.NoFeaturesLine;
-            return .{ .source = "/proc/cpuinfo", .cpu = cpu };
+            return from_cpuinfo(builtin.cpu.arch, text, detected) orelse error.NoFeaturesLine;
         },
         .macos => return switch (builtin.cpu.arch) {
-            .aarch64 => .{
-                .source = "sysctl hw.optional.arm",
-                .cpu = from_sysctl_arm(try run_sysctl(arena, io, &.{ sysctl_path, "hw.optional.arm" })),
-            },
-            .x86_64 => .{
-                .source = "sysctl machdep.cpu.features",
-                .cpu = from_machdep(try run_sysctl(arena, io, &.{ sysctl_path, "-n", "machdep.cpu.features", "machdep.cpu.leaf7_features" })),
-            },
+            .aarch64 => from_sysctl_arm(try run_sysctl(arena, io, &.{ sysctl_path, "hw.optional" })),
+            .x86_64 => from_machdep(try run_sysctl(arena, io, &.{
+                sysctl_path,
+                "-n",
+                "machdep.cpu.vendor",
+                "machdep.cpu.features",
+                "machdep.cpu.leaf7_features",
+            })),
             else => null,
         },
         else => return null,
@@ -115,91 +163,31 @@ fn run_sysctl(arena: std.mem.Allocator, io: std.Io, argv: []const []const u8) ![
     return error.SysctlFailed;
 }
 
-/// The answers a Linux /proc/cpuinfo gives on `arch`, or null when it holds no line of features.
-fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8, probed: ?platform.Midr) ?Cpu {
-    switch (arch) {
-        .x86_64 => {
-            const words = value_of(text, "flags") orelse return null;
-            return .{
-                .aes_clmul = both(has_word(words, "aes"), has_word(words, "pclmulqdq")),
-                .dit = .not_known,
-                .sha256 = present(has_word(words, "sha_ni")),
-                .sha512 = present(has_word(words, "sha512")),
-                .sha3 = .no,
-                .sve2 = .no,
-                .ssse3 = present(has_word(words, "ssse3")),
-                .sse4_1 = present(has_word(words, "sse4_1")),
-                .avx2 = present(has_word(words, "avx2")),
-                .vaes = present(has_word(words, "avx2") and has_word(words, "vaes") and has_word(words, "vpclmulqdq")),
-                .midr = null,
-            };
-        },
-        .aarch64 => {
-            const words = value_of(text, "Features") orelse return null;
-            return .{
-                .aes_clmul = both(has_word(words, "aes"), has_word(words, "pmull")),
-                .dit = present(has_word(words, "dit")),
-                .sha256 = present(has_word(words, "sha2")),
-                .sha512 = present(has_word(words, "sha512")),
-                .sha3 = present(has_word(words, "sha3")),
-                .sve2 = present(has_word(words, "sve2")),
-                .ssse3 = .no,
-                .sse4_1 = .no,
-                .avx2 = .no,
-                .vaes = .no,
-                .midr = if (has_word(words, "cpuid")) core_midr(text, probed) else null,
-            };
-        },
-        else => return null,
-    }
-}
-
-/// The answers `sysctl hw.optional.arm` gives: 1 is `yes`, 0 is `no`, and a name it does not
-/// print is `not_known`.
-fn from_sysctl_arm(text: []const u8) Cpu {
-    const aes = sysctl_answer(text, "hw.optional.arm.FEAT_AES");
-    const pmull = sysctl_answer(text, "hw.optional.arm.FEAT_PMULL");
-    const aes_clmul: Answer = if (aes == .no or pmull == .no) .no else if (aes == .yes and pmull == .yes) .yes else .not_known;
-    return .{
-        .aes_clmul = aes_clmul,
-        .dit = sysctl_answer(text, "hw.optional.arm.FEAT_DIT"),
-        .sha256 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA256"),
-        .sha512 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA512"),
-        .sha3 = sysctl_answer(text, "hw.optional.arm.FEAT_SHA3"),
-        .sve2 = sysctl_answer(text, "hw.optional.arm.FEAT_SVE2"),
-        .ssse3 = .no,
-        .sse4_1 = .no,
-        .avx2 = .no,
-        .vaes = .no,
-        .midr = null,
+/// The report a Linux /proc/cpuinfo gives on `arch`, or null when it holds no line of features.
+fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8, detected: ?Midr) ?Reference {
+    return switch (arch) {
+        .x86_64 => from_x86_flags(value_of(text, "flags") orelse return null, value_of(text, "vendor_id") orelse ""),
+        .aarch64 => from_aarch64_cpuinfo(text, detected),
+        else => null,
     };
 }
 
-/// The answers of the words `sysctl -n machdep.cpu.features machdep.cpu.leaf7_features` prints.
-fn from_machdep(text: []const u8) Cpu {
-    return .{
-        .aes_clmul = both(has_word(text, "AES"), has_word(text, "PCLMULQDQ")),
-        .dit = .not_known,
-        .sha256 = present(has_word(text, "SHA")),
-        .sha512 = .no,
-        .sha3 = .no,
-        .sve2 = .no,
-        .ssse3 = present(has_word(text, "SSSE3")),
-        .sse4_1 = present(has_word(text, "SSE4.1")),
-        .avx2 = present(has_word(text, "AVX2")),
-        .vaes = present(has_word(text, "AVX2") and has_word(text, "VAES") and has_word(text, "VPCLMULQDQ")),
-        .midr = null,
-    };
+/// The report of aarch64's `Features` line, and the core's MIDR where the line names `cpuid`.
+fn from_aarch64_cpuinfo(text: []const u8, detected: ?Midr) ?Reference {
+    const words = value_of(text, "Features") orelse return null;
+    var reference = from_aarch64_features(words);
+    reference.give_midr(if (has_word(words, "cpuid")) core_midr(text, detected) else null);
+    return reference;
 }
 
-/// The MIDR of the core in `text` whose lines give `probed`, or of the first core when none does,
-/// or null when no core's lines parse. Each core's lines follow its `processor` line.
-fn core_midr(text: []const u8, probed: ?platform.Midr) ?platform.Midr {
-    var first: ?platform.Midr = null;
+/// The MIDR of the core in `text` whose lines give `detected`, or of the first core when none
+/// does, or null when no core's lines parse. Each core's lines follow its `processor` line.
+fn core_midr(text: []const u8, detected: ?Midr) ?Midr {
+    var first: ?Midr = null;
     var cores = std.mem.splitSequence(u8, text, "\nprocessor");
     while (cores.next()) |core| {
         const midr = midr_of(core) orelse continue;
-        if (probed != null and std.meta.eql(midr, probed.?)) return midr;
+        if (detected != null and std.meta.eql(midr, detected.?)) return midr;
         if (first == null) first = midr;
     }
     return first;
@@ -207,7 +195,7 @@ fn core_midr(text: []const u8, probed: ?platform.Midr) ?platform.Midr {
 
 /// The MIDR one core's lines give. Linux prints the architecture as 8 for every core, which
 /// stands for MIDR_EL1's 0xf.
-fn midr_of(core: []const u8) ?platform.Midr {
+fn midr_of(core: []const u8) ?Midr {
     const architecture = std.mem.trim(u8, value_of(core, "CPU architecture") orelse return null, " \t");
     if (!std.mem.eql(u8, architecture, "8")) return null;
     return .{
@@ -225,19 +213,101 @@ fn number(comptime T: type, core: []const u8, name: []const u8) ?T {
     return std.fmt.parseInt(T, text, 0) catch null;
 }
 
-fn sysctl_answer(text: []const u8, name: []const u8) Answer {
-    const value = std.mem.trim(u8, value_of(text, name) orelse return .not_known, " \t");
-    if (std.mem.eql(u8, value, "1")) return .yes;
-    if (std.mem.eql(u8, value, "0")) return .no;
-    return .not_known;
+/// The report of x86-64's `flags` and `vendor_id` lines. Linux clears `avx` where the operating
+/// system saves no YMM registers, and `avx512f` where it saves no ZMM registers.
+fn from_x86_flags(words: []const u8, vendor: []const u8) Reference {
+    const has = struct {
+        fn all(line: []const u8, comptime names: []const []const u8) bool {
+            inline for (names) |name| {
+                if (!has_word(line, name)) return false;
+            }
+            return true;
+        }
+    }.all;
+    const avx512 = has(words, &.{ "avx512f", "avx512bw", "avx512dq", "avx512vl" });
+    const amd = has_word(vendor, "AuthenticAMD");
+    var reference: Reference = .{ .source = "/proc/cpuinfo" };
+    reference.give("ssse3", has(words, &.{"ssse3"}));
+    reference.give("sse4_1", has(words, &.{"sse4_1"}));
+    reference.give("pclmul", has(words, &.{ "pclmulqdq", "sse4_1" }));
+    reference.give("avx2", has(words, &.{"avx2"}));
+    reference.give("avx512", avx512);
+    reference.give("vpclmul", has(words, &.{ "avx", "vpclmulqdq" }));
+    reference.give("vnni", has(words, &.{ "avx512f", "avx512_vnni" }));
+    reference.give("bmi2", has(words, &.{ "ssse3", "bmi2" }));
+    reference.give("vpmullq_fast", avx512 and amd);
+    reference.give("lazy_loop_fast", has_word(vendor, "GenuineIntel"));
+    reference.give("aes", has(words, &.{"aes"}));
+    reference.give("sha256", has(words, &.{ "sha_ni", "ssse3", "sse4_1" }));
+    reference.give("sha512", has(words, &.{ "avx", "sha512" }));
+    reference.give("vaes", has(words, &.{ "avx2", "vaes", "vpclmulqdq" }));
+    reference.absent(&aarch64_fields);
+    reference.give_midr(null);
+    return reference;
 }
 
-fn both(first: bool, second: bool) Answer {
-    return present(first and second);
+/// The report of aarch64's `Features` line. `asimddp` is the DotProd extension.
+fn from_aarch64_features(words: []const u8) Reference {
+    var reference: Reference = .{ .source = "/proc/cpuinfo" };
+    reference.give("crc32", has_word(words, "crc32"));
+    reference.give("pmull", has_word(words, "pmull"));
+    reference.give("dotprod", has_word(words, "asimddp"));
+    reference.give("aes", has_word(words, "aes"));
+    reference.give("sha256", has_word(words, "sha2"));
+    reference.give("sha512", has_word(words, "sha512"));
+    reference.give("sha3", has_word(words, "sha3"));
+    reference.give("sve2", has_word(words, "sve2"));
+    reference.give("dit", has_word(words, "dit"));
+    reference.absent(&x86_fields);
+    return reference;
 }
 
-fn present(has: bool) Answer {
-    return if (has) .yes else .no;
+/// The report `sysctl hw.optional` gives on an aarch64 Mac: 1 is present, 0 is absent, and a name
+/// it does not print leaves its field out.
+fn from_sysctl_arm(text: []const u8) Reference {
+    var reference: Reference = .{ .source = "sysctl hw.optional" };
+    give_sysctl(&reference, "crc32", text, "hw.optional.armv8_crc32");
+    give_sysctl(&reference, "pmull", text, "hw.optional.arm.FEAT_PMULL");
+    give_sysctl(&reference, "dotprod", text, "hw.optional.arm.FEAT_DotProd");
+    give_sysctl(&reference, "aes", text, "hw.optional.arm.FEAT_AES");
+    give_sysctl(&reference, "sha256", text, "hw.optional.arm.FEAT_SHA256");
+    give_sysctl(&reference, "sha512", text, "hw.optional.arm.FEAT_SHA512");
+    give_sysctl(&reference, "sha3", text, "hw.optional.arm.FEAT_SHA3");
+    give_sysctl(&reference, "sve2", text, "hw.optional.arm.FEAT_SVE2");
+    give_sysctl(&reference, "dit", text, "hw.optional.arm.FEAT_DIT");
+    reference.absent(&x86_fields);
+    // macOS gives a program no read of MIDR_EL1.
+    reference.give_midr(null);
+    return reference;
+}
+
+/// Records `field` from the value of the sysctl `name` in `text`, where `text` holds one.
+fn give_sysctl(reference: *Reference, comptime field: []const u8, text: []const u8, name: []const u8) void {
+    const value = std.mem.trim(u8, value_of(text, name) orelse return, " \t");
+    if (std.mem.eql(u8, value, "1")) reference.give(field, true);
+    if (std.mem.eql(u8, value, "0")) reference.give(field, false);
+}
+
+/// The report of the words `sysctl -n machdep.cpu.vendor machdep.cpu.features
+/// machdep.cpu.leaf7_features` prints. No Intel Mac has the SHA-512 instructions, and none is an
+/// AMD part.
+fn from_machdep(text: []const u8) Reference {
+    var reference: Reference = .{ .source = "sysctl machdep.cpu" };
+    reference.give("ssse3", has_word(text, "SSSE3"));
+    reference.give("sse4_1", has_word(text, "SSE4.1"));
+    reference.give("pclmul", has_word(text, "PCLMULQDQ") and has_word(text, "SSE4.1"));
+    reference.give("avx2", has_word(text, "AVX2"));
+    reference.give("vpclmul", has_word(text, "AVX1.0") and has_word(text, "VPCLMULQDQ"));
+    reference.give("bmi2", has_word(text, "SSSE3") and has_word(text, "BMI2"));
+    reference.give("vpmullq_fast", false);
+    reference.give("lazy_loop_fast", has_word(text, "GenuineIntel"));
+    reference.give("aes", has_word(text, "AES"));
+    reference.give("sha256", has_word(text, "SHA") and has_word(text, "SSSE3") and has_word(text, "SSE4.1"));
+    reference.give("sha512", false);
+    reference.give("vaes", has_word(text, "AVX2") and has_word(text, "VAES") and has_word(text, "VPCLMULQDQ"));
+    reference.absent(&aarch64_fields);
+    reference.give_midr(null);
+    return reference;
 }
 
 /// What follows the colon on the first line whose name, before the colon, is `name`.
@@ -264,95 +334,124 @@ const testing = std.testing;
 
 const x86_64_cpuinfo = "processor\t: 0\n" ++
     "vendor_id\t: AuthenticAMD\n" ++
-    "flags\t\t: fpu vme sse sse2 pni pclmulqdq ssse3 sse4_1 aes xsave avx vaes vpclmulqdq\n" ++
-    "vmx flags\t: vnmi preemption_timer\n" ++
+    "flags\t\t: fpu vme sse sse2 pni pclmulqdq ssse3 sse4_1 aes xsave avx avx2 bmi2 vaes vpclmulqdq " ++
+    "avx512f avx512dq avx512bw avx512vl avx512_vnni sha_ni\n" ++
+    "vmx flags\t: vnmi preemption_timer sha512\n" ++
     "bugs\t\t: sysret_ss_attrs\n";
 
 const aarch64_cpuinfo = "processor\t: 0\n" ++
     "BogoMIPS\t: 2000.00\n" ++
-    "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics dit uscat sveaes svepmull\n" ++
+    "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics asimddp dit uscat sveaes svepmull\n" ++
     "CPU implementer\t: 0x41\n";
 
-/// An aarch64 `Cpu` with every SHA answer `sha`.
-fn cpu_of(aes_clmul: Answer, dit: Answer, sha: Answer) Cpu {
-    return .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = sha, .sha512 = sha, .sha3 = sha, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null };
-}
-
-test "the flags line of x86-64's cpuinfo answers from aes, pclmulqdq, sha_ni, sha512, ssse3 and sse4_1 alone" {
-    const x86 = struct {
-        fn of(aes_clmul: Answer, sha256: Answer, sha512: Answer, ssse3: Answer, sse4_1: Answer) Cpu {
-            return .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha256, .sha512 = sha512, .sha3 = .no, .sve2 = .no, .ssse3 = ssse3, .sse4_1 = sse4_1, .avx2 = .no, .vaes = .no, .midr = null };
-        }
-    };
-    try testing.expectEqual(x86.of(.yes, .no, .no, .yes, .yes), from_cpuinfo(.x86_64, x86_64_cpuinfo, null).?);
-    const no_aes = "flags\t\t: fpu pclmulqdq vaes vpclmulqdq sha_ni ssse3\nvmx flags\t: aes sse4_1\n";
-    try testing.expectEqual(x86.of(.no, .yes, .no, .yes, .no), from_cpuinfo(.x86_64, no_aes, null).?);
-    const no_pclmulqdq = "flags\t\t: fpu aes vpclmulqdq sha512 sse4_1 sse4_2\n";
-    try testing.expectEqual(x86.of(.no, .no, .yes, .no, .yes), from_cpuinfo(.x86_64, no_pclmulqdq, null).?);
+test "the flags line of x86-64's cpuinfo gives each feature from its own words" {
+    const zen4 = from_cpuinfo(.x86_64, x86_64_cpuinfo, null).?;
+    try testing.expectEqual(CpuFeatures{
+        .ssse3 = true,
+        .sse4_1 = true,
+        .pclmul = true,
+        .avx2 = true,
+        .avx512 = true,
+        .vpclmul = true,
+        .vnni = true,
+        .bmi2 = true,
+        .vpmullq_fast = true,
+        .aes = true,
+        .sha256 = true,
+        .vaes = true,
+    }, zen4.features);
+    // The words of `vmx flags` are no features, and the report covers every field.
+    var every = CpuFeatures{};
+    inline for (std.meta.fields(CpuFeatures)) |field| {
+        if (field.type == bool) @field(every, field.name) = true;
+    }
+    try testing.expectEqual(every, zen4.covered);
+    try testing.expect(zen4.midr_covered and zen4.features.midr == null);
     try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n", null));
 }
 
-test "the flags line of x86-64's cpuinfo answers avx2 from avx2, and vaes from avx2, vaes and vpclmulqdq" {
+test "a field that needs more than one word is false where one is missing" {
     const at = struct {
-        fn flags(comptime words: []const u8) Cpu {
-            return from_cpuinfo(.x86_64, "flags\t\t: fpu sse2 avx " ++ words ++ "\nvmx flags\t: avx2 vaes vpclmulqdq\n", null).?;
+        fn flags(comptime words: []const u8) CpuFeatures {
+            return from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\nflags\t\t: fpu sse2 " ++ words ++ "\n", null).?.features;
         }
     };
-    const every = at.flags("avx2 vaes vpclmulqdq");
-    try testing.expectEqual(Answer.yes, every.avx2);
-    try testing.expectEqual(Answer.yes, every.vaes);
-    const avx2_alone = at.flags("avx2 vaes");
-    try testing.expectEqual(Answer.yes, avx2_alone.avx2);
-    try testing.expectEqual(Answer.no, avx2_alone.vaes);
-    try testing.expectEqual(Answer.no, at.flags("avx2 vpclmulqdq").vaes);
-    const no_avx2 = at.flags("avx512f vaes vpclmulqdq");
-    try testing.expectEqual(Answer.no, no_avx2.avx2);
-    try testing.expectEqual(Answer.no, no_avx2.vaes);
+    try testing.expect(at.flags("ssse3 sse4_1 sha_ni").sha256);
+    try testing.expect(!at.flags("ssse3 sha_ni").sha256 and !at.flags("sse4_1 sha_ni").sha256);
+    try testing.expect(!at.flags("pclmulqdq").pclmul and at.flags("pclmulqdq sse4_1").pclmul);
+    try testing.expect(at.flags("sse4_1").sse4_1 and !at.flags("sse4_2").sse4_1);
+    try testing.expect(at.flags("avx2 vaes vpclmulqdq").vaes and !at.flags("avx2 vaes").vaes);
+    try testing.expect(!at.flags("vaes vpclmulqdq").vaes);
+    try testing.expect(!at.flags("vpclmulqdq").vpclmul and at.flags("avx vpclmulqdq").vpclmul);
+    try testing.expect(!at.flags("sha512").sha512 and at.flags("avx sha512").sha512);
+    try testing.expect(!at.flags("avx512f avx512bw avx512dq").avx512);
+    try testing.expect(!at.flags("avx512_vnni").vnni and at.flags("avx512f avx512_vnni").vnni);
+    try testing.expect(!at.flags("bmi2").bmi2 and at.flags("ssse3 bmi2").bmi2);
 }
 
-test "the Features line of aarch64's cpuinfo answers from aes, pmull, dit, sha2, sha512 and sha3 alone" {
-    const every = "Features\t: fp asimd aes pmull sha1 sha2 sha3 sha512 dit\n";
-    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_cpuinfo(.aarch64, every, null).?);
-    const n2 = from_cpuinfo(.aarch64, aarch64_cpuinfo, null).?;
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .yes, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, n2);
-    const no_pmull = "Features\t: fp asimd aes svepmull dit svesha3\n";
-    try testing.expectEqual(cpu_of(.no, .yes, .no), from_cpuinfo(.aarch64, no_pmull, null).?);
-    const no_aes_no_dit = "Features\t: fp asimd sveaes pmull uscat sha1\n";
-    try testing.expectEqual(cpu_of(.no, .no, .no), from_cpuinfo(.aarch64, no_aes_no_dit, null).?);
+test "the vendor_id line gives the two fields that choose a path" {
+    const avx512 = "flags\t\t: avx512f avx512bw avx512dq avx512vl\n";
+    const intel = from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\n" ++ avx512, null).?.features;
+    try testing.expect(intel.lazy_loop_fast and !intel.vpmullq_fast);
+    const amd = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\n" ++ avx512, null).?.features;
+    try testing.expect(!amd.lazy_loop_fast and amd.vpmullq_fast);
+    const amd_without_avx512 = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\nflags\t\t: avx2\n", null).?.features;
+    try testing.expect(!amd_without_avx512.vpmullq_fast);
+}
+
+test "the Features line of aarch64's cpuinfo gives each feature from its own word" {
+    const n1 = from_cpuinfo(.aarch64, aarch64_cpuinfo, null).?;
+    try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true, .dotprod = true, .aes = true, .sha256 = true, .dit = true }, n1.features);
+    try testing.expect(!n1.covered.madd_addend_slow and n1.covered.avx2 and n1.covered.sve2);
+    const every = from_cpuinfo(.aarch64, "Features\t: fp asimd aes pmull sha2 sha3 sha512 sve2 dit\n", null).?.features;
+    try testing.expect(every.sha3 and every.sha512 and every.sve2);
+    // SVE's own words are not the features.
+    const sve = from_cpuinfo(.aarch64, "Features\t: fp asimd sve svesha3 sveaes svepmull\n", null).?.features;
+    try testing.expectEqual(CpuFeatures{}, sve);
     try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo, null));
     try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo, null));
 }
 
-test "the generic CPU guarantees no feature the check reads, and a named model does" {
-    try testing.expect(!guarantees_a_feature(std.Target.Cpu.Model.generic(.aarch64).toCpu(.aarch64)));
-    try testing.expect(!guarantees_a_feature(std.Target.Cpu.Model.generic(.x86_64).toCpu(.x86_64)));
-    try testing.expect(guarantees_a_feature(std.Target.aarch64.cpu.apple_m1.toCpu(.aarch64)));
-    try testing.expect(guarantees_a_feature(std.Target.aarch64.cpu.neoverse_n2.toCpu(.aarch64)));
-    try testing.expect(guarantees_a_feature(std.Target.x86.cpu.haswell.toCpu(.x86_64)));
-    // x86-64-v2, a psABI level, names none of the features the check reads; x86-64-v3 names AVX2.
-    try testing.expect(!guarantees_a_feature(std.Target.x86.cpu.x86_64_v2.toCpu(.x86_64)));
-    try testing.expect(guarantees_a_feature(std.Target.x86.cpu.x86_64_v3.toCpu(.x86_64)));
+test "sysctl's values give 1 as present and 0 as absent, and a missing name leaves its field out" {
+    const every = "hw.optional.armv8_crc32: 1\nhw.optional.arm.FEAT_PMULL: 1\nhw.optional.arm.FEAT_DotProd: 1\n" ++
+        "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 1\n" ++
+        "hw.optional.arm.FEAT_SHA3: 1\nhw.optional.arm.FEAT_SVE2: 0\nhw.optional.arm.FEAT_DIT: 1\n";
+    const m1 = from_sysctl_arm(every);
+    try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true, .dotprod = true, .aes = true, .sha256 = true, .sha512 = true, .sha3 = true, .dit = true }, m1.features);
+    try testing.expect(m1.covered.sve2 and !m1.covered.madd_addend_slow);
+    const older = from_sysctl_arm("hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA1: 1\nhw.optional.arm.FEAT_DIT: 2\n");
+    try testing.expect(older.covered.aes and older.features.aes and older.midr_covered);
+    try testing.expect(!older.covered.sve2 and !older.covered.sha256 and !older.covered.dit);
 }
 
-test "sysctl's FEAT_ values answer 1 as yes, 0 as no, and a missing name as not_known" {
-    const every = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 1\nhw.optional.arm.FEAT_DIT: 1\n" ++
-        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 1\nhw.optional.arm.FEAT_SHA3: 1\nhw.optional.arm.FEAT_SVE2: 0\n";
-    try testing.expectEqual(cpu_of(.yes, .yes, .yes), from_sysctl_arm(every));
-    const no_pmull = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_PMULL: 0\nhw.optional.arm.FEAT_DIT: 0\n" ++
-        "hw.optional.arm.FEAT_SHA256: 1\nhw.optional.arm.FEAT_SHA512: 0\nhw.optional.arm.FEAT_SHA3: 0\nhw.optional.arm.FEAT_SVE2: 0\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .no, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .no, .avx2 = .no, .vaes = .no, .midr = null }, from_sysctl_arm(no_pmull));
-    const older = "hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA1: 1\n";
-    var unknown = cpu_of(.not_known, .not_known, .not_known);
-    unknown.sve2 = .not_known;
-    try testing.expectEqual(unknown, from_sysctl_arm(older));
-    const machdep = "FPU SSE AES PCLMULQDQ SSE4.1\nRDWRFSGS TSC_THREAD_OFFSET SGX BMI1 AVX2 SHA\n";
-    try testing.expectEqual(Cpu{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .no, .sse4_1 = .yes, .avx2 = .yes, .vaes = .no, .midr = null }, from_machdep(machdep));
-    try testing.expectEqual(Cpu{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .sve2 = .no, .ssse3 = .yes, .sse4_1 = .no, .avx2 = .yes, .vaes = .no, .midr = null }, from_machdep("FPU SSE AES VPCLMULQDQ SSSE3 SSE4.2\nAVX2 SHA512X\n"));
-    const ice_lake = from_machdep("FPU SSE AES PCLMULQDQ\nAVX2 VAES VPCLMULQDQ\n");
-    try testing.expectEqual(Answer.yes, ice_lake.avx2);
-    try testing.expectEqual(Answer.yes, ice_lake.vaes);
-    try testing.expectEqual(Answer.no, from_machdep("FPU SSE AES\nVAES VPCLMULQDQ AVX512F\n").vaes);
-    try testing.expectEqual(Answer.no, from_machdep("FPU SSE AES\nAVX2 VAES\n").vaes);
+test "machdep's words give each x86-64 feature, and no Intel Mac has SHA-512 or AMD's path" {
+    const ice_lake = from_machdep("GenuineIntel\nFPU SSE AES PCLMULQDQ SSSE3 SSE4.1 AVX1.0\nAVX2 BMI2 SHA VAES VPCLMULQDQ AVX512F\n");
+    try testing.expectEqual(CpuFeatures{
+        .ssse3 = true,
+        .sse4_1 = true,
+        .pclmul = true,
+        .avx2 = true,
+        .vpclmul = true,
+        .bmi2 = true,
+        .lazy_loop_fast = true,
+        .aes = true,
+        .sha256 = true,
+        .vaes = true,
+    }, ice_lake.features);
+    try testing.expect(!ice_lake.covered.avx512 and !ice_lake.covered.vnni and ice_lake.covered.sha512);
+    const without_sse4_1 = from_machdep("GenuineIntel\nFPU SSE AES PCLMULQDQ SSSE3\nAVX2 SHA VAES\n").features;
+    try testing.expect(!without_sse4_1.pclmul and !without_sse4_1.sha256 and !without_sse4_1.sse4_1);
+}
+
+test "a report compares the fields it covers, and no other" {
+    var reference: Reference = .{ .source = "a test" };
+    reference.give("aes", true);
+    reference.give("sha3", false);
+    try testing.expectEqual(CpuFeatures{ .aes = true }, reference.covered_of(.{ .aes = true, .sha3 = false, .avx2 = true, .midr = neoverse_n2 }));
+    try testing.expect(!std.meta.eql(reference.features, reference.covered_of(.{ .sha3 = true })));
+    reference.give_midr(neoverse_n2);
+    try testing.expectEqual(neoverse_n2, reference.covered_of(.{ .midr = neoverse_n2 }).midr.?);
+    try testing.expect(!std.meta.eql(reference.features, reference.covered_of(.{ .aes = true, .midr = cortex_a55 })));
 }
 
 /// Two cores of different kinds, as a big.LITTLE system's /proc/cpuinfo lists them.
@@ -363,48 +462,32 @@ const two_cores = "processor\t: 0\n" ++
     "Features\t: fp asimd aes pmull sha2 cpuid sve2\n" ++
     "CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
 
-const cortex_a55: platform.Midr = .{ .implementer = 0x41, .variant = 1, .architecture = 0xf, .part = 0xd05, .revision = 0 };
-const neoverse_n2: platform.Midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 2 };
+const cortex_a55: Midr = .{ .implementer = 0x41, .variant = 1, .architecture = 0xf, .part = 0xd05, .revision = 0 };
+const neoverse_n2: Midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 2 };
 
-test "the Features line answers sve2 from sve2 alone, and cpuid says whether the MIDR is there" {
-    try testing.expectEqual(Answer.yes, from_cpuinfo(.aarch64, two_cores, null).?.sve2);
-    try testing.expectEqual(Answer.no, from_cpuinfo(.aarch64, "Features\t: fp asimd sve svesha3 sveaes\n", null).?.sve2);
-    // Without cpuid, the probe reads no MIDR, whatever the lines say.
+test "the MIDR is the core whose lines match detection's, or the first core's, where cpuid is named" {
+    try testing.expectEqual(neoverse_n2, from_cpuinfo(.aarch64, two_cores, neoverse_n2).?.features.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, cortex_a55).?.features.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, null).?.features.midr.?);
+    // Without cpuid, detection reads no MIDR, whatever the lines say.
     const without_cpuid = "processor\t: 0\nFeatures\t: fp asimd sve2\nCPU implementer\t: 0x41\nCPU architecture: 8\n" ++
         "CPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
-    try testing.expectEqual(null, from_cpuinfo(.aarch64, without_cpuid, neoverse_n2).?.midr);
-}
-
-test "the MIDR is the core whose lines match the probe's, or the first core's" {
-    try testing.expectEqual(neoverse_n2, from_cpuinfo(.aarch64, two_cores, neoverse_n2).?.midr.?);
-    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, cortex_a55).?.midr.?);
-    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, null).?.midr.?);
-    const other: platform.Midr = .{ .implementer = 0x61, .variant = 0, .architecture = 0xf, .part = 0, .revision = 0 };
-    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, other).?.midr.?);
+    const reference = from_cpuinfo(.aarch64, without_cpuid, neoverse_n2).?;
+    try testing.expect(reference.midr_covered and reference.features.midr == null);
 }
 
 test "a core's lines give its MIDR in hexadecimal and decimal, and Linux's architecture 8 is 0xf" {
     const core = "\t: 3\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x2\nCPU part\t: 0x022\nCPU revision\t: 11\n";
-    try testing.expectEqual(platform.Midr{ .implementer = 0x61, .variant = 2, .architecture = 0xf, .part = 0x22, .revision = 11 }, midr_of(core).?);
+    try testing.expectEqual(Midr{ .implementer = 0x61, .variant = 2, .architecture = 0xf, .part = 0x22, .revision = 11 }, midr_of(core).?);
     try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 7\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
     try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU revision\t: 0\n"));
     try testing.expectEqual(null, midr_of("CPU implementer\t: 0x141\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
 }
 
-test "sysctl's FEAT_SVE2 answers sve2, and a macOS without the name says nothing" {
-    try testing.expectEqual(Answer.yes, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 1\n").sve2);
-    try testing.expectEqual(Answer.no, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 0\n").sve2);
-    try testing.expectEqual(Answer.not_known, from_sysctl_arm("hw.optional.arm.FEAT_SME2: 0\n").sve2);
-    try testing.expectEqual(null, from_sysctl_arm("hw.optional.arm.FEAT_SVE2: 1\n").midr);
+test "this build's target guarantees no feature" {
+    try testing.expectEqual(CpuFeatures.none(), CpuFeatures.target());
 }
 
-test "the probe asks sysctl for each name the check reads" {
-    const names = platform.constants;
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_AES", names.sysctl_aes);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_PMULL", names.sysctl_pmull);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_DIT", names.sysctl_dit);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA256", names.sysctl_sha256);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA512", names.sysctl_sha512);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_SHA3", names.sysctl_sha3);
-    try testing.expectEqualStrings("hw.optional.arm.FEAT_SVE2", names.sysctl_sve2);
+test {
+    _ = platform_check_dit;
 }
