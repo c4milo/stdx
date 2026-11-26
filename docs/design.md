@@ -11461,6 +11461,51 @@ to 12 are reordered and nothing else changes.
     catches. A check that skipped a candidate before the last step's start was removed: the end
     of the last place counted skips each such candidate already.
 
+  The count's compare of a third octet (the owner's ruling of 2026-11-26):
+  - The runs 45871154553 and 45871160154 showed `01-literal/sherlock-zh` slower on x86-64. The
+    filter, built for the baseline CPU, counts `Matches.count` alone at 251,826 instructions a
+    pass in `20361c8`, and at 288,288 in `8e868fb` with AVX2.
+  - In Chinese text the octets at `first_at` and `last_at` of `夏洛克·福尔摩斯` are common UTF-8
+    octets, so most blocks hold candidates. The search compares the octet at `third_at` too
+    after `literal_third_misses` blocks whose candidates held no place, until it returns at a
+    place. The count compared no third octet.
+  - The count now switches as the search does: after `literal_third_misses` blocks with no
+    place it compares the octet at `third_at`, and after a block that holds a place it stops.
+    One test of all the steps of a block drops a block whose every candidate fails the third
+    octet, as `first_stands` does in the search.
+  **Check:** the count against a loop of `find`, as before; a run of the count that switches
+  after `literal_third_misses` blocks with no place and back at a place, with its misses
+  counted; a place that starts the count of misses again; the filter under callgrind and its
+  time; mutations; the tests for aarch64 under qemu; the paired runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions a pass of
+    `Matches.count` alone under callgrind. "Before" is `20361c8` with AVX2, and `edb9a72` with
+    no features, where the batch does not run.
+
+    | Pattern and text | AVX2: before, `8e868fb`, now | None: before, `8e868fb`, now |
+    | --- | ---: | ---: |
+    | `夏洛克·福尔摩斯`, zh-sampled.txt | 251,826, 288,288, 248,730 | 482,428, 495,971, 478,840 |
+    | `Sherlock Holmes`, en-sampled.txt | 447,654, 354,600, 299,961 | 670,477, 598,171, 557,402 |
+    | `The`, sherlock.txt | 510,298, 288,130, 231,289 | 570,999, 474,858, 434,573 |
+    | `the`, sherlock.txt | 2,955,205, 960,173, 673,683 | 2,776,441, 1,318,543, 1,115,362 |
+    | `e`, sherlock.txt | 8,223,905, 1,266,636, 1,051,593 | 8,278,492, 1,509,266, 1,408,356 |
+    | `The` in 51 octets with no place | 489, 301, 339 | 488, 379, 432 |
+    | `y` in 51 octets | 331, 310, 326 | 334, 353, 399 |
+
+  - The texts of 51 octets take 16 to 53 instructions more than in `8e868fb`. A tail of single
+    steps that does not switch took 9 to 30 fewer there, and 13% more on `夏洛克·福尔摩斯`
+    with no features, so the tail switches too.
+  - In five passes in turns on one core of the container, which is no judge, the medians were
+    22.1 µs for `夏洛克·福尔摩斯` in place of 23.2 before and 24.5 in `8e868fb`, 33.4 for
+    `Sherlock Holmes` in place of 46.9 and 37.2, 18.2 for `The` in place of 39.0 and 21.7, and
+    107 for `the` in place of 239 and 130.
+  - Mutations: 9, against `zig build test-regex`. CAUGHT: no switch to the third octet; no
+    switch back at a place; no new count of misses after a place; a run that switched compares
+    no third octet; the test of all steps drops every block; the turns of the switch one short;
+    the switch back one block late; the misses counted from one. NOT CAUGHT: no test of all
+    steps. Its count is the same, and the filter counts `夏洛克·福尔摩斯` with no features at
+    561,485 instructions a pass in place of 478,840.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

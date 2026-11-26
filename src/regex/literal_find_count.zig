@@ -2,9 +2,10 @@
 //! that is its literal, in one pass over the text. The search of `literal_find.zig` returns at
 //! each place, and a count of many places then paid a call and a search's setup for each.
 //!
-//! The count takes the search's blocks and steps, and its compares of the octets at `first_at`
-//! and `last_at`. Each candidate at or past the end of the last place counted that holds the
-//! literal whole is a place, so no place counted stands inside another.
+//! The count takes the search's blocks and steps, its compares of the octets at `first_at` and
+//! `last_at`, and its compare of the octet at `third_at` after blocks that held no place. Each
+//! candidate at or past the end of the last place counted that holds the literal whole is a
+//! place, so no place counted stands inside another.
 const std = @import("std");
 const assert = std.debug.assert;
 const Literal = @import("literal.zig").Literal;
@@ -42,8 +43,8 @@ inline fn count_by(comptime width: usize, literal: *const Literal, comptime form
     // The runs of steps, each a loop of `inline for` steps inlined here, pass Zig's default.
     @setEvalBranchQuota(@import("constants.zig").comptime_branch_quota);
     const steps = literal_find.wide_block_len / width;
-    const index = count_run(width, literal, form, steps, haystack, from, end, tally);
-    const after = count_run(width, literal, form, 1, haystack, index, end, tally);
+    const index = count_blocks(width, literal, form, steps, haystack, from, end, tally);
+    const after = count_blocks(width, literal, form, 1, haystack, index, end, tally);
     if (after == end) return;
     // Fewer than `width` places are left. Where the text holds a step's places, one step that
     // ends at `end` takes them.
@@ -51,25 +52,81 @@ inline fn count_by(comptime width: usize, literal: *const Literal, comptime form
     count_each(literal, haystack, after, end, tally);
 }
 
-/// Counts the places of the whole runs of `steps` steps from `index`, and gives the offset of the
-/// first run that does not fit before `end`. A run tests all its steps before it looks at one, so
-/// a run with no candidate costs one branch.
-inline fn count_run(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, haystack: []const u8, from: usize, end: usize, tally: *Tally) usize {
+/// Where a run of blocks stopped, and whether the run after it compares the octet at `third_at`.
+const Stop = struct { index: usize, third: bool };
+
+/// Counts the places of the whole blocks of `steps` steps from `from`, and gives the offset of
+/// the first block that does not fit before `end`. As in the search of `literal_find.zig`, the
+/// blocks compare the octet at `third_at` too after `literal_third_misses` blocks whose
+/// candidates held no place, and stop after a block that held a place, where a search returns.
+inline fn count_blocks(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, haystack: []const u8, from: usize, end: usize, tally: *Tally) usize {
+    var stop: Stop = .{ .index = from, .third = false };
+    // Each turn but the last ends with a run of one block or more, so the turns are at most the
+    // blocks and one.
+    for (0..(end - from) / (steps * width) + 1) |_| {
+        const next = if (stop.third)
+            count_run(width, literal, form, steps, true, haystack, stop.index, end, tally, {})
+        else
+            count_run(width, literal, form, steps, false, haystack, stop.index, end, tally, {});
+        if (next.third == stop.third) return next.index;
+        stop = next;
+    }
+    unreachable;
+}
+
+/// Counts the places of the whole blocks of `steps` steps from `from`, until a block does not fit
+/// before `end` or the run after it compares the octet at `third_at` where this one does not, or
+/// the reverse.
+inline fn count_run(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize, tally: *Tally, misses: anytype) Stop {
     const wanted = literal_find.wanted_of(width, literal);
     const run_len = steps * width;
+    var blocks_missed: usize = 0;
     var index = from;
-    // A run reads `run_len` octets from `index + first_at` and as many from `index + last_at`,
-    // whose last is under the haystack's length while `index` stands `run_len` before `end`.
+    // A block reads `run_len` octets from `index + first_at`, `index + last_at` and
+    // `index + third_at`, whose last is under the haystack's length while `index` stands
+    // `run_len` before `end`.
     while (end - index >= run_len) : (index += run_len) {
-        const firsts = haystack[index + literal.first_at ..][0..run_len];
-        const lasts = if (form == .single) firsts else haystack[index + literal.last_at ..][0..run_len];
-        if (!literal_find.any_candidate(width, form, steps, firsts, lasts, &wanted)) continue;
-        inline for (0..steps) |step| {
-            const mask = lane_places.Places(width).of(literal_find.both_lanes(width, form, firsts, lasts, step * width, &wanted));
-            tally_mask(width, literal, haystack, index + step * width, mask, tally);
+        switch (count_block(width, literal, form, steps, third, &wanted, haystack, index, tally, misses)) {
+            .none => {},
+            .placed => {
+                if (third) return .{ .index = index + run_len, .third = false };
+                blocks_missed = 0;
+            },
+            .missed => if (!third and literal_find.missed(literal, &blocks_missed)) {
+                return .{ .index = index + run_len, .third = true };
+            },
         }
     }
-    return index;
+    return .{ .index = index, .third = third };
+}
+
+/// What a block held: no candidate that a run compares, candidates and no place, or a place.
+const Block = enum { none, missed, placed };
+
+/// Counts the places of the block of `steps` steps at `index`. A block tests all its steps before
+/// it looks at one, so a block with no candidate costs one branch.
+inline fn count_block(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, comptime third: bool, wanted: anytype, haystack: []const u8, index: usize, tally: *Tally, misses: anytype) Block {
+    const run_len = steps * width;
+    const firsts = haystack[index + literal.first_at ..][0..run_len];
+    const lasts = if (form == .single) firsts else haystack[index + literal.last_at ..][0..run_len];
+    if (!literal_find.any_candidate(width, form, steps, firsts, lasts, wanted)) return .none;
+    // Most blocks lose every candidate at the third octet, as in the search. One test of all the
+    // steps says so.
+    if (third and !any_third(width, literal, form, steps, firsts, lasts, wanted, haystack, index)) return .none;
+    const places = tally.places;
+    inline for (0..steps) |step| {
+        const lanes = literal_find.candidate_lanes(width, literal, form, steps, third, firsts, lasts, wanted, haystack, index, step);
+        tally_mask(width, literal, haystack, index + step * width, lane_places.Places(width).of(lanes), tally, misses);
+    }
+    return if (tally.places != places) .placed else .missed;
+}
+
+/// True when some place of the block at `index` holds the literal's octets at `first_at`,
+/// `last_at` and `third_at`.
+inline fn any_third(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: anytype, haystack: []const u8, index: usize) bool {
+    var any: @Vector(width, u8) = @splat(0);
+    inline for (0..steps) |step| any |= literal_find.candidate_lanes(width, literal, form, steps, true, firsts, lasts, wanted, haystack, index, step);
+    return lane_places.Places(width).any(any);
 }
 
 /// Counts the places of the step of `width` places from `start`. Its places before the offset
@@ -80,12 +137,13 @@ inline fn count_step(comptime width: usize, literal: *const Literal, comptime fo
     const firsts = haystack[start + literal.first_at ..][0..width];
     const lasts = if (form == .single) firsts else haystack[start + literal.last_at ..][0..width];
     const mask = lane_places.Places(width).of(literal_find.both_lanes(width, form, firsts, lasts, 0, &wanted));
-    tally_mask(width, literal, haystack, start, mask, tally);
+    tally_mask(width, literal, haystack, start, mask, tally, {});
 }
 
 /// Counts each place of a step's mask, at `start` and on, that stands at or past the end of the
-/// last place counted, where the literal stands whole.
-inline fn tally_mask(comptime width: usize, literal: *const Literal, haystack: []const u8, start: usize, step_mask: lane_places.Places(width).Mask, tally: *Tally) void {
+/// last place counted, where the literal stands whole. `misses` counts the others that hold no
+/// place, where it is a counter.
+inline fn tally_mask(comptime width: usize, literal: *const Literal, haystack: []const u8, start: usize, step_mask: lane_places.Places(width).Mask, tally: *Tally, misses: anytype) void {
     const Step = lane_places.Places(width);
     var mask = step_mask;
     // Each set bit is one candidate, at most `width` of them.
@@ -93,7 +151,10 @@ inline fn tally_mask(comptime width: usize, literal: *const Literal, haystack: [
         const candidate = start + Step.first(mask);
         if (candidate < tally.at) continue;
         // A literal of one octet takes its place with the compare.
-        if (literal.len > 1 and !literal.stands_at(haystack, candidate)) continue;
+        if (literal.len > 1 and !literal.stands_at(haystack, candidate)) {
+            literal_find.count_miss(misses);
+            continue;
+        }
         tally.places += 1;
         tally.at = candidate + literal.len;
     }
@@ -169,4 +230,72 @@ test "count_places counts a literal whose place folds in either case" {
         const len = generator.below(text.len + 1);
         try expect_count(&literal, text[0..len], generator.below(len + 1));
     }
+}
+
+/// The blocks of the tests of the switch to `third_at` after its `literal_third_misses` blocks
+/// whose candidate holds no place: a block that holds the literal, then one more miss.
+const switch_blocks_after = 2;
+const switch_blocks = constants.literal_third_misses + switch_blocks_after;
+const switch_steps = literal_find.wide_block_len / constants.skip_lanes;
+
+/// A literal whose `third_at` is 1, and a text of `switch_blocks` blocks, each with a candidate at
+/// its start that holds the octets at `first_at` and `last_at` but not the one at `third_at`.
+const Switch = struct {
+    const needle = "aeaeaeaeae";
+    literal: Literal = .{ .octets = undefined, .len = needle.len, .exact = true },
+    text: [switch_blocks * literal_find.wide_block_len + needle.len]u8 = @splat('x'),
+
+    fn init(fixture: *Switch) !void {
+        @memcpy(fixture.literal.octets[0..needle.len], needle);
+        fixture.literal.prepare();
+        try testing.expectEqual(@as(u8, 1), fixture.literal.third_at);
+        for (0..switch_blocks) |block| {
+            fixture.text[block * literal_find.wide_block_len] = needle[fixture.literal.first_at];
+            fixture.text[block * literal_find.wide_block_len + fixture.literal.last_at] = needle[fixture.literal.last_at];
+        }
+    }
+
+    /// Writes the literal in the block `block`, after its candidate.
+    fn place_in(fixture: *Switch, block: usize) void {
+        @memcpy(fixture.text[block * literal_find.wide_block_len + needle.len ..][0..needle.len], needle);
+    }
+
+    fn run(fixture: *Switch, comptime third: bool, from: usize, tally: *Tally, misses: *usize) Stop {
+        const end = fixture.text.len - needle.len + 1;
+        return count_run(constants.skip_lanes, &fixture.literal, .plain, switch_steps, third, &fixture.text, from, end, tally, misses);
+    }
+};
+
+test "a count compares the octet at third_at after literal_third_misses blocks held no place" {
+    @setEvalBranchQuota(constants.comptime_branch_quota);
+    var fixture: Switch = .{};
+    try fixture.init();
+    fixture.place_in(constants.literal_third_misses);
+    var tally: Tally = .{ .at = 0 };
+    var misses: usize = 0;
+    const plain = fixture.run(false, 0, &tally, &misses);
+    const misses_end = constants.literal_third_misses * literal_find.wide_block_len;
+    try testing.expectEqual(Stop{ .index = misses_end, .third = true }, plain);
+    try testing.expectEqual(constants.literal_third_misses, misses);
+    try testing.expectEqual(@as(usize, 0), tally.places);
+    // The octet at `third_at` drops the block's candidate, and its place ends the compare.
+    const third = fixture.run(true, plain.index, &tally, &misses);
+    try testing.expectEqual(Stop{ .index = misses_end + literal_find.wide_block_len, .third = false }, third);
+    try testing.expectEqual(constants.literal_third_misses, misses);
+    try testing.expectEqual(@as(usize, 1), tally.places);
+}
+
+test "a block that holds a place starts the count of a count's misses again" {
+    @setEvalBranchQuota(constants.comptime_branch_quota);
+    var fixture: Switch = .{};
+    try fixture.init();
+    // The block that would be the last miss holds a place, and the misses after it are fewer.
+    fixture.place_in(constants.literal_third_misses - 1);
+    var tally: Tally = .{ .at = 0 };
+    var misses: usize = 0;
+    const plain = fixture.run(false, 0, &tally, &misses);
+    try testing.expectEqual(Stop{ .index = switch_blocks * literal_find.wide_block_len, .third = false }, plain);
+    try testing.expectEqual(@as(usize, 1), tally.places);
+    // Each block's candidate is a miss, that of the block with the place too.
+    try testing.expectEqual(switch_blocks, misses);
 }

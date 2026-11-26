@@ -116,7 +116,7 @@ inline fn search(comptime width: usize, literal: *const Literal, haystack: []con
 }
 
 /// Counts a candidate that held no place, where `misses` is a counter.
-inline fn count_miss(misses: anytype) void {
+pub inline fn count_miss(misses: anytype) void {
     if (@TypeOf(misses) != void) misses.* += 1;
 }
 
@@ -218,7 +218,7 @@ inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form
 /// Counts a block whose candidates held no place in `blocks`, and gives true once they are
 /// `literal_third_misses`. A literal with no third offset counts none: its candidates are its
 /// places.
-inline fn missed(literal: *const Literal, blocks: *usize) bool {
+pub inline fn missed(literal: *const Literal, blocks: *usize) bool {
     blocks.* += @intFromBool(literal.third_at != literal.first_at);
     return blocks.* == constants.literal_third_misses;
 }
@@ -312,7 +312,7 @@ inline fn first_stands_by_step(comptime width: usize, literal: *const Literal, c
 /// `both_lanes` for the step `step` of the block at `index`, and where `third` holds, the lanes
 /// where the literal's octet at `third_at` stands too. The block's octets from `index + third_at`
 /// are read in the haystack, which holds them as it holds those from `index + last_at`.
-inline fn candidate_lanes(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize, comptime step: usize) @Vector(width, u8) {
+pub inline fn candidate_lanes(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize, comptime step: usize) @Vector(width, u8) {
     const both = both_lanes(width, form, firsts, lasts, step * width, wanted);
     if (comptime !third) return both;
     const all: @Vector(width, u8) = @splat(constants.octet_max);
