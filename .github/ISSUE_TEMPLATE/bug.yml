@@ -11,7 +11,7 @@ body:
     attributes:
       label: Version
       description: The release tag or the commit of stdx, the output of `zig version`, and the CPU.
-      placeholder: v0.3.0, zig 0.16.0, x86-64
+      placeholder: v0.4.0, zig 0.16.0, x86-64
     validations:
       required: true
   - type: dropdown
