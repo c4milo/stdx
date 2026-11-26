@@ -2888,6 +2888,14 @@ last part lists what still waits on a ruling.
     - x86-64's detection moves to `platform_cpu_features_x86.zig`, so that each file stays under
       500 lines.
 
+    **Amended a third time by the owner on 2026-11-26: library code may read a thread's mode.**
+    `stdx.crypto` states the timing of the thread that runs each call, so it reads PSTATE.DIT at
+    each call (entry 87 as amended a sixth time).
+    - The `cpu-probe` rule now refuses `set_data_independent_timing` alone outside
+      `src/platform/` and the tests.
+    - A read is one `mrs`, which changes nothing, and it runs only where `dit` holds.
+    - The set stays the program's: a library call runs on a thread it did not start.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
@@ -7204,6 +7212,35 @@ last part lists what still waits on a ruling.
       `Cpu`. AES's bit needs the carry-less multiply of its own architecture beside `aes`: `pmull`
       on arm64 and `pclmul` on x86-64. On arm64 a core whose features hold no FEAT_DIT states no
       timing, where `probe`'s `not_known` stated it before.
+    - Amended a sixth time on 2026-11-26, on the owner's word that `CpuFeatures` is the one CPU
+      API a program names, that stdx maps it to chapulin's description of the CPU, that crypto is
+      set up once, and that stdx adds no type for it (design §8 step 28):
+      - `init(features, random)` takes the program's one `CpuFeatures.detect()` and its random
+        source, and returns a `Context` that holds those two alone. `Options`, `Timing` and the
+        `Context` fields `cpu` and `quic_cpu` are gone. No namespace names chapulin's `Cpu` or
+        `cpu_bits`.
+      - Each call that runs chapulin's code takes the `Context`: the `hash` calls and streams,
+        `jws.sign`, `tls.init_from_pem`, and `tls.client_options` and `tls.server_options`,
+        which set chapulin's `cpu` and `random` fields. `quic` has the same three calls.
+        `jws.sign` draws chapulin's 32 bytes of noise from the context's random source, and
+        wipes them before it returns.
+      - stdx maps the features to chapulin's description at each call. The statement of timing
+        comes from what exists, with no field for it:
+        - arm64: stdx reads the calling thread's PSTATE.DIT where `dit` holds, so the statement
+          covers the thread that runs the call.
+        - x86-64: stdx states it always, as Go and BoringSSL do. No program can read DOITM. The
+          owner chose this over an x86-64 without AES-GCM and the fast multiplies.
+        - Any other architecture: no statement.
+      - The `cpu-probe` rule lets library code read the thread's mode, and still refuses its set
+        (entry 40 as amended a third time).
+      - The alternatives refused:
+        - A field of `CpuFeatures`, or a `Timing` the program passes. Each is a new structure,
+          and the owner refused new structures.
+        - A `Context` that holds chapulin's `Cpu`, made once at `init`. A program would name
+          chapulin's type through it. On arm64 the statement would describe the thread that
+          called `init`, and not the thread that runs the call.
+        - No statement on x86-64. Every x86-64 session would run ChaCha20 alone, and the slow
+          multiply.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.

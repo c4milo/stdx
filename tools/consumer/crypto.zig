@@ -15,18 +15,12 @@ pub fn main(init: std.process.Init) !void {
     var csprng: std.Random.DefaultCsprng = .init(seed);
     // The CPU features the program detects once, for its codecs and for stdx.crypto alike.
     const features = stdx.platform.CpuFeatures.detect();
-    // Data-independent timing on this thread where a program can set it: arm64 with FEAT_DIT.
-    // On x86-64 only the operating system sets DOITM, so this program states nothing there.
-    const set = stdx.platform.set_data_independent_timing(features, true);
-    const timing: stdx.crypto.Timing = if (set) .data_independent else .not_stated;
-    const crypto = stdx.crypto.init(.{
-        .features = features,
-        .timing = timing,
-        .random = csprng.random(),
-    });
+    // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
+    _ = stdx.platform.set_data_independent_timing(features, true);
+    const crypto = stdx.crypto.init(features, csprng.random());
 
     var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
-    try stdx.crypto.hash.sha256(crypto.cpu, &digest, "abc");
+    try stdx.crypto.hash.sha256(crypto, &digest, "abc");
     const hex = std.fmt.bytesToHex(digest, .lower);
     if (!std.mem.eql(u8, &hex, abc_digest)) return error.WrongDigest;
 }

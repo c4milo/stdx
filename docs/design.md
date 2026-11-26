@@ -11844,6 +11844,36 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     test-crypto`. The skipped subleaf is caught on a CPU whose leaf 7 gives subleaf 1 a bit, as
     this host's does.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 28: `stdx.crypto.init(features, random)`, and stdx's map to chapulin (decisions 40 and
+  87 as amended on 2026-11-26).** The owner ruled that `CpuFeatures` is the one CPU API, that
+  stdx maps it to chapulin's description of the CPU, that crypto is set up once, and that stdx
+  adds no type for it. `init` keeps the features and the random source, and each call maps them.
+  On arm64 the map reads the calling thread's PSTATE.DIT. On x86-64 it states the timing always,
+  as the owner chose on 2026-11-26.
+  New public names: `tls.client_options`, `tls.server_options` and `tls.init_from_pem`, and
+  `quic`'s three of the same names. colibri's and connect-zig's sessions, key readers and JWS
+  signer call them. Removed: `stdx.crypto.Cpu`, `Options` and `Timing`, `tls.Cpu`,
+  `tls.cpu_bits`, `quic.Cpu`, `quic.cpu_bits`, `jws.SignOptions`, and the `Context` fields `cpu`
+  and `quic_cpu`. The changed calls: `init(features, random)`, each `hash` call with the
+  `Context` first, each stream's `init` with the `Context`, and `jws.sign(context, out, key,
+  input)`.
+  **Check:**
+  - `zig build test-crypto` holds the map to each feature on both architectures, with and
+    without the statement. It holds the statement to x86-64, to the thread's PSTATE.DIT on
+    arm64, and to none on riscv64. It hashes "abc" under the host's map and holds the digest to
+    RFC 6234 §8.5. It holds a session's options to the map and the random source, and the
+    signature's noise to 32 bytes from the context's source. It requires `tls`, `quic`, `jws` and
+    `hash` to name every name of chapulin's but its description of the CPU.
+  - `zig build test-tools` holds the `cpu-probe` rule to the set, as written and through a
+    name, and passes the read.
+  - `zig build readme-check` runs the consumer's `init(features, random)` and its
+    `hash.sha256(crypto, ...)`.
+  - Mutations, 9, each `CAUGHT`: no statement on x86-64, PSTATE.DIT unread on arm64, AES's bit
+    without the carry-less multiply, the hash bits stated on x86-64, the multiply's bit set
+    without the statement, `vaes` set on arm64, and the options left without the random
+    source, against `zig build test-crypto`; the read refused again and the set let through,
+    against `zig build test-tools`.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

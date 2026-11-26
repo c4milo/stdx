@@ -45,5 +45,5 @@ no codec path runs it:
 `probe` only reads. It changes no CPU state. `data_independent_timing` and
 `set_data_independent_timing` make no system call: each runs one instruction on arm64, `mrs` or
 `msr` of the register DIT, and acts on the calling thread alone. Each takes the program's
-`CpuFeatures`, because that instruction faults on a core without FEAT_DIT. No library code calls
-either one.
+`CpuFeatures`, because that instruction faults on a core without FEAT_DIT. Library code may read
+the mode, as `stdx.crypto` does at each call. No library code sets it.

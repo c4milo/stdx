@@ -58,8 +58,6 @@ pub const tls = struct {
     pub const RsaPssIdentity = chapulin.tcp.RsaPssIdentity;
     pub const MlDsa87Identity = chapulin.tcp.MlDsa87Identity;
     pub const ServerOptions = chapulin.tcp.ServerOptions;
-    pub const Cpu = chapulin.tcp.Cpu;
-    pub const cpu_bits = chapulin.tcp.cpu_bits;
     pub const Group = chapulin.tcp.Group;
     pub const Suite = chapulin.tcp.Suite;
     pub const State = chapulin.tcp.State;
@@ -70,6 +68,26 @@ pub const tls = struct {
     pub const Hook = chapulin.tcp.Hook;
     pub const RandomSource = chapulin.tcp.RandomSource;
     pub const hook_context = chapulin.tcp.hook_context;
+
+    // stdx's calls, which take the program's `Context` where chapulin takes its description of
+    // the CPU and its random source.
+
+    /// `options` with chapulin's description of the CPU and the random source of `context`, for
+    /// `Client.init`. A program leaves both fields unset.
+    pub fn client_options(context: Context, options: ClientOptions) ClientOptions {
+        return options_file.filled(options, init_file.tcp_cpu(context), context.random);
+    }
+
+    /// `options` with the same two fields set, for `Server.init`.
+    pub fn server_options(context: Context, options: ServerOptions) ServerOptions {
+        return options_file.filled(options, init_file.tcp_cpu(context), context.random);
+    }
+
+    /// Reads a PEM key into `key`, an `*EcdsaP256Key`, `*RsaKey` or `*MlDsa87Key`, checked
+    /// against the leaf certificate's key, on the instructions the context's features hold.
+    pub fn init_from_pem(context: Context, key: anytype, pem: []const u8, leaf: []const u8) error{Invalid}!void {
+        return key.init_from_pem(init_file.tcp_cpu(context), pem, leaf);
+    }
 };
 
 /// TLS 1.3 under QUIC: the handshake and packet protection a QUIC stack drives, as `quic.Client`
@@ -120,8 +138,6 @@ pub const quic = struct {
     pub const RsaPssIdentity = chapulin.quic.RsaPssIdentity;
     pub const MlDsa87Identity = chapulin.quic.MlDsa87Identity;
     pub const ServerOptions = chapulin.quic.ServerOptions;
-    pub const Cpu = chapulin.quic.Cpu;
-    pub const cpu_bits = chapulin.quic.cpu_bits;
     pub const Group = chapulin.quic.Group;
     pub const Suite = chapulin.quic.Suite;
     pub const State = chapulin.quic.State;
@@ -132,11 +148,40 @@ pub const quic = struct {
     pub const Hook = chapulin.quic.Hook;
     pub const RandomSource = chapulin.quic.RandomSource;
     pub const hook_context = chapulin.quic.hook_context;
+
+    // stdx's calls, as `tls` has them, over the QUIC object's types.
+
+    /// `options` with chapulin's description of the CPU and the random source of `context`, for
+    /// `Client.init`. A program leaves both fields unset.
+    pub fn client_options(context: Context, options: ClientOptions) ClientOptions {
+        return options_file.filled(options, init_file.quic_cpu(context), context.random);
+    }
+
+    /// `options` with the same two fields set, for `Server.init`.
+    pub fn server_options(context: Context, options: ServerOptions) ServerOptions {
+        return options_file.filled(options, init_file.quic_cpu(context), context.random);
+    }
+
+    /// Reads a PEM key into `key`, the QUIC object's `*EcdsaP256Key`, `*RsaKey` or `*MlDsa87Key`.
+    pub fn init_from_pem(context: Context, key: anytype, pem: []const u8, leaf: []const u8) error{Invalid}!void {
+        return key.init_from_pem(init_file.quic_cpu(context), pem, leaf);
+    }
 };
 
 /// JSON Web Signatures: RS256, ES256 and EdDSA checks and signatures, and base64url
-/// (RFC 7515, RFC 7518 §3.1, RFC 8037 §3.1).
-pub const jws = chapulin.tcp.jws;
+/// (RFC 7515, RFC 7518 §3.1, RFC 8037 §3.1). `sign` takes the program's `Context`, and draws its
+/// noise from the context's random source.
+pub const jws = struct {
+    pub const Algorithm = chapulin.tcp.jws.Algorithm;
+    pub const VerifyOptions = chapulin.tcp.jws.VerifyOptions;
+    pub const verify = chapulin.tcp.jws.verify;
+    pub const PrivateKey = chapulin.tcp.jws.PrivateKey;
+    pub const base64url_len = chapulin.tcp.jws.base64url_len;
+    pub const base64url_decoded_len_max = chapulin.tcp.jws.base64url_decoded_len_max;
+    pub const base64url_encode = chapulin.tcp.jws.base64url_encode;
+    pub const base64url_decode = chapulin.tcp.jws.base64url_decode;
+    pub const sign = jws_file.sign;
+};
 /// DNSSEC: the check of an RRSIG over a record set, and the digests of NSEC3 and DS records
 /// (RFC 4034, RFC 5155).
 pub const dnssec = chapulin.tcp.dnssec;
@@ -146,24 +191,19 @@ pub const scram = chapulin.tcp.scram;
 /// The hashes, HMAC and HKDF of chapulin's key schedule: SHA-256, SHA-384 and SHA-512 as a stream
 /// and over a whole input (FIPS 180-4), SHA3-256 and SHA3-512, SHAKE128 and SHAKE256 (FIPS 202),
 /// HMAC over the three SHA-2 hashes (RFC 2104), and HKDF's Extract and Expand (RFC 5869). Each
-/// call takes `Context.cpu`, and runs each hash on the instructions that value names.
-pub const hash = chapulin.tcp.hash;
-/// The CPU the calls beside `tls` and `quic` take, which `init` describes from the program's
-/// `stdx.platform.CpuFeatures`. It is `tls.Cpu`.
-pub const Cpu = tls.Cpu;
+/// call takes the program's `Context`, and runs each hash on the instructions its features hold.
+pub const hash = @import("crypto_hash.zig");
 
-/// The value a program makes once, when it starts, from its CPU features, its statement of timing
-/// and its random source, and passes to each session and call (decision 87 as amended on
-/// 2026-11-25).
+/// The value a program makes once, when it starts, from its `stdx.platform.CpuFeatures` and its
+/// random source, and passes to each call that runs chapulin's code (decision 87 as amended on
+/// 2026-11-25). stdx maps the features to chapulin's description of the CPU at each call.
 pub const init = init_file.init;
-/// What `init` takes.
-pub const Options = init_file.Options;
-/// What `init` returns: the CPU as each chapulin object takes it, and the random source.
+/// What `init` returns.
 pub const Context = init_file.Context;
-/// The timing mode of the threads that run chapulin's code, which only the program can state.
-pub const Timing = init_file.Timing;
 
 const init_file = @import("crypto_init.zig");
+const options_file = @import("crypto_options.zig");
+const jws_file = @import("crypto_jws.zig");
 
 comptime {
     // chapulin's module exports `ch_assert_fail` from a comptime block, which Zig runs only when
@@ -175,10 +215,11 @@ comptime {
 const std = @import("std");
 const platform = @import("platform");
 
-/// The names of chapulin's object roots that `tls` and `quic` do not repeat: the two session
-/// modules, which each namespace flattens, the calls `stdx.crypto` names once, and the API's own
-/// test helper.
-const left_out = [_][]const u8{ "tcp", "quic", "jws", "dnssec", "scram", "hash", "testing" };
+/// The names of chapulin's object roots that `tls`, `quic`, `jws` and `hash` do not repeat: the
+/// two session modules, which each namespace flattens, the calls `stdx.crypto` names once, the
+/// API's own test helper, and chapulin's description of the CPU, which stdx maps from
+/// `CpuFeatures` and no program names.
+const left_out = [_][]const u8{ "tcp", "quic", "jws", "dnssec", "scram", "hash", "testing", "Cpu", "cpu_bits", "SignOptions" };
 
 fn left_out_name(name: []const u8) bool {
     for (left_out) |out| {
@@ -202,10 +243,21 @@ test "tls and quic name every public name of chapulin's two objects" {
     try std.testing.expectEqualStrings("", first_missing(tls, chapulin.tcp.tcp));
     try std.testing.expectEqualStrings("", first_missing(quic, chapulin.quic));
     try std.testing.expectEqualStrings("", first_missing(quic, chapulin.quic.quic));
+    try std.testing.expectEqualStrings("", first_missing(jws, chapulin.tcp.jws));
+    try std.testing.expectEqualStrings("", first_missing(hash, chapulin.tcp.hash));
+}
+
+test "no namespace names chapulin's description of the CPU" {
+    try std.testing.expect(!@hasDecl(tls, "Cpu") and !@hasDecl(tls, "cpu_bits"));
+    try std.testing.expect(!@hasDecl(quic, "Cpu") and !@hasDecl(quic, "cpu_bits"));
+    try std.testing.expect(!@hasDecl(@This(), "Cpu"));
+    try std.testing.expect(!@hasDecl(jws, "SignOptions"));
 }
 
 test {
     _ = init_file;
+    _ = options_file;
+    _ = jws_file;
 }
 
 test "the module names each part of chapulin's API" {
@@ -215,9 +267,7 @@ test "the module names each part of chapulin's API" {
     try std.testing.expect(@hasDecl(dnssec, "verify"));
     try std.testing.expect(@hasDecl(scram, "sha256"));
     try std.testing.expect(@hasDecl(hash, "Sha256"));
-    try std.testing.expect(@typeInfo(Cpu) == .@"struct");
     try std.testing.expect(@typeInfo(Context) == .@"struct");
-    try std.testing.expect(@typeInfo(Timing) == .@"enum");
 }
 
 /// RFC 6234 §8.5's first test of SHA-256: the digest of the input "abc", in hex.
@@ -234,22 +284,32 @@ fn zeros(_: *anyopaque, bytes: []u8) void {
     @memset(bytes, 0);
 }
 
-test "chapulin takes init's description of this host, under each statement of timing" {
+test "chapulin takes the description stdx maps from this host's features" {
     // A bit the object does not define for its architecture makes each call refuse the value,
-    // so a digest under each statement shows that init gave chapulin a value it takes.
+    // so a digest shows that stdx gave chapulin a value it takes.
     var source_state: u8 = 0;
     const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
-    inline for (.{ Timing.not_stated, Timing.data_independent }) |timing| {
-        const context = init(.{ .features = platform.CpuFeatures.detect(), .timing = timing, .random = random });
-        var digest: [hash.sha256_len]u8 = undefined;
-        try hash.sha256(context.cpu, &digest, "abc");
-        try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
-        var stream = try hash.Sha256.init(context.cpu);
-        stream.update("a");
-        stream.update("bc");
-        stream.final(&digest);
-        try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
-    }
+    const context = init(platform.CpuFeatures.detect(), random);
+    var digest: [hash.sha256_len]u8 = undefined;
+    try hash.sha256(context, &digest, "abc");
+    try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
+    var stream = try hash.Sha256.init(context);
+    stream.update("a");
+    stream.update("bc");
+    stream.final(&digest);
+    try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
+}
+
+test "the options a session takes carry the context's description and random source" {
+    var source_state: u8 = 0;
+    const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
+    const context = init(platform.CpuFeatures.detect(), random);
+    const options = tls.client_options(context, .{ .trust = undefined });
+    try std.testing.expectEqual(init_file.tcp_cpu(context), options.cpu.?);
+    try std.testing.expectEqual(random.ptr, options.random.?.ptr);
+    const cookie_key = [_]u8{0} ** chapulin.quic.c.CH_SRV_COOKIE_KEY_LEN;
+    const quic_options = quic.server_options(context, .{ .cookie_key = &cookie_key });
+    try std.testing.expectEqual(init_file.quic_cpu(context), quic_options.cpu.?);
 }
 
 test "SHA-256 of abc is RFC 6234's" {

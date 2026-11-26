@@ -18,45 +18,48 @@ crypto_exe.root_module.addImport("stdx", stdx_crypto.module("stdx"));
 Without the option, stdx fetches no chapulin and compiles no C, and `stdx.crypto` names the option
 in a compile error.
 
-A program makes one value when it starts, with `init`, and passes it to each session and call. The
-value holds the CPU features the program detected once, its statement of its threads' timing, and a
-cryptographically secure random source:
+A program makes one value when it starts, with `init`, and passes it to each call that runs
+chapulin's code. The value holds the CPU features the program detected once, which its codecs take
+too, and a cryptographically secure random source:
 
 ```zig
 // The CPU features the program detects once, for its codecs and for stdx.crypto alike.
 const features = stdx.platform.CpuFeatures.detect();
-// Data-independent timing on this thread where a program can set it: arm64 with FEAT_DIT.
-// On x86-64 only the operating system sets DOITM, so this program states nothing there.
-const set = stdx.platform.set_data_independent_timing(features, true);
-const timing: stdx.crypto.Timing = if (set) .data_independent else .not_stated;
-const crypto = stdx.crypto.init(.{
-    .features = features,
-    .timing = timing,
-    .random = csprng.random(),
-});
+// PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
+_ = stdx.platform.set_data_independent_timing(features, true);
+const crypto = stdx.crypto.init(features, csprng.random());
 ```
 
-`timing` has no default, because only the program knows its threads' mode. `.data_independent`
-states that each thread that runs chapulin's code has set PSTATE.DIT on arm64, or runs on an
-x86-64 part whose operating system has set DOITM. Under it, chapulin runs AES-GCM and the widening
-multiplies on the CPU's instructions where its features hold them. `.not_stated` keeps chapulin's code
-that needs no such mode. `stdx.platform.set_data_independent_timing` sets PSTATE.DIT on the calling
-thread alone, so a program calls it on each thread that runs chapulin's code, and
-`stdx.platform.data_independent_timing` reads it ([`stdx.platform`](../platform/README.md)).
-
-A program passes the value's `cpu` to the TCP object's sessions and calls, its `quic_cpu` to the
-QUIC object's, and its `random` to both. It is a value and not a global, so no call runs before it
-exists, and no two threads race to set it. A program then calls chapulin's code under stdx's
-names:
+It is a value and not a global, so no call runs before it exists, and no two threads race to set
+it. A program then calls chapulin's code under stdx's names:
 
 ```zig
 var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
-try stdx.crypto.hash.sha256(crypto.cpu, &digest, "abc");
+try stdx.crypto.hash.sha256(crypto, &digest, "abc");
 ```
 
-Each hash runs where `crypto.cpu` puts it. On arm64 under `.data_independent`, SHA-256, SHA-512
-and SHA-3 run on the instructions the features hold. On x86-64, SHA-384 and SHA-512 run on
-AVX2 where the features hold it. Every other hash runs chapulin's portable code.
+A session takes its options through `tls.client_options(crypto, .{ ... })` or
+`tls.server_options`, and `quic`'s calls of the same names. Each sets chapulin's `cpu` and
+`random` fields, which a program leaves unset. `tls.init_from_pem` reads a PEM key, and
+`jws.sign` draws its noise from the value's random source.
+
+stdx maps the features to chapulin's description of the CPU at each call, so a program names no
+type of chapulin's. Each call states whether the calling thread runs AES, the carry-less multiply
+and the widening multiply in data-independent time:
+
+- arm64: when the features hold FEAT_DIT and the thread's PSTATE.DIT is 1. stdx reads the mode
+  at each call with `stdx.platform.data_independent_timing`. A program sets it with
+  `stdx.platform.set_data_independent_timing`, on each thread that runs chapulin's code
+  ([`stdx.platform`](../platform/README.md)).
+- x86-64: always, as Go and BoringSSL state it. No program can read DOITM, the mode's bit on
+  x86-64.
+- Any other architecture: never.
+
+Under the statement, chapulin runs AES-GCM and the widening multiplies on the instructions the
+features hold. Without it, chapulin runs TLS_CHACHA20_POLY1305_SHA256 and its code that needs no
+such mode. On arm64 under the statement, SHA-256, SHA-512 and SHA-3 run on the instructions the
+features hold. On x86-64, SHA-384 and SHA-512 run on AVX2 where the features hold it. Every other
+hash runs chapulin's portable code.
 
 stdx is the one place that asks chapulin for its module. So a program that names chapulin only
 through stdx links one chapulin, which chapulin requires.
@@ -70,14 +73,13 @@ the object it comes from.
 
 | Name | What it is | chapulin's name |
 | --- | --- | --- |
-| `tls` | TLS 1.3 over TCP: `tls.Client` and `tls.Server`, their options, the readers of PEM keys, chains and anchors, and the values a session negotiates | `tcp`, with its sessions in `tcp.tcp` |
+| `tls` | TLS 1.3 over TCP: `tls.Client` and `tls.Server`, their options, the readers of PEM keys, chains and anchors, and the values a session negotiates. `client_options`, `server_options` and `init_from_pem` take the `Context` | `tcp`, with its sessions in `tcp.tcp` |
 | `quic` | TLS 1.3 under QUIC: `quic.Client` and `quic.Server`, the handshake and packet protection a QUIC stack drives, and the QUIC object's own options and keys | `quic`, with its sessions in `quic.quic` |
-| `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)) | `tcp.jws` |
+| `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)). `sign` takes the `Context` | `tcp.jws` |
 | `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
 | `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
-| `hash` | SHA-256, SHA-384 and SHA-512 as a stream and over a whole input, SHA3-256 and SHA3-512, SHAKE128 and SHAKE256, HMAC over the three SHA-2 hashes, and HKDF's Extract and Expand ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869)), each taking `Context.cpu` | `tcp.hash` |
-| `Cpu` | The CPU the calls beside `tls` and `quic` take, which `init` describes from the program's [`stdx.platform.CpuFeatures`](../platform/README.md): `tls.Cpu` | `tcp.Cpu` |
-| `init`, `Options`, `Context` and `Timing` | The value a program makes once from its CPU features, [`stdx.platform.CpuFeatures`](../platform/README.md), its statement of timing and its random source | none: stdx's own |
+| `hash` | SHA-256, SHA-384 and SHA-512 as a stream and over a whole input, SHA3-256 and SHA3-512, SHAKE128 and SHAKE256, HMAC over the three SHA-2 hashes, and HKDF's Extract and Expand ([RFC 5869](https://www.rfc-editor.org/rfc/rfc5869)), each taking the `Context` | `tcp.hash` |
+| `init` and `Context` | The value a program makes once from its CPU features, [`stdx.platform.CpuFeatures`](../platform/README.md), and its random source | none: stdx's own |
 
 A QUIC session takes the QUIC object's types: `quic.ClientOptions`, never `tls.ClientOptions`.
 

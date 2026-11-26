@@ -8,10 +8,11 @@
 //! graph no longer keeps the probe out of their reach. This rule does. Over every `.zig` file
 //! under `src/` but `src/platform/`, it flags:
 //! - a chain that names `platform.probe` or `platform.CpuFeatures.detect`, called or not;
-//! - a chain that names `platform.data_independent_timing` or
-//!   `platform.set_data_independent_timing`, which read and set the calling thread's mode
-//!   (decision 40 as amended on 2026-11-25). A library call runs on a thread it did not start, so
-//!   only the program reads or sets the mode;
+//! - a chain that names `platform.set_data_independent_timing`, which sets the calling thread's
+//!   mode (decision 40 as amended on 2026-11-25). A library call runs on a thread it did not
+//!   start, so only the program sets the mode. Library code may read it with
+//!   `platform.data_independent_timing`: `stdx.crypto` reads it at each call, to state the
+//!   timing of the thread that runs chapulin's code (decision 87 as amended on 2026-11-26);
 //! - the same chain through a file-level alias, such as `const CpuFeatures = platform.CpuFeatures;`
 //!   and then `CpuFeatures.detect()`;
 //! - a call of any function named `detect`, whatever its receiver. No function of stdx's but
@@ -49,11 +50,10 @@ const lint = pepegrillo.lint;
 const forbidden_references = lint.rules.forbidden_references;
 
 /// A chain that starts with one of these at a dot boundary is a finding: the probe of the `Cpu`
-/// answers, the detection of the codecs' features, and the read and the set of a thread's mode.
+/// answers, the detection of the codecs' features, and the set of a thread's mode.
 const forbidden_prefixes = [_][]const u8{
     "platform.probe",
     "platform.CpuFeatures.detect",
-    "platform.data_independent_timing",
     "platform.set_data_independent_timing",
 };
 
@@ -208,25 +208,27 @@ test "cpu-probe flags the probe and the detection, as written and through a name
 const timing_fixture: [:0]const u8 =
     \\const platform = @import("platform");
     \\const set_timing = platform.set_data_independent_timing;
+    \\const read_timing = platform.data_independent_timing;
     \\
-    \\pub fn init(self: *Context, cpu: platform.Cpu) void {
-    \\    self.timing = platform.data_independent_timing(cpu);
-    \\    set_timing(cpu, true) catch {};
+    \\pub fn statement(features: platform.CpuFeatures) bool {
+    \\    const read = platform.data_independent_timing(features) and read_timing(features);
+    \\    _ = platform.set_data_independent_timing(features, true);
+    \\    return set_timing(features, read);
     \\}
 ;
 
-test "cpu-probe flags the read and the set of the thread's mode" {
+test "cpu-probe flags the set of the thread's mode, and passes its read" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/crypto/crypto_init.zig", timing_fixture);
     try harness.expect_messages(findings, &.{
         "reference to platform.set_data_independent_timing: " ++ reason,
-        "reference to platform.data_independent_timing: " ++ reason,
+        "reference to platform.set_data_independent_timing: " ++ reason,
         "reference to platform.set_data_independent_timing through set_timing: " ++ reason,
     });
     try testing.expectEqual(2, findings[0].line);
-    try testing.expectEqual(5, findings[1].line);
-    try testing.expectEqual(6, findings[2].line);
+    try testing.expectEqual(7, findings[1].line);
+    try testing.expectEqual(8, findings[2].line);
 }
 
 /// A codec that takes the features its caller passed, names the type, and has a `probe` of its own.
