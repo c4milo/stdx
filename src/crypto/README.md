@@ -20,16 +20,41 @@ in a compile error.
 
 A program makes one value when it starts, with `init`, and passes it to each call that runs
 chapulin's code. The value holds the CPU features the program detected once, which its codecs take
-too, and a cryptographically secure random source:
+too, and a cryptographically secure random source. `std.Random` is an interface over any
+generator, so stdx cannot check the source: `std.Random.DefaultPrng` is not cryptographic, and a
+`std.Random.DefaultCsprng` that two threads share races on its state. A program wraps
+`io.randomSecure`, which is thread-safe, keeps no state that a fork copies, and has no weaker
+fallback:
 
 ```zig
+/// A random source over the operating system's entropy. Each draw calls `io.randomSecure`, which
+/// is thread-safe, keeps no state that a fork copies, and has no weaker fallback. A draw that fails
+/// halts the program, so no session runs on bytes the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, bytes: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(bytes) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
+```
+
+```zig
+// The random source of every session and signature: the operating system's entropy.
+var secure: SecureRandom = .{ .io = init.io };
 // The CPU features the program detects once, for its codecs and for stdx.crypto alike.
 const features = stdx.platform.CpuFeatures.detect();
 // PSTATE.DIT on this thread, where the core has FEAT_DIT. Elsewhere the call changes nothing.
 _ = stdx.platform.set_data_independent_timing(features, true);
-const crypto = stdx.crypto.init(features, csprng.random());
+const crypto = stdx.crypto.init(features, secure.random());
 ```
 
+Each draw is a system call. stdx makes none itself (non-negotiable 1), so the program owns them.
 It is a value and not a global, so no call runs before it exists, and no two threads race to set
 it. A program then calls chapulin's code under stdx's names:
 

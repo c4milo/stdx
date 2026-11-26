@@ -17,7 +17,9 @@ pub const Context = struct {
     /// The program's one `stdx.platform.CpuFeatures.detect()`, which its codecs take too.
     features: platform.CpuFeatures,
     /// A cryptographically secure random source. chapulin draws each session's secrets and each
-    /// signature's noise from it, and from nothing else (its `RAND=session`).
+    /// signature's noise from it, and from nothing else (its `RAND=session`). `std.Random` wraps
+    /// any generator, so stdx cannot check it: src/crypto/README.md shows a program wrap
+    /// `io.randomSecure`, which threads may share.
     random: chapulin.tcp.RandomSource,
 };
 

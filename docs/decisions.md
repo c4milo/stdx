@@ -7290,6 +7290,20 @@ last part lists what still waits on a ruling.
         (chapulin's decision 240), so Keccak runs in general registers there, and AES-GCM keeps
         EOR3.
       - A `CpuFeatures` that names no core keeps the SHA-3 bit, as stdx's map did before.
+    - Amended an eighth time on 2026-11-26: the program's random source. The owner noted that
+      `std.Random` is not cryptographic as such. It is an interface over any generator, so `init`
+      accepts `std.Random.DefaultPrng` as readily as a CSPRNG, and stdx cannot tell them apart.
+      - The owner chose that a program wraps `io.randomSecure` in a `std.Random` that halts when a
+        draw fails. `src/crypto/README.md` and `tools/consumer/crypto.zig` show it.
+      - `io.randomSecure` is thread-safe, keeps no state that a fork copies, and has no fallback.
+        The consumer's `std.Random.DefaultCsprng` before it had neither of the first two, and a
+        `Context` that threads share raced on its state.
+      - Each draw is a syscall, which the program owns. stdx's API is unchanged.
+      - The alternatives refused:
+        - `io.random`, with no syscall a draw. Zig falls back to "a less secure mechanism" when
+          its seed from `randomSecure` fails.
+        - `init` that takes the program's `std.Io` and draws itself. Non-negotiable 1 and the io
+          rule forbid `std.Io` in `src/`.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.
