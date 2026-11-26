@@ -11300,6 +11300,17 @@ to 12 are reordered and nothing else changes.
     candidate before its start. The variant object counts nothing. A single miss is not
     charged. Claim R14 and claim R4 each count no miss. Claim R4 pays for its start. A search
     at rest takes the claim's calls, and counts nothing toward the rest.
+  - The runs 45831844134 and 45831849147 measured `7e49395` against `1c6ce67`, each in one job
+    on the N2 and one on x86-64, an EPYC 9V45 and a Xeon 8573C. So they judge this entry and the
+    two before it. By decision 20's rule, 4 of the 284 rows ran faster in all four jobs, and
+    none slower.
+    - `lh3lh3-reb/email` ran 1.81 to 1.94 times as fast, and `date` 1.23 to 1.34 times. Each
+      ran behind Rust's crate before and leads it now: `email` at 1.13 to 1.48 of its speed,
+      where it ran at 0.58 to 0.82, and `date` at 1.06 to 1.28, where it ran at 0.86 to 0.95.
+    - `lh3lh3-reb/uri` ran 1.17 to 1.34 times as fast, and is at 0.85 to 0.98 of Rust's crate,
+      where it was at 0.64 to 0.84. `a line's first word` ran 1.11 to 1.23 times as fast.
+    - Rows of claim R12, such as `rsc/easy1`, `rsc/hard` and `rsc/one-pass-short-not`, ran 4%
+      to 9% slower in three jobs and within 1% on the Xeon. The entry below finds the cause.
 
   The checks of `find_by_claim` written out again:
   - The first job of each of the runs below on `7e49395` ran rows of claim R12 1% to 9% slower,
