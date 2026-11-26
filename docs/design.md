@@ -11175,6 +11175,12 @@ to 12 are reordered and nothing else changes.
   - Mutations: 4, each CAUGHT, against `zig build test-regex`: the last step leaves out the
     place where the steps stopped; a step's place one late; a folded octet takes the search of
     one octet; a short text's last octet left out.
+  - The runs 45817528953 and 45817533307 measured `1c6ce67` against `be020da`, each in one job
+    on the N2 and one on x86-64, a Xeon 6975P-C and an EPYC 7763. By decision 20's rule, 1 of
+    the 284 rows ran faster in all four jobs, and none slower. `email`, `date` and `uri` moved
+    within 0.2% to 0.8%, as the charge dropped the claim on each.
+    - `imported/rsc/literal` searches `y` in 51 octets, and ran 1.29 to 1.64 times as fast. It
+      ran at 0.86 to 0.93 of Rust's crate before, and at 1.12 to 1.54 after it.
 
   The claim's layers for a literal of one octet (decision 86 as amended on 2026-11-26):
   - After the search of one octet, claim R14 still took more instructions on `date`'s lines than
