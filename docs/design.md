@@ -11020,6 +11020,26 @@ to 12 are reordered and nothing else changes.
   - Mutations: 3, each CAUGHT, against `zig build test-regex`: the bits sized by instructions;
     a bit found by the instruction; the bits one node short.
 
+  The cache in two halves (decision 86 as amended on 2026-11-26):
+  - With one set of lists, the reverse DFA of `overlapping-words/russian` still held about 370
+    of the 475 states it builds, and its forward DFA 29. Each DFA now takes half of the spare
+    cache, by the owner's ruling, in place of one part of three for the reverse DFA.
+  **Check:** the halves of the spare; the filter over the rebar rows whose texts this machine
+  holds, under each division and under twice the cache; the probe of the row; a mutation.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter counted 80 of the 284 rows, each in its own model where that model counts, and
+    as a count where it does not. Under two parts to one, the forward DFAs of the two
+    `huge-*-nosuffixlit` rows cleared their caches 9 times, under 4 MiB and under 8 MiB, and
+    the reverse DFA of `russian` cleared 3 times under 4 MiB alone. No other DFA cleared. In
+    two halves, the two `huge` rows clear as before, and no other DFA clears.
+  - A probe of rebar's `grep_captures` model over `ru-medium.txt`, five passes, ran at 1.05 and
+    1.28 MB/s under two parts to one, 3.80 and 4.02 in two halves, and 4.30 and 4.52 under 8 MiB
+    and two parts to one. In two halves the reverse DFA built its 475 states and never cleared.
+    `english` ran at 13.62 in two halves, and 13.74 before.
+  - Mutations: 1, CAUGHT, against `zig build test-regex`: two parts to one.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

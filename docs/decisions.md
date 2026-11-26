@@ -5979,6 +5979,13 @@ last part lists what still waits on a ruling.
       `\p{L}{35,40}` and not of `\p{L}{37,42}`, and both ran on the matcher.
       - Where the two leasts do not fit, no division starts both DFAs. A search needs both, and
         `is_match` runs the forward DFA alone, so the forward DFA takes the whole cache.
+      - Amended by the owner's ruling of 2026-11-26 (design §8 part 22q): each DFA takes one half
+        of the rest. Two parts to one left the reverse DFA of `overlapping-words/russian` room
+        for about 370 of the 475 states it builds, while its forward DFA builds 29. It cleared
+        its cache and gave up, and the matcher found every match. Over the 80 rows of rebar
+        whose texts the measurement had, no other DFA cleared under either division. An 8 MiB
+        cache under two parts to one lost the ruling: it also held all 475 states, but each
+        searcher of the default took 4 MiB more.
       - Amended by the owner's ruling of 2026-11-25 (design §8 part 22q): the two DFAs take one
         set of lists, as long as the larger half of the program needs, and each DFA's least is
         then its cache alone (`dfa_init.zig`). A search runs one DFA at a time, and each build

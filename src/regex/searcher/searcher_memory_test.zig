@@ -1,5 +1,5 @@
 //! The searcher's division of its cache between its two DFAs (decision 86): one set of lists
-//! that both take, each DFA's least cache, and the rest two parts to one, or the whole cache to
+//! that both take, each DFA's least cache, and the rest in two halves, or the whole cache to
 //! the forward DFA where that does not fit.
 const std = @import("std");
 const testing = std.testing;
@@ -47,12 +47,12 @@ test "a DFA that shares its lists takes as many as its nodes need, and a least c
     try testing.expectEqual(dfa_file.Scan{ .found = 3 }, dfa.scan_forward("abc", 0, false));
 }
 
-test "a searcher gives each DFA its least, and divides the rest two parts to one" {
+test "a searcher gives each DFA its least, and divides the rest in two halves" {
     var fixture: Fixture = .{};
     try fixture.init("(a|b)+c", 0);
     try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
     const least = least_of(&fixture.program);
-    // The lists and the two leasts and no more: two parts to one leaves neither DFA short.
+    // The lists and the two leasts and no more: both DFAs start.
     try fixture.init("(a|b)+c", words_for(least));
     try testing.expect(fixture.searcher.forward_ready and fixture.searcher.reverse_ready);
     try fixture.expect_agree_everywhere("xabcab");
@@ -78,19 +78,21 @@ fn expect_states(fixture: *Fixture, dfa: *const Dfa, len: usize) !void {
     try testing.expectEqual(other.cache.states_max, dfa.cache.states_max);
 }
 
-/// The states in each third of the spare `expect_split` gives a cache past the two leasts.
+/// The states in each part of the spare `expect_split` gives a cache past the two leasts.
 const spare_states = 100;
 
-/// Requires a searcher whose cache holds a spare past the lists and the two leasts to give the
-/// forward DFA two parts of it and the reverse DFA one, each beside its least.
+/// Requires a searcher whose cache holds a spare past the lists and the two leasts to give each
+/// DFA half of it, beside its least (the owner's ruling of 2026-11-26).
 fn expect_split(fixture: *Fixture) !void {
-    const third = Cache.memory_len(spare_states, @as(u32, fixture.program.class_count) + constants.context_count);
-    const cache_words = words_for(least_of(&fixture.program) + constants.dfa_cache_parts * third);
+    const part = Cache.memory_len(spare_states, @as(u32, fixture.program.class_count) + constants.context_count);
+    const cache_words = words_for(least_of(&fixture.program) + constants.dfa_cache_parts * part);
     try fixture.init("(a|b)+c", cache_words);
-    const forward_len = dfa_file.cache_len_min(&fixture.program) + constants.dfa_forward_parts * third;
+    const forward_len = dfa_file.cache_len_min(&fixture.program) + constants.dfa_forward_parts * part;
     try expect_states(fixture, &fixture.searcher.forward, forward_len);
     const reverse_len = cache_words * narrow_per_word - lists_of(&fixture.program) - forward_len;
     try expect_states(fixture, &fixture.searcher.reverse, reverse_len);
+    // The two halves: the reverse DFA takes no more than the word that rounds the cache up.
+    try testing.expect(reverse_len >= forward_len and reverse_len - forward_len < narrow_per_word);
 }
 
 /// Requires the two DFAs of `pattern`'s searcher to take one set of lists, whichever half of the

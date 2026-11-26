@@ -147,7 +147,7 @@ fn judge_one_pass(matcher: *Matcher) OnePass {
 
 /// Where a cache of `cache_len` words holds a program's two DFAs: one set of lists that both take
 /// (decision 86 as amended on 2026-11-25), each DFA's least, and the rest divided as the owner
-/// ruled on 2026-11-23. Null where the lists and the two leasts do not fit.
+/// ruled on 2026-11-26. Null where the lists and the two leasts do not fit.
 const Division = struct { lists_len: usize, forward_len: usize };
 
 fn divide(program: *const Program, cache_len: usize) ?Division {
