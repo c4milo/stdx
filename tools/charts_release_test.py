@@ -1,7 +1,7 @@
 """Tests of tools/charts_release.py and tools/charts_release.sh: python3 -I tools/charts_release_test.py.
 
-The reports are the committed runs of bench/results/, each standing in for a release's job and,
-where a test changes a cell, for the previous release's job.
+The reports are the committed runs of bench/results/, each standing in for a release's job and
+for the previous release's archived report of it, where a test changes a cell.
 """
 import os
 import re
@@ -23,21 +23,35 @@ ORDINALS = ["", "second-", "third-", "fourth-", "fifth-", "sixth-", "seventh-", 
 SCRIPT = os.path.join(TOOLS, "charts_release.sh")
 
 
-def artifacts(folder, previous=True):
-    """A run's artifacts for every job the committed manifest asks for."""
-    runners = {"aarch64": "ubuntu-26.04-arm", "x86_64": "ubuntu-26.04"}
-    for arch, runner in runners.items():
-        for benchmark in ("deflate", "zstd", "brotli", "json", "checksum", "base64"):
-            add(folder, f"bench-{benchmark}-{runner}-1", f"2026-11-20-{benchmark}-{arch}.md", previous)
+RUNNERS = {"aarch64": "ubuntu-26.04-arm", "x86_64": "ubuntu-26.04"}
+CODECS = ("deflate", "zstd", "brotli", "json", "checksum", "base64")
+
+
+def jobs():
+    """Each job the committed manifest asks for: (benchmark, architecture, job, committed report)."""
+    for arch in RUNNERS:
+        for benchmark in CODECS:
+            yield benchmark, arch, 1, f"2026-11-20-{benchmark}-{arch}.md"
         for job, ordinal in enumerate(ORDINALS, 1):
-            add(folder, f"bench-regex-{runner}-{job}", f"2026-11-24-regex-places-{ordinal}{arch}.md", previous)
+            yield "regex", arch, job, f"2026-11-24-regex-places-{ordinal}{arch}.md"
 
 
-def add(folder, name, report, previous):
+def artifacts(folder):
+    """A run's artifacts for every job of the manifest."""
+    for benchmark, arch, job, report in jobs():
+        add(folder, f"bench-{benchmark}-{RUNNERS[arch]}-{job}", report)
+
+
+def kept(folder):
+    """The previous release's archive of reports, extracted: the same committed reports."""
+    os.makedirs(os.path.join(folder, "reports"))
+    for benchmark, arch, job, report in jobs():
+        shutil.copy(os.path.join(RESULTS, report), os.path.join(folder, "reports", f"{benchmark}-{arch}-{job}.md"))
+
+
+def add(folder, name, report):
     os.makedirs(os.path.join(folder, name))
     shutil.copy(os.path.join(RESULTS, report), os.path.join(folder, name, "bench-report.md"))
-    if previous:
-        shutil.copy(os.path.join(RESULTS, report), os.path.join(folder, name, "base-report.md"))
 
 
 def scale(path, section, row, column, factor):
@@ -82,15 +96,14 @@ def scale_level(path, section, level, column, factor):
 
 def test_jobs_in():
     with tempfile.TemporaryDirectory() as folder:
-        add(folder, "bench-deflate-ubuntu-26.04-arm-1", "2026-11-20-deflate-aarch64.md", True)
-        add(folder, "bench-regex-ubuntu-26.04-2", "2026-11-24-regex-places-x86_64.md", False)
-        add(folder, "bench-regex-other-runner-1", "2026-11-24-regex-places-x86_64.md", False)
+        add(folder, "bench-deflate-ubuntu-26.04-arm-1", "2026-11-20-deflate-aarch64.md")
+        add(folder, "bench-regex-ubuntu-26.04-2", "2026-11-24-regex-places-x86_64.md")
+        add(folder, "bench-regex-other-runner-1", "2026-11-24-regex-places-x86_64.md")
         os.makedirs(os.path.join(folder, "bench-zstd-ubuntu-26.04-1"))
         found = charts_release.jobs_in(folder)
         assert set(found) == {("deflate", "aarch64"), ("regex", "x86_64")}, found
-        job, report, previous = found[("deflate", "aarch64")][0]
-        assert job == 1 and report.endswith("bench-report.md") and previous.endswith("base-report.md")
-        assert found[("regex", "x86_64")][0][2] is None
+        job, report = found[("deflate", "aarch64")][0]
+        assert job == 1 and report.endswith("bench-report.md")
         try:
             charts_release.chart_jobs(found, "x86_64", "regex", 2)
         except ValueError as error:
@@ -99,49 +112,143 @@ def test_jobs_in():
             raise AssertionError("no error for a missing job")
 
 
+def test_kept_in():
+    with tempfile.TemporaryDirectory() as folder:
+        assert charts_release.kept_in(folder) == {} and charts_release.kept_in("") == {}
+        os.makedirs(os.path.join(folder, "reports"))
+        for name in ("regex-x86_64-10.md", "regex-x86_64-2.md", "deflate-aarch64-1-previous.md", "notes.md"):
+            open(os.path.join(folder, "reports", name), "w").write("")
+        found = charts_release.kept_in(folder)
+        # By job number, and an earlier run's previous reports are left out.
+        assert list(found) == [("regex", "x86_64")], found
+        assert [os.path.basename(p) for p in found[("regex", "x86_64")]] == ["regex-x86_64-2.md", "regex-x86_64-10.md"]
+
+
+def release(folder, change=None):
+    """Draws every chart of a release whose previous release's reports `change` alters."""
+    artifacts(os.path.join(folder, "in"))
+    kept(os.path.join(folder, "kept"))
+    if change:
+        change(os.path.join(folder, "kept", "reports"))
+    out = os.path.join(folder, "out")
+    charts_release.main([os.path.join(folder, "in"), out, "v0.4.0", "v0.3.0", os.path.join(folder, "kept")])
+    return out
+
+
+def slower_then(reports):
+    """The previous release: two gzip rows, gzip's level 6 and a regex row of every N2 job changed."""
+    deflate = os.path.join(reports, "deflate-aarch64-1.md")
+    scale(deflate, "Decoding, gzip at zlib level 6", "canterbury/alice29.txt", "stdx, MB/s", 1 / 1.2)
+    scale(deflate, "Decoding, gzip at zlib level 6", "canterbury/kennedy.xls", "stdx, MB/s", 1.2)
+    scale_level(deflate, "Encoding speed, gzip", "6", "stdx, MB/s", 1 / 1.3)
+    for job in range(1, len(ORDINALS) + 1):
+        scale(os.path.join(reports, f"regex-aarch64-{job}.md"), "Search in 1 MiB, MB/s", "literal: a word", "stdx", 1 / 1.25)
+
+
 def test_release():
     with tempfile.TemporaryDirectory() as folder:
-        artifacts(os.path.join(folder, "in"))
-        previous = os.path.join(folder, "in", "bench-deflate-ubuntu-26.04-arm-1", "base-report.md")
-        scale(previous, "Decoding, gzip at zlib level 6", "canterbury/alice29.txt", "stdx, MB/s", 1 / 1.2)
-        scale(previous, "Decoding, gzip at zlib level 6", "canterbury/kennedy.xls", "stdx, MB/s", 1.2)
-        # stdx's gzip level 6 encoded 30% slower at the previous release.
-        scale_level(previous, "Encoding speed, gzip", "6", "stdx, MB/s", 1 / 1.3)
-        # Each of the regex jobs on the N2 ran `a word` 25% slower at the previous release.
-        for job in range(1, len(ORDINALS) + 1):
-            regex = os.path.join(folder, "in", f"bench-regex-ubuntu-26.04-arm-{job}", "base-report.md")
-            scale(regex, "Search in 1 MiB, MB/s", "literal: a word", "stdx", 1 / 1.25)
-        out = os.path.join(folder, "out")
-        charts_release.main([os.path.join(folder, "in"), out, "v0.4.0", "v0.3.0"])
+        out = release(folder, slower_then)
         svgs = sorted(name for name in os.listdir(out) if name.endswith(".svg"))
         assert len(svgs) == 18 and "regex-rebar-others-x86_64.svg" in svgs, svgs
-        assert len(os.listdir(os.path.join(out, "reports"))) == 2 * 48
+        assert len(os.listdir(os.path.join(out, "reports"))) == 48
         chart = open(os.path.join(out, "deflate-aarch64.svg")).read()
         marks = chart.split("</style>")[1]
         assert marks.count('class="better"') == 2 and marks.count('class="worse"') == 1, "two ▲ and one ▼"
-        assert "measured in the same jobs" in chart
+        assert "past the noise of both" in chart
         assert '>6 <tspan class="better">▲30%</tspan></text>' in chart, "the encoder's level marks its change"
-        assert "| stdx level 6 | ▲ 30% faster |" in open(os.path.join(out, "notes.md")).read()
         regex = open(os.path.join(out, "regex-aarch64.svg")).read()
         assert 'a word <tspan class="better">▲25%</tspan>' in regex, "the regex chart marks its row"
         notes = open(os.path.join(out, "notes.md")).read()
         assert notes.startswith(charts_release.HEADING + "\n")
+        assert "| stdx level 6 | ▲ 30% faster |" in notes
         assert "| search for a literal: every match in 1 MiB | a word | ▲ 25% faster |" in notes, notes
         assert "| canterbury/alice29.txt | ▲ 20% faster |" in notes and "| canterbury/kennedy.xls | ▼ 17% slower |" in notes
         assert "| stdx's DEFLATE against its baselines, on Neoverse-N2 | 2 | 1 | 42 |" in notes, notes
+        assert "mark nothing" not in notes
         page = open(os.path.join(out, "benchmarks.md")).read()
         assert page.startswith("# stdx's benchmarks at v0.4.0") and "![stdx's DEFLATE" in page
-        assert "Since v0.3.0: 2 rows faster and 1 slower by 5% or more, of 42" in page, page
+        assert "Since v0.3.0: 2 rows faster and 1 slower by 5% or more, of 42." in page, page
+
+
+def other_model(reports):
+    """The previous release's x86-64 deflate job and every x86-64 regex job ran on another CPU."""
+    paths = [os.path.join(reports, "deflate-x86_64-1.md")]
+    paths += [os.path.join(reports, f"regex-x86_64-{job}.md") for job in range(1, len(ORDINALS) + 1)]
+    for path in paths:
+        text = re.sub(r"\| CPU model \| [^|]*\|", "| CPU model | Another CPU |", open(path).read())
+        open(path, "w").write(text)
+
+
+def set_cell(path, section, row, column, text):
+    """Writes `text` into one cell of a report."""
+    lines, current, head = open(path).read().split("\n"), None, None
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            current, head = line[3:].strip(), None
+            continue
+        if current != section or not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        if head is None:
+            head = cells
+        elif cells[0] == row:
+            cells[head.index(column)] = text
+            lines[i] = "| " + " | ".join(cells) + " |"
+    open(path, "w").write("\n".join(lines))
+
+
+def noisy_then(reports):
+    """The previous release: a gzip row 10% slower whose cell spread 12%, and a regex row whose
+    jobs spread from 10% slower to three times as fast, so that neither passes its noise."""
+    # The committed report times stdx at 1074 MB/s on this row: 976.4 is 10% slower.
+    set_cell(os.path.join(reports, "deflate-aarch64-1.md"), "Decoding, gzip at zlib level 6",
+             "canterbury/plrabn12.txt", "stdx, MB/s", "976.4 ± 12.0%")
+    for job in range(1, len(ORDINALS) + 1):
+        factor = 1 / 1.1 if job <= 10 else 3.0
+        scale(os.path.join(reports, f"regex-aarch64-{job}.md"), "Search in 1 MiB, MB/s",
+              "literal: a word that is not there", "stdx", factor)
+
+
+def test_noise():
+    with tempfile.TemporaryDirectory() as folder:
+        out = release(folder, noisy_then)
+        deflate = open(os.path.join(out, "deflate-aarch64.svg")).read()
+        regex = open(os.path.join(out, "regex-aarch64.svg")).read()
+        assert "canterbury/plrabn12.txt <tspan" not in deflate, "a change inside the cells' spread is marked"
+        assert "a word that is not there <tspan" not in regex, "a change inside the jobs' interval is marked"
+        assert "plrabn12" not in open(os.path.join(out, "notes.md")).read()
+
+
+def test_other_model():
+    with tempfile.TemporaryDirectory() as folder:
+        out = release(folder, other_model)
+        for name in ("deflate-x86_64", "regex-x86_64"):
+            chart = open(os.path.join(out, f"{name}.svg")).read()
+            assert "ran this chart on another CPU model" in chart, name
+            assert 'class="was"' not in chart.split("</style>")[1], name
+        assert "past the noise of both" in open(os.path.join(out, "deflate-aarch64.svg")).read()
+        notes = open(os.path.join(out, "notes.md")).read()
+        assert "mark nothing, since v0.3.0 ran them on another CPU model" in notes, notes
+        assert "| stdx's DEFLATE against its baselines, on Intel" not in notes
+
+
+def test_no_reports():
+    with tempfile.TemporaryDirectory() as folder:
+        artifacts(os.path.join(folder, "in"))
+        out = os.path.join(folder, "out")
+        charts_release.main([os.path.join(folder, "in"), out, "v0.4.0", "v0.3.0", os.path.join(folder, "absent")])
+        assert "left no reports of this chart" in open(os.path.join(out, "deflate-aarch64.svg")).read()
 
 
 def test_first_release():
     with tempfile.TemporaryDirectory() as folder:
-        artifacts(os.path.join(folder, "in"), previous=False)
+        artifacts(os.path.join(folder, "in"))
         out = os.path.join(folder, "out")
-        charts_release.main([os.path.join(folder, "in"), out, "v0.1.0", ""])
+        charts_release.main([os.path.join(folder, "in"), out, "v0.1.0", "", ""])
         notes = open(os.path.join(out, "notes.md")).read()
         assert "No release came before v0.1.0" in notes, notes
-        assert 'class="better"' not in open(os.path.join(out, "deflate-aarch64.svg")).read().split("</style>")[1]
+        chart = open(os.path.join(out, "deflate-aarch64.svg")).read()
+        assert 'class="better"' not in chart.split("</style>")[1] and "marks no change" not in chart
 
 
 def shell(command, cwd, env=None):
@@ -182,6 +289,7 @@ case "$1 $2" in
     "release view") [ -f "$here/body" ] || exit 1; [ "${4:-}" = --json ] && cat "$here/body"; exit 0 ;;
     "release edit") cp "$5" "$here/body" ;;
     "release create") shift 2; while [ "$#" -gt 0 ]; do [ "$1" = --notes-file ] && cp "$2" "$here/body"; shift; done ;;
+    "release download") [ -f "$here/archive.tar.gz" ] || exit 1; cp "$here/archive.tar.gz" "$7/bench-reports-$3.tar.gz" ;;
 esac
 """
 
@@ -209,6 +317,21 @@ def test_notes():
         shell(f'release_notes "{notes}" v9.9.9', folder, env)
         body = open(os.path.join(bin_folder, "body"), newline="").read()
         assert body == "# stdx 9.9.9\r\n\r\n## Benchmarks\n\nnew\n", repr(body)
+
+
+def test_previous():
+    with tempfile.TemporaryDirectory() as folder:
+        env, bin_folder = stub(folder)
+        os.makedirs(os.path.join(folder, "archive", "reports"))
+        open(os.path.join(folder, "archive", "reports", "deflate-aarch64-1.md"), "w").write("report")
+        subprocess.run(["tar", "-czf", os.path.join(bin_folder, "archive.tar.gz"), "-C", os.path.join(folder, "archive"), "reports"], check=True)
+        shell(f'release_previous v9.9.9 "{folder}/kept"', folder, env)
+        assert open(os.path.join(folder, "kept", "reports", "deflate-aarch64-1.md")).read() == "report"
+        assert os.listdir(os.path.join(folder, "kept")) == ["reports"]
+        # A release with no archive leaves the folder empty.
+        os.remove(os.path.join(bin_folder, "archive.tar.gz"))
+        shell(f'release_previous v9.9.8 "{folder}/none"', folder, env)
+        assert os.listdir(os.path.join(folder, "none")) == []
 
 
 def test_open():

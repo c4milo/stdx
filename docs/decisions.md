@@ -5843,17 +5843,19 @@ last part lists what still waits on a ruling.
       keeps, and for marks that show whether stdx became faster or slower at each release.
       - The bench workflow runs on each release tag, and when a person names a tag in its
         `release` input. It runs each benchmark on both runners: one job for each codec, and 18
-        for the regular expressions, as `bench/charts.txt` names. Each job measures the previous
-        release first, by its `base`, and then the release (`tools/bench_release.py`).
+        for the regular expressions, as `bench/charts.txt` names (`tools/bench_release.py`).
       - Once every job passed, `tools/charts_release.py` draws each chart. Then
-        `tools/charts_release.sh` attaches the charts, a page and the reports to the release. It
-        writes the same files as the one commit of the branch `charts`, and adds a section of
-        counts to the release's notes.
-      - A row's change is its ratio at the release over its ratio at the previous release, in one
-        job, and the median of its jobs. A row is faster or slower when the change is 5% or more.
-        With one job the change must also pass the spread of its four cells, combined. With 5 jobs
-        or more, its interval by the sign test must lie on that side of 1
-        (`tools/chart_change.py`).
+        `tools/charts_release.sh` attaches the charts, a page and an archive of the reports to the
+        release. It writes the same files as the one commit of the branch `charts`, and adds a
+        section of counts to the release's notes.
+      - Each chart compares with the same chart drawn from the previous release's archive of
+        reports, as connect-zig compares its charts. Two runs on different CPU models do not
+        compare: such a chart marks nothing and says so. The arm64 runner gives a Neoverse N2 to
+        each job, and the x86-64 runner gives one of several models.
+      - A row's change is its ratio at the release over its ratio at the previous release: the
+        median of the jobs for the regex charts. A row is faster or slower when the change is 5%
+        or more and passes the noise of both releases: the spread of a row's cells, or the half
+        width of its interval (`tools/chart_change.py`).
       - A faster row's name ends with a green ▲ and the change, and a slower row's with a red ▼. A
         dashed line marks the row's ratio at the previous release.
       - Each page on main shows each chart from the branch, with an alt text that names the chart
@@ -5865,9 +5867,11 @@ last part lists what still waits on a ruling.
         `docs/images/` and the committed charts go.
 
       The alternatives refused:
-      - The values that the previous release stored, which connect-zig compares. They cost half
-        the runner time. But a chart then marks nothing where the runner's CPU model differs from
-        the previous release's, and the x86-64 charts had come from four models.
+      - The previous release measured again in each job, which the owner chose first the same
+        day. It marks every chart, x86-64 included, at twice the runner time. The owner then chose
+        connect-zig's way.
+      - Values of a file of their own, as connect-zig keeps. The archive of reports holds the
+        same numbers, and the next release draws the previous chart from it.
       - A pull request to main after each release, with the new counts. It keeps the counts on
         main, and costs a merge for each release.
       - 6 or 10 regex jobs. The x86-64 chart needs 5 jobs on one model, and the runners split the

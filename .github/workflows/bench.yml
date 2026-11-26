@@ -2,9 +2,9 @@
 # recorded beside its numbers. A person starts one benchmark by hand: the `base` input names a
 # commit or branch to benchmark first in the same job, so that an A/B pairs one CPU, since the x86-64
 # runner draws a different CPU from run to run (decision 20). On each release tag, and when a person
-# names a tag in `release`, the workflow runs every job that bench/charts.txt asks for and measures
-# the previous release first in each. `charts` then draws each chart with the rows that changed,
-# attaches them to the release, writes them to the branch `charts`, and adds the counts to the
+# names a tag in `release`, the workflow runs every job that bench/charts.txt asks for. `charts`
+# then draws each chart, compares it with the previous release's reports, attaches the charts and
+# the reports to the release, writes them to the branch `charts`, and adds the counts to the
 # release's notes (decision 85 as amended on 2026-11-26).
 name: bench
 
@@ -32,8 +32,8 @@ permissions:
 
 jobs:
   # The jobs to run, the tree each one measures and the tree it measures first. For a release they
-  # come from bench/charts.txt and the tags (tools/bench_release.py), and the release opens with the
-  # notes of docs/releases/<tag>.md (tools/charts_release.sh).
+  # come from bench/charts.txt, `previous` is the release before it (tools/bench_release.py), and
+  # the release opens with the notes of docs/releases/<tag>.md (tools/charts_release.sh).
   plan:
     runs-on: ubuntu-26.04
     permissions:
@@ -43,6 +43,7 @@ jobs:
       ref: ${{ steps.plan.outputs.ref }}
       base: ${{ steps.plan.outputs.base }}
       tag: ${{ steps.plan.outputs.tag }}
+      previous: ${{ steps.plan.outputs.previous }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,8 +59,9 @@ jobs:
             {
               echo "jobs=$(python3 tools/bench_release.py matrix)"
               echo "ref=$TAG"
-              echo "base=$(python3 tools/bench_release.py previous "$TAG")"
+              echo "base="
               echo "tag=$TAG"
+              echo "previous=$(python3 tools/bench_release.py previous "$TAG")"
             } >> "$GITHUB_OUTPUT"
           else
             {
@@ -67,6 +69,7 @@ jobs:
               echo "ref=$GITHUB_SHA"
               echo "base=$BASE"
               echo "tag="
+              echo "previous="
             } >> "$GITHUB_OUTPUT"
           fi
       - name: Open the release
@@ -182,10 +185,10 @@ jobs:
             bench-report.md
             base-report.md
   # A release's charts, once every job of the release passed: tools/charts_release.py draws each
-  # chart with the rows that changed since the previous release, and tools/charts_release.sh
-  # attaches them to the release, writes them to the branch `charts` and adds the counts to the
-  # release's notes. The tools come from this workflow's commit, and the reports from the release's
-  # tree.
+  # chart and compares it with the previous release's archive of reports, and
+  # tools/charts_release.sh attaches the charts and the reports to the release, writes them to the
+  # branch `charts` and adds the counts to the release's notes. The tools come from this workflow's
+  # commit, and the reports from the release's tree.
   charts:
     needs: [plan, bench]
     if: needs.plan.outputs.tag != ''
@@ -197,12 +200,15 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.plan.outputs.tag }}
-      BASE: ${{ needs.plan.outputs.base }}
+      PREVIOUS: ${{ needs.plan.outputs.previous }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Take the run's reports
         run: gh run download "$GITHUB_RUN_ID" --pattern 'bench-*' --dir bench-artifacts
+      - name: Take the previous release's reports
+        if: env.PREVIOUS != ''
+        run: tools/charts_release.sh previous "$PREVIOUS" previous-reports
       - name: Draw the charts
-        run: python3 -I tools/charts_release.py bench-artifacts charts-out "$TAG" "$BASE"
+        run: python3 -I tools/charts_release.py bench-artifacts charts-out "$TAG" "$PREVIOUS" previous-reports
       - name: Publish the charts
         run: tools/charts_release.sh publish charts-out "$TAG"

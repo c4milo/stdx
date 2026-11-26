@@ -56,7 +56,7 @@ Each call follows the [streaming contract](../../codec/README.md).
 The chart is the latest release's: one job on each of GitHub's runners, which the `bench` workflow
 runs on each release tag. A blue bar is ahead, a gray bar is level inside the noise, and an orange
 bar is behind. An encoder's panel plots speed against compression ratio. A green ▲ or a red ▼ after a row's name marks a row 5% or more faster or
-slower than at the previous release, measured in the same job.
+slower than at the previous release, where both ran on one CPU model.
 [The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists the counts of each panel, and
 [`docs/benchmarks.md`](../../../docs/benchmarks.md#zstandard) says how to read the chart and run the
 benchmark again.
