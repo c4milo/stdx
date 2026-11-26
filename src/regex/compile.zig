@@ -146,34 +146,34 @@ const Looks = struct {
     any: bool = false,
     ahead: bool = false,
 
-    fn of(instructions: []const Instruction) Looks {
-        var looks: Looks = .{};
-        for (instructions) |instruction| {
-            if (instruction.kind != .look) continue;
-            looks.any = true;
-            looks.ahead = looks.ahead or instruction.look.reads_ahead();
-        }
-        return looks;
+    fn note(looks: *Looks, look: program_file.Look) void {
+        looks.any = true;
+        looks.ahead = looks.ahead or look.reads_ahead();
     }
 };
 
 /// Writes each node's number in one half of a program, from 0, and `no_node` in each range that a
-/// `ranges` node holds after it. Gives the count of nodes.
-fn number_nodes(half: []Instruction) u32 {
+/// `ranges` node holds after it. Gives the count of nodes. Where `looks` is a `*Looks`, notes the
+/// half's assertions in the same pass: a pass of its own cost a compile 4% more instructions.
+fn number_nodes(half: []Instruction, looks: anytype) u32 {
     var nodes: u32 = 0;
-    var members: u32 = 0;
-    for (half) |*instruction| {
-        if (members > 0) {
-            assert(instruction.kind == .range);
-            instruction.node = program_file.no_node;
-            members -= 1;
-            continue;
-        }
+    var index: usize = 0;
+    // Each turn numbers one node and passes the ranges it holds: at most the half's length.
+    while (index < half.len) : (index += 1) {
+        const instruction = &half[index];
         instruction.node = nodes;
         nodes += 1;
-        if (instruction.kind == .ranges) members = instruction.arg;
+        // Two compares, not a switch: the switch's table cost the pass 7 instructions a node.
+        if (instruction.kind == .ranges) {
+            for (half[index + 1 ..][0..instruction.arg]) |*member| {
+                assert(member.kind == .range);
+                member.node = program_file.no_node;
+            }
+            index += instruction.arg;
+        } else if (@TypeOf(looks) != void and instruction.kind == .look) {
+            looks.note(instruction.look);
+        }
     }
-    assert(members == 0);
     return nodes;
 }
 
@@ -196,11 +196,11 @@ pub fn compile(pattern: []const u8, options: Options, storage: []Instruction) er
         reverse_entry = reverse.entry;
     }
     const instructions = storage[0..builder.len];
-    const forward_nodes = number_nodes(instructions[0..forward_len]);
-    const reverse_nodes = number_nodes(instructions[forward_len..]);
+    var looks: Looks = .{};
+    const forward_nodes = number_nodes(instructions[0..forward_len], &looks);
+    const reverse_nodes = number_nodes(instructions[forward_len..], {});
     assert(forward_nodes == forward_len - forward_held);
     assert(reverse_nodes == (builder.len - forward_len) - (builder.held - forward_held));
-    const looks = Looks.of(instructions[0..forward_len]);
     const classes = octet_classes.compute(instructions, looks.any);
     return .{
         .instructions = instructions,

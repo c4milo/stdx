@@ -11611,6 +11611,38 @@ to 12 are reordered and nothing else changes.
     `tools/matcher_model_check.sh`, `tools/fuzz.sh 20K` over `regex`, and `zig build
     differential-regex -Doracles`, which ran 12,437,544 cases with 0 failed.
 
+  The compile's pass that numbers nodes (the owner's ruling of 2026-11-26):
+  - The owner ruled that the branch fixes its losses against main's head before it goes to main.
+    The compile of `(?:[A-Z][a-z]+\s*){10,100}` took 256,631 instructions in `3737150` and 235,184
+    in `fdfbb70`. `number_nodes`, which `3afc816` added, took about 19,400 of them: a pass over
+    the program after it was built, and a `switch` on each instruction's kind.
+  - `number_nodes` now passes the ranges a `ranges` node holds in one step, notes the forward
+    half's assertions in the same pass, which a pass of `Looks` of its own did, and tests the
+    kind with two compares.
+  - Numbering each node in `Builder.emit` took 311,576 instructions: a repeat writes and drops
+    far more instructions than the program keeps.
+  **Check:** the regex tests, as before; mutations; the filter under callgrind and its time.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` exits 0.
+  - The filter, built ReleaseSafe for the baseline CPU, counted the instructions of one compile
+    and the searcher's start.
+
+    | Pattern | `fdfbb70` | `3737150` | Now |
+    | --- | ---: | ---: | ---: |
+    | `(?:[A-Z][a-z]+\s*){10,100}` | 235,184 | 256,631 | 243,444 |
+    | `[A-Za-z]{10}\s+[\s\S]{0,100}Result…`, rebar's | 299,390 | 314,122 | 307,168 |
+    | rebar's date pattern, `(?i)` | 7,688,000 | 8,273,345 | 8,086,391 |
+    | `^([0-9]{1,3}\.){3}[0-9]{1,3}$` | 40,799 | 41,878 | 41,394 |
+
+  - In seven passes in turns on one core of the container, the first pattern's compile took a
+    median of 14,184 ns in `fdfbb70`, 15,261 in `3737150` and 14,955 now. `fdfbb70` with a field
+    of 4 bytes more in `Instruction`, 16 bytes as `node` makes it, took 14,612 ns and 238,338
+    instructions. So about 3% of the time is the size of `Instruction`, and most of the rest is
+    `Fragment.least`, which claim R13 reads. Each was ruled, so neither is cut here.
+  - Mutations: 6, each CAUGHT, against `zig build test-regex`. The held ranges not passed; a
+    held range given a number; each node numbered one on; no assertion noted; `reads_ahead`
+    ignored; an assertion noted only past the half's end.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
