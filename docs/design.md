@@ -10931,6 +10931,9 @@ to 12 are reordered and nothing else changes.
     - The four `opt/fixed-length` rows whose pattern is the whole text ran 18% to 26% slower. A
       count of `^\w{30}$` took 52 instructions at `1567a18` and 73 at `5222087`, which works out
       `counts_ends` before it refuses the text. `count` refuses it before the loop again, at 57.
+      The runs of claim R8's bound measured `fc474bf`: the four rows ran 1.16 to 1.28 times as
+      fast in all four jobs. A spread of 33.9% in one job keeps `go33484-2` out of decision 20's
+      rule.
     - Four compile rows ran 3% to 16% slower, and on the N2 alone most compile rows 2% to 18%.
       Under callgrind a compile and ready took 0.6% to 2.1% more instructions: 25,599 in place of
       25,454 for `Pharaoh`, and 46,639 in place of 45,658 for `href="[^"]*"`. The rest is not an
@@ -10955,10 +10958,17 @@ to 12 are reordered and nothing else changes.
     the owner's ruling.
   **Check:** the backtracker gives way past the bound where the matcher's tables hold the bits,
   and keeps a span under it; the probe of the row; mutations.
-  **Check passed in part, 2026-11-25.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container, and two
+  paired runs on GitHub's runners.
   - `zig build test` exits 0.
   - The probe ran at 1.75 to 2.46 MB/s with the bound, and 2.00 to 2.50 without it: a span of
     up to about 13 octets fits under 32,768 words. With claim R8 off it ran at 6.56 to 7.14.
+  - The runs 45717371332 and 45717375978 measured `fc474bf`, the bound and `count`'s check
+    before its loop, against `5222087`, each in one job on the N2 and one on the EPYC 9V45. By
+    decision 20's rule, 3 of the 284 rows ran faster in all four jobs, and none slower.
+    - `overlapping-words/english` ran 1.61 and 1.64 times as fast on the N2, and within the
+      spread on x86-64. It now runs at 1.54 and 1.55 of Rust's crate on the N2, 6.33 against
+      4.09 MB/s, and at 1.50 and 1.54 on x86-64.
   - Mutations: 3, each CAUGHT, against `zig build test-regex`: no bound, twice the bound, and a
     bound of no word.
 
