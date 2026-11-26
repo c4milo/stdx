@@ -4,7 +4,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Span = @import("../matcher.zig").Span;
-const Literal = @import("../literal.zig").Literal;
+const literal_file = @import("../literal.zig");
+const Literal = literal_file.Literal;
 const Searcher = @import("searcher.zig").Searcher;
 
 /// Every match of a haystack in order, none inside another: each search starts where the match
@@ -122,7 +123,8 @@ pub const Matches = struct {
             if (matches.places_at == from) return matches.take_place(literal);
             matches.places_len = 0;
         }
-        if (!literal.takes_places(matches.haystack.len, from)) return literal.find(matches.haystack, from);
+        // `has_kernels` first, a constant: with no variant object, no call of it is compiled.
+        if (!literal_file.has_kernels or !literal.takes_places(matches.haystack.len, from)) return literal.find(matches.haystack, from);
         const found = literal.find_places(matches.haystack, from, &matches.places);
         matches.places_len = @intCast(found);
         matches.places_next = 0;

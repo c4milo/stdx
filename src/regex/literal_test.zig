@@ -252,6 +252,8 @@ test "takes_places takes a literal of two octets or more with more than near_len
 }
 
 test "find_places in the variant object gives the places a loop of find gives" {
+    // A constant first: with no variant object, no call of it is compiled.
+    if (comptime !has_kernels) return error.SkipZigTest;
     if (!test_has_avx2(platform.CpuFeatures.detect())) return;
     var generator = Generator.init(0x91ACF);
     var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };

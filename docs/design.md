@@ -11385,6 +11385,12 @@ to 12 are reordered and nothing else changes.
     places; a new batch skips its first; each match drops the batch; the variant object finds
     one place a call. A new batch that skips its first place passed every test until a test
     ran `Matches` with the host's features: the searcher's tests ran with none.
+  - The N2's jobs of the runs 45860204593 and 45860209411 failed to link: `Matches` called
+    `find_places` behind `takes_places`, which the compiler does not know, so it compiled a call
+    of the variant object, which an aarch64 build does not hold. `Matches` and the test now ask
+    `has_kernels` first, a constant. `zig build test-regex -Dtarget=aarch64-linux -fqemu` runs
+    the tests for aarch64 in the container. Before the fix it failed to link, as the N2 did,
+    and after it the tests pass. A mutation that removes the constant fails to link: CAUGHT.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
