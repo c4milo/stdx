@@ -11337,6 +11337,12 @@ to 12 are reordered and nothing else changes.
     state tells it apart. A claim with a DFA that is not ready has given the DFAs up, which the
     next check reads, or is claim R13 with no reverse DFA, which reads with the forward DFA
     alone. A new test holds that last case to the matcher.
+  - The runs 45850846389 and 45850851910 measured `20361c8`, which holds this change, against
+    `7e49395`, each in one job on the N2 and one on x86-64, an EPYC 9V74 and an EPYC 9V45. By
+    decision 20's rule, 2 of the 284 rows ran faster in all four jobs, and none slower:
+    `rsc/medium-1k` and `rsc/medium-32k`, 1.040 to 1.055 times as fast.
+    - The rows of claim R12 ran 1.014 to 1.071 times as fast in three jobs. In the fourth, on
+      the EPYC 9V45, `rsc/hard-1k` and `rsc/hard-32k` ran at 0.993 and 1.006.
 
   The places of a literal, eight a call (the owner's ruling of 2026-11-26):
   - `sherlock/the-upper` counts `The` at 0.61 to 0.90 of Rust's crate, the lowest on x86-64.
