@@ -145,19 +145,20 @@ fn judge_one_pass(matcher: *Matcher) OnePass {
     return if (searcher_edge.starts_at_text_start(&matcher.program)) .at_text else .yes;
 }
 
-/// The words of a cache of `cache_len` words that the forward DFA takes, where the program has a
-/// reverse half. Each DFA takes its least, and the two divide the rest: the forward DFA takes
-/// `dfa_forward_parts` of `dfa_cache_parts`, and the reverse DFA the rest (decision 86, the
-/// owner's ruling of 2026-11-23). Where the two leasts do not fit, no division starts both DFAs.
-/// A search needs both, and `is_match` runs the forward DFA alone, so it takes the whole cache.
-fn forward_part(program: *const Program, cache_len: usize) usize {
-    const forward_least = Dfa.memory_len_min(program, program.forward);
-    const reverse_least = Dfa.memory_len_min(program, program.reverse);
-    if (forward_least + reverse_least > cache_len) return cache_len;
-    const spare = cache_len - forward_least - reverse_least;
-    const forward_len = forward_least + spare / constants.dfa_cache_parts * constants.dfa_forward_parts;
-    assert(cache_len - forward_len >= reverse_least);
-    return forward_len;
+/// Where a cache of `cache_len` words holds a program's two DFAs: one set of lists that both take
+/// (decision 86 as amended on 2026-11-25), each DFA's least, and the rest divided as the owner
+/// ruled on 2026-11-23. Null where the lists and the two leasts do not fit.
+const Division = struct { lists_len: usize, forward_len: usize };
+
+fn divide(program: *const Program, cache_len: usize) ?Division {
+    const nodes = @max(dfa_file.nodes_of(program, program.forward), dfa_file.nodes_of(program, program.reverse));
+    const lists_len = dfa_file.lists_len(nodes);
+    const least = dfa_file.cache_len_min(program);
+    if (lists_len + least + least > cache_len) return null;
+    const spare = cache_len - lists_len - least - least;
+    const forward_len = least + spare / constants.dfa_cache_parts * constants.dfa_forward_parts;
+    assert(cache_len - lists_len - forward_len >= least);
+    return .{ .lists_len = lists_len, .forward_len = forward_len };
 }
 
 pub const Groups = @import("searcher_groups.zig").Groups;
@@ -239,26 +240,33 @@ pub const Searcher = struct {
         assert(memory.len >= matcher_len);
         searcher.matcher.init(program, .{ .captures = .groups }, memory[0..matcher_len]);
         const cache: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(memory[matcher_len..]));
-        const has_reverse = program.reverse != program_file.no_entry;
-        const forward_len = if (has_reverse) forward_part(program, cache.len) else cache.len;
         searcher.at_text = searcher_edge.starts_at_text_start(program);
         // Claim R11: an anchored scan waits for no match, so it takes no skip and no stay.
         const waits = !(claims.text_start and searcher.at_text);
         const skip = claims.start_skip and waits;
-        searcher.forward_ready = searcher.forward.init(
-            program,
-            .{ .entry = program.forward, .kind = .first, .anchored = !waits, .skip = skip, .literal = skip and claims.literal, .literal_set = skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs, .stays = claims.stays and waits },
-            cache[0..forward_len],
-        );
-        searcher.reverse_ready = has_reverse and searcher.reverse.init(
-            program,
-            .{ .entry = program.reverse, .kind = .longest, .anchored = true },
-            cache[forward_len..],
-        );
+        const forward_config: dfa_file.Config = .{ .entry = program.forward, .kind = .first, .anchored = !waits, .skip = skip, .literal = skip and claims.literal, .literal_set = skip and claims.literal_set, .wide = wide_of(features), .ssse3 = ssse3_of(features), .pairs = claims.pairs, .stays = claims.stays and waits };
+        searcher.init_dfas(program, forward_config, cache);
         searcher.give_ups = 0;
         searcher.trie = .{ .memory = cache };
         searcher.claims_automaton = claims.automaton;
         searcher.init_claims(program, claims);
+    }
+
+    /// Readies both DFAs where `divide` places them, and else the forward DFA alone in the whole
+    /// cache, with lists of its own: a search needs both, and `is_match` runs the forward one.
+    fn init_dfas(searcher: *Searcher, program: *const Program, forward_config: dfa_file.Config, cache: []u32) void {
+        const reverse_config: dfa_file.Config = .{ .entry = program.reverse, .kind = .longest, .anchored = true };
+        const has_reverse = program.reverse != program_file.no_entry;
+        const division = (if (has_reverse) divide(program, cache.len) else null) orelse {
+            searcher.forward_ready = searcher.forward.init(program, forward_config, cache);
+            searcher.reverse_ready = has_reverse and searcher.reverse.init(program, reverse_config, &.{});
+            return;
+        };
+        const lists = cache[0..division.lists_len];
+        const rest = cache[division.lists_len..];
+        searcher.forward_ready = searcher.forward.init_sharing(program, forward_config, lists, rest[0..division.forward_len]);
+        searcher.reverse_ready = searcher.reverse.init_sharing(program, reverse_config, lists, rest[division.forward_len..]);
+        assert(searcher.forward_ready and searcher.reverse_ready);
     }
 
     /// Readies the claims that read what the DFAs and the matcher found at `init`.
@@ -468,6 +476,7 @@ pub const Matches = @import("searcher_matches.zig").Matches;
 
 test {
     _ = @import("searcher_test.zig");
+    _ = @import("searcher_memory_test.zig");
     _ = @import("searcher_skip_test.zig");
     _ = @import("searcher_literal_test.zig");
     _ = @import("searcher_suffix_test.zig");

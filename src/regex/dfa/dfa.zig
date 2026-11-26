@@ -31,6 +31,7 @@ const dfa_pairs = @import("dfa_pairs.zig");
 const dfa_run = @import("dfa_run.zig");
 const dfa_close = @import("dfa_close.zig");
 const dfa_stay = @import("dfa_stay.zig");
+const dfa_init = @import("dfa_init.zig");
 
 const dfa_config = @import("dfa_config.zig");
 pub const Kind = dfa_config.Kind;
@@ -38,11 +39,12 @@ pub const Config = dfa_config.Config;
 pub const Scan = dfa_config.Scan;
 const Block = dfa_config.Block;
 
-/// The lists a DFA builds a state with: two sets, each a list of its members and a list that
-/// finds a member by its node's number (dfa_node_set.zig), the threads and the stack. Each is as
-/// long as the program's nodes (`Block.nodes`).
-pub const sparse_lists = 2;
-pub const node_lists = 4;
+/// The lists a DFA builds a state with, and their words (dfa_init.zig).
+pub const sparse_lists = dfa_init.sparse_lists;
+pub const node_lists = dfa_init.node_lists;
+pub const lists_len = dfa_init.lists_len;
+pub const nodes_of = dfa_init.nodes_of;
+pub const cache_len_min = dfa_init.cache_len_min;
 
 /// The bit of a record's first word that says a match may still start at the state.
 pub const restart_bit = 1 << constants.context_bits;
@@ -117,106 +119,11 @@ pub const Dfa = struct {
     stays: [constants.stay_records]dfa_stay.Stay,
     stays_clears: u32,
 
-    /// The words a DFA of the program at `entry` needs for its cache to hold `dfa_states_min` states.
-    pub fn memory_len_min(program: *const Program, entry: u32) usize {
-        return memory_len_min_of(program, Block.of(program, entry));
-    }
-
-    /// `memory_len_min` for a block counted once, as counting its nodes reads the program. The
-    /// lists cover the DFA's own program, which a search never leaves: the forward program, or
-    /// the reverse one, which the compiler writes after it.
-    fn memory_len_min_of(program: *const Program, block: Block) usize {
-        const lists = (sparse_lists + node_lists) * @as(usize, block.nodes) + 1;
-        return lists + Cache.memory_len(constants.dfa_states_min, stride_of(program));
-    }
-
-    /// A row of the table: one entry for each class of octets, and one for each context the text
-    /// can end in.
-    fn stride_of(program: *const Program) u32 {
-        return @as(u32, program.class_count) + constants.context_count;
-    }
-
-    /// Readies a DFA in `memory`. False when the memory is under `memory_len_min`, and the DFA
-    /// must not be used.
-    pub fn init(dfa: *Dfa, program: *const Program, config: Config, memory: []u32) bool {
-        const block = Block.of(program, config.entry);
-        if (memory.len < memory_len_min_of(program, block)) {
-            // A scan of a DFA that `init` refused is a programmer's error, which each scan asserts.
-            dfa.cache.table = &.{};
-            return false;
-        }
-        assert(config.valid());
-        const len = block.len;
-        const nodes = block.nodes;
-        var rest = memory;
-        // The threads, then the stack: the cache packs a record in them when neither is in use.
-        const lists = take(&rest, nodes + nodes + 1);
-        dfa.* = .{
-            .instructions = program.instructions,
-            .config = config,
-            .has_looks = program.has_looks,
-            .encoding = program.encoding,
-            .may_skip = config.skip and !program.has_looks,
-            .classes = program.classes,
-            .representatives = undefined,
-            .class_count = program.class_count,
-            .pair_shift = 0,
-            .first_columns = undefined,
-            .visited = NodeSet.init(take(&rest, nodes), take(&rest, nodes), program.instructions, len),
-            .next = NodeSet.init(take(&rest, nodes), take(&rest, nodes), program.instructions, len),
-            .threads = lists[0..nodes],
-            .threads_len = 0,
-            .stack = lists[nodes..],
-            .stack_len = 0,
-            .reached = false,
-            .mark = 0,
-            .skip = undefined,
-            .literal = if (config.literal and config.skip) Literal.of(program, program.has_looks) else null,
-            .literals = null,
-            .looking = false,
-            .skip_known = false,
-            .idle = constants.dfa_unknown,
-            .skip_visits = 0,
-            .skip_octets = 0,
-            .skip_off = false,
-            .skip_retry_at = 0,
-            .skip_poor_trials = 0,
-            .second_entry = config.entry,
-            .stays = dfa_stay.empty,
-            .stays_clears = 0,
-            .cache = undefined,
-        };
-        for (0..constants.octet_values) |octet| {
-            const reversed: u8 = @intCast(constants.octet_max - octet);
-            dfa.representatives[dfa.classes[reversed]] = reversed;
-        }
-        dfa.looking = program.has_looks and dfa.literal != null;
-        // Claim R3 takes `dfa_skip_flag` for its states with no thread.
-        if (dfa.looking) dfa.config.stays = false;
-        // A program with an assertion has no skip, so claim R5 is for one with none.
-        if (config.literal_set and config.skip and dfa.literal == null and !program.has_looks) dfa.literals = LiteralSet.of(program);
-        if (dfa.literal) |*literal| literal.wide = config.wide;
-        if (dfa.literals) |*set| {
-            set.wide = config.wide;
-            set.ssse3 = config.ssse3;
-        }
-        const stride = stride_of(program);
-        const pair_stride = dfa.pair_stride_of(program, config, rest.len);
-        dfa.cache.init(rest, stride, pair_stride, std.mem.sliceAsBytes(lists));
-        return true;
-    }
-
-    /// Claim R7's pair stride: zero where the claim is off, the program has too many classes,
-    /// or the memory holds no pair row beside `dfa_states_min` states.
-    fn pair_stride_of(dfa: *Dfa, program: *const Program, config: Config, memory_len: usize) u32 {
-        if (!config.pairs) return 0;
-        const stride = stride_of(program);
-        const shift = dfa_pairs.shift_of(program, stride) orelse return 0;
-        if (Cache.pair_words(memory_len, stride, stride << shift) == 0) return 0;
-        dfa.pair_shift = shift;
-        dfa.first_columns = dfa_pairs.first_columns(&dfa.classes, dfa.class_count);
-        return stride << shift;
-    }
+    /// How a DFA takes its memory (dfa_init.zig): with lists of its own, or with lists that the
+    /// program's other DFA takes too.
+    pub const memory_len_min = dfa_init.memory_len_min;
+    pub const init = dfa_init.init;
+    pub const init_sharing = dfa_init.init_sharing;
 
     pub fn looks_for_literal(dfa: *const Dfa) bool {
         return dfa.looking;
@@ -477,16 +384,11 @@ pub const Dfa = struct {
     pub const close = dfa_close.close;
 };
 
-fn take(memory: *[]u32, len: usize) []u32 {
-    const taken = memory.*[0..len];
-    memory.* = memory.*[len..];
-    return taken;
-}
-
 test {
     _ = @import("dfa_cache.zig");
     _ = @import("dfa_close.zig");
     _ = @import("dfa_node_set.zig");
+    _ = @import("dfa_init.zig");
     _ = @import("dfa_skip.zig");
     _ = @import("dfa_suffix.zig");
     _ = @import("dfa_wait.zig");

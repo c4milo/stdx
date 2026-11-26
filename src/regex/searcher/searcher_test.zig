@@ -91,17 +91,23 @@ pub const Fixture = struct {
 };
 
 /// The words of a DFA's memory in one word of a searcher's memory.
-const narrow_per_word = @sizeOf(u64) / @sizeOf(u32);
+pub const narrow_per_word = @sizeOf(u64) / @sizeOf(u32);
 
 /// The words of cache, in a searcher's words, that hold `len` words of a DFA's memory.
-fn words_for(len: usize) usize {
+pub fn words_for(len: usize) usize {
     return (len + narrow_per_word - 1) / narrow_per_word;
 }
 
-/// The least memory both DFAs of a program take: the sum of their least, which a searcher gives
-/// each DFA before it divides the rest.
-fn least_of(program: *const Program) usize {
-    return Dfa.memory_len_min(program, program.forward) + Dfa.memory_len_min(program, program.reverse);
+/// The least memory both DFAs of a program take: one set of lists, which both take, and each
+/// DFA's least cache, which a searcher gives before it divides the rest.
+pub fn least_of(program: *const Program) usize {
+    const least = dfa_file.cache_len_min(program);
+    return lists_of(program) + least + least;
+}
+
+/// The words of the lists both DFAs of a program take: as long as the larger half needs.
+pub fn lists_of(program: *const Program) usize {
+    return dfa_file.lists_len(@max(dfa_file.nodes_of(program, program.forward), dfa_file.nodes_of(program, program.reverse)));
 }
 
 /// The caches a test runs under: room for thousands of states, the least both DFAs take, and
@@ -155,132 +161,11 @@ test "the searcher gives what the matcher gives, from every offset, under every 
     }
 }
 
-test "a DFA takes memory_len_min words and no fewer" {
-    var fixture: Fixture = .{};
-    fixture.program = try compiler.compile("(a|b)+c", .{}, &fixture.storage);
-    const least = Dfa.memory_len_min(&fixture.program, fixture.program.forward);
-    const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
-    var dfa: Dfa = undefined;
-    const config: @import("../dfa/dfa.zig").Config = .{ .entry = fixture.program.forward, .kind = .first, .anchored = false };
-    try testing.expect(!dfa.init(&fixture.program, config, memory[0 .. least - 1]));
-    try testing.expect(dfa.init(&fixture.program, config, memory[0..least]));
-    try testing.expectEqual(@as(u32, constants.dfa_states_min), dfa.cache.states_max);
-}
-
-test "a searcher gives each DFA its least, and divides the rest two parts to one" {
-    var fixture: Fixture = .{};
-    try fixture.init("(a|b)+c", 0);
-    try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
-    const forward_least = Dfa.memory_len_min(&fixture.program, fixture.program.forward);
-    const reverse_least = Dfa.memory_len_min(&fixture.program, fixture.program.reverse);
-    // The two leasts and no more: two parts to one from the cache's start leaves one DFA short.
-    try fixture.init("(a|b)+c", words_for(forward_least + reverse_least));
-    try testing.expect(fixture.searcher.forward_ready and fixture.searcher.reverse_ready);
-    try fixture.expect_agree_everywhere("xabcab");
-    // Under the two leasts, the forward DFA takes the whole cache, for `is_match` alone.
-    const short_words = words_for(forward_least + reverse_least) - 1;
-    try fixture.init("(a|b)+c", short_words);
-    try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
-    try expect_states(&fixture, &fixture.searcher.forward, short_words * narrow_per_word);
-    try fixture.expect_agree_everywhere("xabcab");
-    try expect_split(&fixture, forward_least, reverse_least);
-}
-
-/// Requires `dfa` to hold the states of a DFA of its program and its configuration in `len` words.
-fn expect_states(fixture: *Fixture, dfa: *const Dfa, len: usize) !void {
-    var memory: [cache_words_max]u32 = undefined;
-    var other: Dfa = undefined;
-    try testing.expect(other.init(&fixture.program, dfa.config, memory[0..len]));
-    try testing.expectEqual(other.cache.states_max, dfa.cache.states_max);
-}
-
-/// The states in each third of the spare `expect_split` gives a cache past the two leasts.
-const spare_states = 100;
-
-/// Requires a searcher whose cache holds a spare past the two leasts to give the forward DFA two
-/// parts of it and the reverse DFA one, each beside its least.
-fn expect_split(fixture: *Fixture, forward_least: usize, reverse_least: usize) !void {
-    const third = Cache.memory_len(spare_states, @as(u32, fixture.program.class_count) + constants.context_count);
-    const cache_words = words_for(forward_least + reverse_least + constants.dfa_cache_parts * third);
-    try fixture.init("(a|b)+c", cache_words);
-    const forward_len = forward_least + constants.dfa_forward_parts * third;
-    try expect_states(fixture, &fixture.searcher.forward, forward_len);
-    try expect_states(fixture, &fixture.searcher.reverse, cache_words * narrow_per_word - forward_len);
-}
-
 /// Holds the compiler's counts of nodes, kept as it writes and forgets instructions, to a count
 /// of each program's instructions one by one.
 fn expect_nodes(program: *const Program) !void {
     try testing.expectEqual(dfa_config.nodes_of(program.instructions[0..program.forward_len]), program.forward_nodes);
     try testing.expectEqual(dfa_config.nodes_of(program.instructions[program.forward_len..]), program.reverse_nodes);
-}
-
-test "a DFA's lists hold a word for each node alone, and find a member by its node's number" {
-    var fixture: Fixture = .{};
-    fixture.program = try compiler.compile("[ac-eg]+x", .{}, &fixture.storage);
-    const program = &fixture.program;
-    const block = dfa_config.Block.of(program, program.forward);
-    try testing.expect(block.nodes < block.len);
-    const stride = @as(u32, program.class_count) + constants.context_count;
-    const lists = (dfa_file.sparse_lists + dfa_file.node_lists) * @as(usize, block.nodes) + 1;
-    const least = Dfa.memory_len_min(program, program.forward);
-    try testing.expectEqual(lists + Cache.memory_len(constants.dfa_states_min, stride), least);
-    // The forward DFA runs in memory that holds its least and no more.
-    const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
-    var dfa: Dfa = undefined;
-    const config: dfa_file.Config = .{ .entry = program.forward, .kind = .first, .anchored = false };
-    try testing.expect(dfa.init(program, config, memory[0..least]));
-    try testing.expectEqual(dfa_file.Scan{ .found = 6 }, dfa.scan_forward("xxagcx", 0, false));
-}
-
-test "a DFA's lists cover its own program, and not the other one" {
-    var fixture: Fixture = .{};
-    // The groups' saves are in the forward program alone, so it is the longer of the two.
-    fixture.program = try compiler.compile("(a)(b)(c)", .{}, &fixture.storage);
-    const program = &fixture.program;
-    const reverse_len = program.instructions.len - program.forward_len;
-    try testing.expect(program.forward_len > reverse_len);
-    const forward_least = Dfa.memory_len_min(program, program.forward);
-    const reverse_least = Dfa.memory_len_min(program, program.reverse);
-    // The program has no `ranges` node, so each of its instructions is a node.
-    try testing.expectEqual((dfa_file.sparse_lists + dfa_file.node_lists) * (program.forward_len - reverse_len), forward_least - reverse_least);
-    // The reverse DFA runs in memory that holds its own least and no more.
-    const memory: []u32 = std.mem.bytesAsSlice(u32, std.mem.sliceAsBytes(fixture.memory[0..]));
-    var dfa: Dfa = undefined;
-    const config: dfa_file.Config = .{ .entry = program.reverse, .kind = .longest, .anchored = true };
-    try testing.expect(dfa.init(program, config, memory[0..reverse_least]));
-    try testing.expectEqual(dfa_file.Scan{ .found = 1 }, dfa.scan_reverse("xabc", 0, 4));
-}
-
-/// The instructions of each program, forward and reverse, that `cache_words_default` must give
-/// both DFAs room for: rebar's date pattern under `(?i)` compiled to 14,247 forward instructions,
-/// and its DFAs did not start in the 512 kB the default was before the owner's ruling of
-/// 2026-11-22 (decision 86 as amended).
-const default_room_instructions = 40_000;
-
-test "the default cache gives both DFAs of a large program their least" {
-    var fixture: Fixture = .{};
-    var program = try compiler.compile("a", .{}, &fixture.storage);
-    // The least reads the program's lengths and its counts of nodes alone, so its instructions
-    // need not exist. Each instruction is a node, the most a DFA's lists hold.
-    const many: [*]const Instruction = @ptrCast(&fixture.storage);
-    program.instructions = many[0 .. 2 * default_room_instructions];
-    program.forward_len = default_room_instructions;
-    program.forward_nodes = default_room_instructions;
-    program.reverse_nodes = default_room_instructions;
-    const cache_len = constants.cache_words_default * narrow_per_word;
-    try testing.expect(Dfa.memory_len_min(&program, 0) + Dfa.memory_len_min(&program, default_room_instructions) <= cache_len);
-}
-
-test "a program with no reverse half gives its whole cache to the forward DFA" {
-    var fixture: Fixture = .{};
-    fixture.program = try compiler.compile("a+b", .{ .reverse = false }, &fixture.storage);
-    fixture.searcher.init(&fixture.program, &.{ .features = .{} }, &fixture.memory);
-    fixture.reference.init(&fixture.program, .{ .captures = .groups }, &fixture.reference_memory);
-    try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
-    try fixture.expect_agree_everywhere("xaab ab");
-    try testing.expect(fixture.searcher.is_match("xaab"));
-    try testing.expect(!fixture.searcher.is_match("xaa"));
 }
 
 /// A text of `a` and `b` that a seed draws.

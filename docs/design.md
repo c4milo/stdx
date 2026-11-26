@@ -10972,6 +10972,34 @@ to 12 are reordered and nothing else changes.
   - Mutations: 3, each CAUGHT, against `zig build test-regex`: no bound, twice the bound, and a
     bound of no word.
 
+  The DFAs' one set of lists (decision 86 as amended on 2026-11-25):
+  - `unicode/overlapping-words/russian` takes the groups of the same pattern as `english`, at
+    0.32 of Rust's crate on the N2. Its forward half holds 28,540 nodes and its reverse half
+    116,136. The two DFAs' lists took 868,058 words of the default cache's 1,048,576.
+  - A search runs one DFA at a time, and each build of a state clears the lists it reads. So
+    the two DFAs now take one set of lists, as long as the larger half needs: 696,817 words
+    here. Each DFA's least is its cache alone, and the rest divides two parts to one as before.
+  **Check:** both DFAs take the same lists, whichever half holds more nodes; a DFA refuses
+  lists too short for its nodes and a cache under its least; the division of the rest; the
+  filter and a probe of the row; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe, counted the row's matches in `ru-medium.txt` at 1.9 to 2.3
+    MB/s before the change and 296 to 310 after it. Before it, the reverse DFA cleared its cache 9
+    times and gave up. After it, the reverse DFA cleared 3 times and kept 347 states.
+  - A probe of rebar's `grep_captures` model, which searches each line of the text, ran at 1.25
+    MB/s before the change and 1.23 after it, four passes each. Before it, the reverse DFA kept
+    186 to 197 states between two clears, and each refill took 707 to 825 octets: under 10 a
+    state, so each clear after the first gave up. After it, the reverse DFA kept 365 to 371
+    states, and each refill took 3,301 to 3,641 octets: still under 10 a state. After four
+    passes the searcher had given up `dfa_give_ups_max` times, and the matcher found every
+    match from then on.
+  - Mutations: 8, each CAUGHT, against `zig build test-regex`: the lists sized by the forward
+    half's nodes; the spare less one least; the reverse DFA with lists of its own; no check of
+    a DFA's lists, and none of its cache; the fit of one least; the whole spare to the forward
+    DFA; and a DFA's own lists one word short.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

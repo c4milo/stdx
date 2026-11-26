@@ -5979,6 +5979,13 @@ last part lists what still waits on a ruling.
       `\p{L}{35,40}` and not of `\p{L}{37,42}`, and both ran on the matcher.
       - Where the two leasts do not fit, no division starts both DFAs. A search needs both, and
         `is_match` runs the forward DFA alone, so the forward DFA takes the whole cache.
+      - Amended by the owner's ruling of 2026-11-25 (design §8 part 22q): the two DFAs take one
+        set of lists, as long as the larger half of the program needs, and each DFA's least is
+        then its cache alone (`dfa_init.zig`). A search runs one DFA at a time, and each build
+        of a state clears the lists it reads. On `overlapping-words`, lists of their own took
+        868,058 words of the default cache's 1,048,576. One set takes 696,817, and the two
+        caches get the other 171,241. Where the lists and the two leasts do not fit, the forward
+        DFA takes the whole cache with lists of its own.
     - The 256 octets are grouped into classes that every instruction treats alike, so a row of a
       DFA's table has one entry a class.
     - A scan takes octets in a loop of its own while each entry is a plain row. Once a match
