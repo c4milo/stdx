@@ -204,6 +204,11 @@ def test_notes():
         shell(f'release_notes "{notes}" v9.9.9', folder, env)
         body = open(os.path.join(bin_folder, "body")).read()
         assert body == "# stdx 9.9.9\n\nWritten by hand.\n\n## Benchmarks\n\nnew\n", body
+        # Notes written on GitHub's page end each line with a carriage return.
+        open(os.path.join(bin_folder, "body"), "w", newline="").write("# stdx 9.9.9\r\n\r\n## Benchmarks\r\n\r\nold\r\n")
+        shell(f'release_notes "{notes}" v9.9.9', folder, env)
+        body = open(os.path.join(bin_folder, "body"), newline="").read()
+        assert body == "# stdx 9.9.9\r\n\r\n## Benchmarks\n\nnew\n", repr(body)
 
 
 def test_open():
