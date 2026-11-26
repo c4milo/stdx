@@ -1,179 +1,31 @@
-# Decision 19: every check that needs no fixed machine runs on each push to main, through
-# tools/ci.sh, on the hosted runners of decision 26: Linux on x86-64 and aarch64, and macOS on
-# arm64. A new check joins tools/ci.sh, never this file.
+# A temporary probe of PSTATE.DIT on GitHub's arm64 Linux runners, which hide FEAT_DIT. The commit
+# after this one restores the file. It runs tools/dit_probe.zig on the runner that stdx's CI uses
+# and on the one colibri's benchmark judge uses.
 name: ci
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  dit-probe:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-26.04, ubuntu-26.04-arm, macos-26]
+        runner: [ubuntu-24.04-arm, ubuntu-26.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # zig-pkg holds this project's packages and nothing else: Zig's global cache stays in its
-      # default place, so no entry holds an archive or a compiled output. GitHub's cache never
-      # replaces an entry, so each run's key holds the run's ID. The step restores the newest entry
-      # a run kept for this build.zig.zon, or else the newest of any, so that a changed
-      # build.zig.zon downloads only the packages it adds. The dash keeps the first restore key
-      # from matching an entry's whole key, which the cache would prefer.
-      - name: Restore the packages
-        id: packages
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
-          restore-keys: |
-            zig-pkg-${{ hashFiles('build.zig.zon') }}-
-            zig-pkg-
       - name: Install Zig
         run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-      # tools/ci.sh fetches the packages again as its first check. Fetching them here lets the steps
-      # below keep them whatever the checks do, and a failure here leaves the report to tools/ci.sh.
-      - name: Fetch the packages
-        id: fetch
-        continue-on-error: true
+      - name: Describe the CPU
         run: |
-          listed="$(ls zig-pkg 2>/dev/null || true)"
-          tools/fetch_packages.sh
-          # A new entry when the fetch added a package, or when the entry restored holds a directory
-          # of Zig's global cache, as entries kept while that cache lived in zig-pkg do.
-          if [ "$(ls zig-pkg 2>/dev/null || true)" != "$listed" ] ||
-            [ -n "$(ls -d zig-pkg/{b,h,o,p,tmp,z} 2>/dev/null)" ]; then
-            echo "keep=true" >> "$GITHUB_OUTPUT"
-          fi
-      # The entry kept next holds only the packages build.zig.zon names.
-      - name: Prune the packages
-        if: steps.fetch.outputs.keep == 'true'
-        run: tools/prune_packages.sh build.zig.zon
-      - name: Keep the packages
-        if: steps.fetch.outputs.keep == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: ${{ steps.packages.outputs.cache-primary-key }}
-      # The Lean release for the proofs of decision 28, which tools/ci.sh builds where lake is on
-      # the path: on the x86-64 runner alone, as the proofs need one machine.
-      - name: Restore Lean
-        if: matrix.runner == 'ubuntu-26.04'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/lean
-          key: lean-${{ hashFiles('spec/lean/lean-toolchain', 'tools/install_lean.sh') }}
-      - name: Install Lean
-        if: matrix.runner == 'ubuntu-26.04'
-        run: tools/install_lean.sh "$HOME/lean" >> "$GITHUB_PATH"
-      - name: Run tools/ci.sh
-        run: tools/ci.sh ci-report.md
-      - name: Summarize
-        if: always()
-        run: cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Keep the report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ci-report-${{ matrix.runner }}
-          path: ci-report.md
-
-  # The line coverage of decision 84: every module's tests under kcov, through pepegrillo's engine
-  # (`zig build coverage`). It is a report, not a check, so it stays out of tools/ci.sh. On main,
-  # the total goes to the orphan `badges` branch as a shields.io endpoint, which the README's badge
-  # reads. This job alone may write to the repository, and only its badge step holds the token.
-  coverage:
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
-    permissions:
-      contents: write
-    concurrency:
-      group: coverage-${{ github.ref }}
-      cancel-in-progress: true
-    env:
-      KCOV_VERSION: "43"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The token stays out of .git/config, where the build could read it.
-          persist-credentials: false
-      - name: Restore the packages
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: zig-pkg-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}
-          restore-keys: |
-            zig-pkg-${{ hashFiles('build.zig.zon') }}-
-            zig-pkg-
-      - name: Install Zig
-        run: tools/install_zig.sh "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-      - name: Build kcov from its release, pinned
-        # pepegrillo's engine refuses another release, which can count other lines. The archive is
-        # checked against the SHA-256 computed when the release was pinned.
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends binutils-dev libdw-dev libelf-dev libcurl4-openssl-dev zlib1g-dev libssl-dev
-          url="https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz"
-          sha="4cbba86af11f72de0c7514e09d59c7927ed25df7cebdad087f6d3623213b95bf"
-          curl -fsSL "$url" -o "$RUNNER_TEMP/kcov.tar.gz"
-          echo "$sha  $RUNNER_TEMP/kcov.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/kcov.tar.gz" -C "$RUNNER_TEMP"
-          cmake -S "$RUNNER_TEMP/kcov-${KCOV_VERSION}" -B "$RUNNER_TEMP/kcov" -DCMAKE_BUILD_TYPE=Release > /dev/null
-          cmake --build "$RUNNER_TEMP/kcov" -j4 > /dev/null
-          echo "$RUNNER_TEMP/kcov/src" >> "$GITHUB_PATH"
-      - name: Run every module's tests under kcov
-        run: |
-          set -o pipefail
-          zig build coverage 2>&1 | tee coverage.log
-      - name: Summarize
-        if: always()
-        run: |
-          {
-            echo '## Line coverage'
-            echo
-            echo '```text'
-            grep '\[coverage\]' coverage.log || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Update the coverage badge
-        # The badge is a file on an orphan branch, so this job never pushes to main.
-        if: github.ref == 'refs/heads/main'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          total="$(sed -n 's/.*\[coverage\] total \([0-9.]*\)% of .*/\1/p' coverage.log)"
-          test -n "$total"
-          color="$(awk -v t="$total" 'BEGIN { print (t >= 90) ? "brightgreen" : (t >= 80) ? "green" : (t >= 70) ? "yellowgreen" : (t >= 60) ? "yellow" : "orange" }')"
-          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$total" "$color" > "$RUNNER_TEMP/coverage.json"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git fetch --quiet origin badges 2>/dev/null; then
-            git switch --quiet badges
-          else
-            git switch --quiet --orphan badges
-          fi
-          mkdir -p .github/badges
-          cp "$RUNNER_TEMP/coverage.json" .github/badges/coverage.json
-          if ! git ls-files --error-unmatch .github/badges/coverage.json > /dev/null 2>&1 ||
-              ! git diff --quiet -- .github/badges/coverage.json; then
-            git add .github/badges/coverage.json
-            git commit --quiet -m "chore: update the coverage badge"
-            git push --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" badges
-          fi
-      - name: Keep kcov's report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-html
-          path: zig-out/coverage/merged/
-          if-no-files-found: ignore
+          lscpu || true
+          echo "midr_el1=$(cat /sys/devices/system/cpu/cpu0/regs/identification/midr_el1)"
+          grep -m1 Features /proc/cpuinfo
+          uname -a
+      - name: Probe PSTATE.DIT
+        run: zig run -O ReleaseSafe tools/dit_probe.zig
