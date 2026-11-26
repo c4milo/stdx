@@ -11963,6 +11963,29 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     hidden feature without the mode, or asking the mode where the report has it; and a round that
     ignores the read after the yields, the clear, or a bit already set.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 33: a program calls through the value, and no call regresses (decision 87 as amended a
+  tenth time).** The owner chose grouped methods: `crypto.hash.sha256(&digest, bytes)` and
+  `crypto.jws.sign(&out, key, input)`, where `hash` and `jws` are the namespaces' types and the
+  value's fields. `init` computes chapulin's C values once.
+  Changed public names: `stdx.crypto.hash`'s whole-input calls and `jws.sign` take the field, not
+  the value. `Context` gains the fields `hash`, `jws`, `tcp_description` and `quic_description`.
+  colibri's and connect-zig's hashes and signatures call them.
+  **Check:**
+  - `zig build test-crypto` holds each whole-input call, HMAC, HKDF and each stream to chapulin's
+    own call. A value that names a bit of the other architecture makes a call and a stream fail
+    under the statement, and the unstated value passes without it. The C values equal chapulin's
+    conversion of the descriptions.
+  - Instructions under callgrind, with a test built ReleaseSafe for x86-64-v3 and the value read
+    from memory at each of 100,000 calls, on this x86-64 host:
+    - a SHA-256 of "abc": 57 instructions outside chapulin's C at 9dd95be, 86 with chapulin's
+      description stored and copied, and 22 with the C value;
+    - a description as a session or a signature takes it, with chapulin's conversion: 48 at
+      9dd95be and 38.
+  - Mutations, 8, each `CAUGHT` against `zig build test-crypto`: the unstated value always, no
+    statement on x86-64, the signer without the random source, HMAC's key and message swapped,
+    HKDF's salt and input swapped, a stream and a call each with the unstated value, and SHAKE256
+    running SHAKE128.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 
