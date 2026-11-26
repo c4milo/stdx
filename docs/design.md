@@ -11376,6 +11376,12 @@ to 12 are reordered and nothing else changes.
     | `y`, rsc's text of 51 octets | 328 | 332 |
     | `The` twice in 51 octets | 898 | 939 |
 
+  - The table's filter was built for x86-64-v3, where the runners build for the baseline CPU
+    and `platform.CpuFeatures.detect()` finds AVX2 at run time (decision 75). Built that way,
+    the filter counted `The` at 496,549 instructions before and 368,685 after, `the` at
+    2,821,644 and 2,225,817, and `Sherlock Holmes` in rebar's `count` model at 447,654 and
+    402,173. `e` took 0.8% more, and three rows of one search, `y` in 51 octets, `^zbc(d|e)`
+    and `^a{2,5}$`, 2 instructions more: the fields that `Matches` sets for its places.
   - In seven passes of 1,000 runs on one core of the container, which is no judge, `The` took
     a median of 32.2 µs a run in place of 39.1, `the` 216.9 in place of 230.0, and `e` 408.2
     in place of 404.2.
