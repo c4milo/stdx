@@ -51,9 +51,9 @@ pub fn find(account: *Account, forward: *Dfa, reverse: *Dfa, literal: *const Lit
     var at = from;
     // Where the last forward scan that found no match stopped.
     var read_to = from;
-    // A search pays for its start as for a place: its calls cost as much, and a text of short
-    // lines with no place would pay nothing for them.
-    var paid: usize = constants.account_place_bytes;
+    // A search pays nothing for its start: on lines of text it costs less than the plain
+    // search's start (design §8 part 22q).
+    var paid: usize = 0;
     // Each turn goes on from one byte past the place before, so the turns are at most the bytes
     // from `from` and one.
     for (0..haystack.len - from + 1) |_| {

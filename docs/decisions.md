@@ -6558,6 +6558,12 @@ last part lists what still waits on a ruling.
           text holds no place of it, `is_match` answers before it calls a scan, and the search
           pays nothing for its start. It costs less than the plain search: on `email`'s lines,
           292 instructions against 529.
+        - Amended again by the owner's ruling of 2026-11-26 (design §8 part 22q): claim R14's
+          search pays nothing for its start, with a place or with none. After the layers' cut
+          its start costs less than the plain search's. Under the charge, a search with no place
+          lost 35 bytes on a line of 29. So the account dropped the claim on three patterns of
+          longer literals, where the claim took 5% to 12% fewer instructions. Claim R4's
+          search still pays for its start, which no probe measured.
         - A trial starts with a credit of `account_credit_bytes`, 2^12. A search that has lost
           more than the account holds leaves its places, and the claim rests while the plain
           search covers `account_rest_bytes`, 2^16. Then it tries again. Each trial that loses

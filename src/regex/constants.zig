@@ -199,14 +199,14 @@ pub const suffix_before_len_max = 8;
 /// two, and the three of `[ab]*x(?:a|b)`, whose longest two no match is sure to pass.
 pub const inner_candidates_max = 8;
 
-/// What a search with an account pays for its start and for each place of its literal, in
-/// bytes of a plain scan (searcher_account.zig, for claim R14 and for claim R4's second and
-/// third rules). A place costs a search of the literal begun again, a reverse scan, and at most
-/// one forward scan begun. With a space as its literal, `[A-Z][a-z]+ [A-Z][a-z]+` took 38 ns a
-/// place on the N2 where the plain scan took 0.93 ns a byte, so a text whose places stand under
-/// some 41 bytes apart loses (design §8 part 22q). 64 leaves the claim to texts where it gains
-/// by half or more. A search's start costs about as much: some 85 instructions more than the
-/// plain search's, with a place or with none.
+/// What a search with an account pays for each place of its literal, in bytes of a plain scan
+/// (searcher_account.zig, for claim R14 and for claim R4's second and third rules). A place
+/// costs a search of the literal begun again, a reverse scan, and at most one forward scan
+/// begun. With a space as its literal, `[A-Z][a-z]+ [A-Z][a-z]+` took 38 ns a place on the N2
+/// where the plain scan took 0.93 ns a byte, so a text whose places stand under some 41 bytes
+/// apart loses (design §8 part 22q). 64 leaves the claim to texts where it gains by half or
+/// more. Claim R4's search pays as much for its start. Claim R14's start costs less than the
+/// plain search's, and pays nothing.
 pub const account_place_bytes = 64;
 
 /// What a trial of a claim with an account may lose before the claim rests, in bytes of a

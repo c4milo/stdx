@@ -187,9 +187,9 @@ inline fn answered(searcher: *const Searcher, len: usize) ?Outcome {
 }
 
 /// True where claim R14's literal is one octet, the claim searches, and the text holds no place
-/// of it: no match, since every match holds the literal. The account gains the text and pays
-/// nothing for the start, which costs less than the plain search's (design §8 part 22q), so
-/// the claim cannot lose by it.
+/// of it: no match, since every match holds the literal. The account gains the text, as
+/// `searcher_inner.find` settles a search with no place. A longer literal's search takes more
+/// to start, and `searcher_inner.find` would search the text again from its first place.
 inline fn no_place(searcher: *Searcher, haystack: []const u8) bool {
     const inner = &(searcher.inner orelse return false);
     if (inner.len != 1 or searcher.account.rest != 0) return false;

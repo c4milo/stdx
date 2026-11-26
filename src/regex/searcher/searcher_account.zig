@@ -26,8 +26,9 @@ pub const Found = union(enum) {
 
 /// One searcher's account of such a claim, in bytes of a plain scan. A search from the places
 /// that answers gains the bytes of text it covered, which a plain scan reads one by one. It
-/// pays `account_place_bytes` for its start and for each place, and the bytes of each forward
-/// scan that found no match. A search that leaves its places to the plain search gains nothing.
+/// pays `account_place_bytes` for each place, and claim R4's search for its start too, and the
+/// bytes of each forward scan that found no match. A search that leaves its places to the plain
+/// search gains nothing.
 pub const Account = struct {
     /// What the claim holds: the credit of `account_credit_bytes` it starts a trial with, and
     /// what its searches gained less what they paid, up to `account_balance_max`.

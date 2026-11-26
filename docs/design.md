@@ -11214,6 +11214,33 @@ to 12 are reordered and nothing else changes.
     often, which the test of that case catches and no test did before; the kernels start one
     octet late, at each width; `searcher_inner.find` pays nothing for its start.
 
+  Claim R14's start with no charge (decision 86 as amended by the owner's ruling of 2026-11-26):
+  - After the layers' cut, a search of claim R14 costs less than the plain search on lines of
+    text, with a place or with none. Under the charge for its start, a search with no place paid
+    64 bytes and gained its line, 29 bytes on the average. So the account dropped the claim on
+    patterns whose literal the lines seldom hold.
+  - `searcher_inner.find` now pays nothing for its start. Each place still pays
+    `account_place_bytes`. Claim R4's search still pays for its start, which no probe measured.
+  **Check:** a search with no place gains the text it covered and pays nothing; the probe of
+  five patterns under callgrind; mutations; the paired runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The probe of the entries above, over the same 4,000,000 octets, counted these instructions
+    a line. The plain search is the searcher with claim R14 off. "Dropped" says that the
+    account dropped the claim, so that the plain search took the lines.
+
+    | Pattern | Plain search | Under the charge | No charge |
+    | --- | ---: | ---: | ---: |
+    | `email`, `([^ @]+)@([^ @]+)` | 529 | 292 | 292 |
+    | `date`, `([0-9][0-9]?)/([0-9][0-9]?)/([0-9][0-9]([0-9][0-9])?)` | 391 | 382 | 358 |
+    | `([^ @.]+)\.com([^ @]*)` | 529 | 529, dropped | 474 |
+    | `([a-z]+)://([^ ]+)` | 524 | 521, dropped | 500 |
+    | `([a-z]+)@@([a-z]+)`, no place in the text | 532 | 532, dropped | 468 |
+
+  - Mutations: 3, each CAUGHT, against `zig build test-regex`: the start pays
+    `account_place_bytes` again; it pays one byte; an `is_match` with no place gains nothing.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

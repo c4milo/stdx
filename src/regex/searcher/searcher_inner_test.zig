@@ -377,24 +377,24 @@ test "a searcher that goes to a literal that folds in a match's middle finds it 
     for ([_][]const u8{ "aX:b", "ax:b", "a x:b aX:a", "X:b bX:", "abX:ab ax:" }) |text| try fixture.expect_agree_everywhere(text);
 }
 
-test "a search that finds no place pays for its start, gains the text it covered, and runs no matcher" {
+test "a search that finds no place pays nothing for its start, gains the text it covered, and runs no matcher" {
     var fixture: Fixture = .{ .fresh_account = false };
     try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
     const searcher = &fixture.searcher;
     const text = [_]u8{' '} ** far_gap;
     searcher.matcher.work = 0;
     try testing.expectEqual(@as(?Span, null), searcher.find(&text, 0));
-    var balance: usize = constants.account_credit_bytes + far_gap - constants.account_place_bytes;
+    var balance: usize = constants.account_credit_bytes + far_gap;
     try testing.expectEqual(balance, searcher.account.balance);
     // A search from an offset covers the text from there.
     try testing.expectEqual(@as(?Span, null), searcher.find(&text, far_gap - 1));
-    balance = balance + 1 - constants.account_place_bytes;
+    balance += 1;
     try testing.expectEqual(balance, searcher.account.balance);
     try testing.expect(searcher.captures(&text, 0) == null);
     try testing.expectEqual(@as(@TypeOf(searcher.matcher.work), 0), searcher.matcher.work);
 }
 
-test "an is_match of a text with no place of a literal of one octet pays nothing for its start" {
+test "an is_match of a text with no place pays nothing for its start, and runs no matcher" {
     var fixture: Fixture = .{ .fresh_account = false };
     try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
     const searcher = &fixture.searcher;
@@ -408,11 +408,11 @@ test "an is_match of a text with no place of a literal of one octet pays nothing
     searcher.account.rest = far_gap + 1;
     try testing.expect(!searcher.is_match(&text));
     try testing.expectEqual(@as(usize, 1), searcher.account.rest);
-    // A literal of two octets pays for the start, as a search with its places does.
+    // A literal of two octets takes the search from its places, which gains the text as well.
     try fixture.init("[ab]+xy[ab]+", searcher_test.cache_words_max);
     try testing.expectEqualStrings("xy", searcher.inner.?.slice());
     try testing.expect(!searcher.is_match(&text));
-    try testing.expectEqual(@as(usize, constants.account_credit_bytes + far_gap - constants.account_place_bytes), searcher.account.balance);
+    try testing.expectEqual(@as(usize, constants.account_credit_bytes + far_gap), searcher.account.balance);
 }
 
 test "a search that leaves its places gives the match the plain search finds, and counts what it covered" {
