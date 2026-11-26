@@ -11105,6 +11105,15 @@ to 12 are reordered and nothing else changes.
     third not folded; the test of the third inverted; the third the last offset; the run after
     the turn with two offsets. The fold was NOT CAUGHT until the test's texts held the literal
     in either case.
+  - The runs 45739430627 and 45739433638 measured `8477200` against `b6961f8`, each in one job
+    on the N2 and one on the EPYC 9V74. By decision 20's rule, 2 of the 284 rows ran faster in
+    all four jobs, and none slower.
+    - `literal-never-match-tricksy` ran 2.77 times as fast on the N2 and 6.80 and 6.83 on x86-64,
+      now at 2.03 of Rust's crate on the N2 and 4.42 on x86-64.
+    - `leipzig/twain-insensitive` ran 2% to 4% faster.
+    - `literal-never-match-frequent` ran 1.71 and 1.84 times as fast on x86-64, now at 1.07 of
+      Rust's crate there, and 1.03 on the N2, where it stays at 0.65.
+    - No literal row of English ran slower in all four jobs.
 
   The default cache at 8 MiB, two parts to one (decision 86 as amended on 2026-11-26):
   - The two halves lost `wild/url/search` four fifths of its speed, as the runs of "The cache in
@@ -11123,6 +11132,18 @@ to 12 are reordered and nothing else changes.
     DFA with its 475 states and no clear, and `english` at 14.60.
   - Mutations: 2, each CAUGHT, against `zig build test-regex`: two halves; and a default of
     4 MiB.
+  - The runs 45741129693 and 45741133730 measured `28f1072` against `8477200`, each in one job
+    on the N2 and one on x86-64, the EPYC 9V74 and the EPYC 9V45. By decision 20's rule, 3 of
+    the 284 rows ran faster in all four jobs, and 1 slower.
+    - `word-repetition/unicode-search` ran 414 to 673 times as fast: both DFAs of
+      `\p{L}{256}` start. It now runs at 372 times Rust's crate on the N2 and 425 on x86-64.
+    - `wild/url/search` ran 4.02 to 4.75 times as fast, now at 7.09 of Rust's crate on the N2
+      and 6.42 on x86-64. `10-bounded-repeat/context` ran 1.30 to 1.33 times as fast, now at
+      1.64 and 1.58. `overlapping-words/russian` holds its place at 2.57 and 2.28.
+    - "A date and time, six groups" ran 1.1% to 5.1% slower. Under callgrind, built for
+      x86-64-v3, two passes of its groups over 65,536 texts took 321,662,087 instructions at
+      both commits. Its search takes claim R6's one thread and reads no DFA. No count shows
+      the cause.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
