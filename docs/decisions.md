@@ -7323,6 +7323,29 @@ last part lists what still waits on a ruling.
           still call the session's own `init` with chapulin's options.
         - stdx's options made with Zig's reflection, field by field. No field would carry a doc
           comment, and `ServerOptions` would carry no `check`.
+    - Amended a tenth time on 2026-11-26: a program calls through the value (design §8 step 32).
+      The owner found it odd to call `stdx.crypto` functions that take the value `crypto.init`
+      returned, chose methods grouped as the namespaces are, and asked that no call regress.
+      - `stdx.crypto.hash` and `stdx.crypto.jws` are struct types, and each is a field of the
+        value. A program calls `crypto.hash.sha256(&digest, bytes)` and `crypto.jws.sign(&out, key,
+        input)`. The types still name chapulin's constants, options and streams, as
+        `stdx.crypto.hash.Sha256`.
+      - A call that starts something takes the value, as a call takes an allocator: a session's
+        `init`, a stream's `init` and `tls.init_from_pem`.
+      - `init` computes chapulin's C value of each description once, under the statement of timing
+        and without it. A hash, an HMAC, an HKDF step and a stream's start hand that value to
+        chapulin's C call. On arm64 a call reads PSTATE.DIT, one `mrs`, to pick one of the two.
+        Other calls take chapulin's description, mapped from the features as before.
+      - Measured under callgrind on x86-64, ReleaseSafe for x86-64-v3, with the value read from
+        memory at each call. A SHA-256 of "abc" spent 57 instructions outside chapulin's C at
+        9dd95be, and spends 22. A description that a session or a signature takes cost 48
+        instructions with chapulin's conversion, and costs 38.
+      - The alternatives refused:
+        - A description stored as chapulin's `Cpu` and copied at each call. It measured 86
+          instructions a hash: the copy and chapulin's conversion of 13 fields cost more than the
+          map they replaced. The value holds no type of chapulin's.
+        - Flat methods, as `crypto.sha256`. They lose the grouping the namespaces give.
+        - The functions kept, with the value named `context`. The owner chose methods.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.

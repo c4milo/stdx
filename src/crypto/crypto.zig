@@ -147,19 +147,9 @@ pub const quic = struct {
 };
 
 /// JSON Web Signatures: RS256, ES256 and EdDSA checks and signatures, and base64url
-/// (RFC 7515, RFC 7518 §3.1, RFC 8037 §3.1). `sign` takes the program's `Context`, and draws its
-/// noise from the context's random source.
-pub const jws = struct {
-    pub const Algorithm = chapulin.tcp.jws.Algorithm;
-    pub const VerifyOptions = chapulin.tcp.jws.VerifyOptions;
-    pub const verify = chapulin.tcp.jws.verify;
-    pub const PrivateKey = chapulin.tcp.jws.PrivateKey;
-    pub const base64url_len = chapulin.tcp.jws.base64url_len;
-    pub const base64url_decoded_len_max = chapulin.tcp.jws.base64url_decoded_len_max;
-    pub const base64url_encode = chapulin.tcp.jws.base64url_encode;
-    pub const base64url_decode = chapulin.tcp.jws.base64url_decode;
-    pub const sign = jws_file.sign;
-};
+/// (RFC 7515, RFC 7518 §3.1, RFC 8037 §3.1). The type is also the value's field `jws`: a program
+/// signs with `crypto.jws.sign(&out, key, input)`.
+pub const jws = jws_file;
 /// DNSSEC: the check of an RRSIG over a record set, and the digests of NSEC3 and DS records
 /// (RFC 4034, RFC 5155).
 pub const dnssec = chapulin.tcp.dnssec;
@@ -168,13 +158,14 @@ pub const dnssec = chapulin.tcp.dnssec;
 pub const scram = chapulin.tcp.scram;
 /// The hashes, HMAC and HKDF of chapulin's key schedule: SHA-256, SHA-384 and SHA-512 as a stream
 /// and over a whole input (FIPS 180-4), SHA3-256 and SHA3-512, SHAKE128 and SHAKE256 (FIPS 202),
-/// HMAC over the three SHA-2 hashes (RFC 2104), and HKDF's Extract and Expand (RFC 5869). Each
-/// call takes the program's `Context`, and runs each hash on the instructions its features hold.
+/// HMAC over the three SHA-2 hashes (RFC 2104), and HKDF's Extract and Expand (RFC 5869). The type
+/// is also the value's field `hash`: a program calls `crypto.hash.sha256(&digest, bytes)`, and a
+/// stream starts with `hash.Sha256.init(crypto)`.
 pub const hash = @import("crypto_hash.zig");
 
 /// The value a program makes once, when it starts, from its `stdx.platform.CpuFeatures` and its
-/// random source, and passes to each call that runs chapulin's code (decision 87 as amended on
-/// 2026-11-25). stdx maps the features to chapulin's description of the CPU at each call.
+/// random source, and calls through (decision 87 as amended on 2026-11-25 and 2026-11-26). `init`
+/// maps the features to chapulin's descriptions of the CPU once.
 pub const init = init_file.init;
 /// What `init` returns.
 pub const Context = init_file.Context;
@@ -240,6 +231,7 @@ test {
     _ = jws_file;
     _ = tls_session;
     _ = quic_session;
+    _ = hash;
     _ = @import("crypto_session_test.zig");
 }
 
@@ -283,7 +275,7 @@ test "chapulin takes the description stdx maps from this host's features" {
     const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
     const context = init(platform.CpuFeatures.detect(), random);
     var digest: [hash.sha256_len]u8 = undefined;
-    try hash.sha256(context, &digest, "abc");
+    try context.hash.sha256(&digest, "abc");
     try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
     var stream = try hash.Sha256.init(context);
     stream.update("a");

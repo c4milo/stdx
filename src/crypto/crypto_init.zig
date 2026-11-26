@@ -1,8 +1,12 @@
-//! The value a program makes once, when it starts, and passes to each call of `stdx.crypto` that
-//! runs chapulin's code (decision 87 as amended on 2026-11-25). It holds the CPU features the
-//! program detected once, as its codecs take them, and the random source each session and each
-//! signature draws from. stdx maps the features to chapulin's description of the CPU at each call,
-//! so no program names chapulin's.
+//! The value a program makes once, when it starts, and calls through (decision 87 as amended on
+//! 2026-11-25 and 2026-11-26). It holds the CPU features the program detected once, as its codecs
+//! take them, and the random source each session and each signature draws from. A program calls
+//! the hashes as `crypto.hash.sha256(...)` and signs as `crypto.jws.sign(...)`, and passes the value
+//! to a session's `init`, as it passes an allocator.
+//!
+//! `init` maps the features to chapulin's descriptions of the CPU once, so a call does no mapping.
+//! On arm64 a call reads the calling thread's PSTATE.DIT, one `mrs`, and takes the description that
+//! states the timing or the one that does not. No program names chapulin's description.
 //!
 //! A value, and not a global that one call sets: stdx keeps no process-wide mutable state
 //! (non-negotiable 8). So no call can run before the value exists, no two threads race to set it,
@@ -11,9 +15,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const chapulin = @import("chapulin");
 const platform = @import("platform");
+const hash_file = @import("crypto_hash.zig");
+const jws_file = @import("crypto_jws.zig");
 
-/// What `init` returns, and what each call of `stdx.crypto` that runs chapulin's code takes.
+/// What `init` returns, which a program calls through.
 pub const Context = struct {
+    /// chapulin's hashes, HMAC and HKDF: `crypto.hash.sha256(&digest, bytes)`.
+    hash: hash_file,
+    /// JSON Web Signatures: `crypto.jws.sign(&out, key, input)`.
+    jws: jws_file,
     /// The program's one `stdx.platform.CpuFeatures.detect()`, which its codecs take too.
     features: platform.CpuFeatures,
     /// A cryptographically secure random source. chapulin draws each session's secrets and each
@@ -21,42 +31,117 @@ pub const Context = struct {
     /// any generator, so stdx cannot check it: src/crypto/README.md shows a program wrap
     /// `io.randomSecure`, which threads may share.
     random: chapulin.tcp.RandomSource,
+    /// chapulin's descriptions of the CPU for the TCP object's calls and the QUIC object's, which
+    /// `init` makes. stdx's own: a program reads neither, and neither holds a type of chapulin's.
+    tcp_description: Description(chapulin.tcp),
+    quic_description: Description(chapulin.quic),
+};
+
+/// chapulin's description of the CPU for `Object`'s calls: its C value, made once, under the
+/// statement of timing and without it, and where the statement comes from.
+pub fn Description(comptime Object: type) type {
+    return struct {
+        const Self = @This();
+
+        /// The program's features, which `on_thread` maps for a call that takes chapulin's
+        /// description: a session's `init`, a key reader and a signature.
+        features: platform.CpuFeatures,
+        /// chapulin's C value (its `cpu_cfg.h`) under the statement and without it, which `init`
+        /// computes once, so a hash hands it to the C call with no conversion. 0 in a device
+        /// object, which takes none.
+        stated_bits: u32,
+        unstated_bits: u32,
+        statement: Statement,
+
+        /// chapulin's description for the calling thread.
+        pub fn on_thread(self: *const Self) Object.Cpu {
+            return cpu_of(Object.Cpu, self.features, self.statement.holds(), builtin.cpu.arch);
+        }
+
+        /// The C value of the description for the calling thread.
+        pub fn bits_on_thread(self: *const Self) u32 {
+            return if (self.statement.holds()) self.stated_bits else self.unstated_bits;
+        }
+    };
+}
+
+/// Where the statement of timing comes from, by the architecture and its features.
+pub const Statement = enum {
+    /// x86-64: stdx states it for every core.
+    always,
+    /// arm64 without FEAT_DIT, and every other architecture.
+    never,
+    /// arm64 with FEAT_DIT: the calling thread's PSTATE.DIT.
+    thread_dit,
+
+    fn holds(statement: Statement) bool {
+        return switch (statement) {
+            .always => true,
+            .never => false,
+            .thread_dit => platform.data_independent_timing(.{ .dit = true }),
+        };
+    }
 };
 
 /// The value a program makes once, from its CPU features and its random source.
 pub fn init(features: platform.CpuFeatures, random: chapulin.tcp.RandomSource) Context {
-    const context: Context = .{ .features = features, .random = random };
-    std.debug.assert(context.random.ptr == random.ptr);
+    const tcp = description_of(chapulin.tcp, features, builtin.cpu.arch);
+    const context: Context = .{
+        .hash = .{ .description = tcp },
+        .jws = .{ .description = tcp, .random = random },
+        .features = features,
+        .random = random,
+        .tcp_description = tcp,
+        .quic_description = description_of(chapulin.quic, features, builtin.cpu.arch),
+    };
+    std.debug.assert(context.random.ptr == random.ptr and context.jws.random.ptr == random.ptr);
     return context;
+}
+
+/// The descriptions of `Object` for `features` on `arch`.
+fn description_of(comptime Object: type, features: platform.CpuFeatures, arch: std.Target.Cpu.Arch) Description(Object) {
+    const stated = cpu_of(Object.Cpu, features, true, arch);
+    const unstated = cpu_of(Object.Cpu, features, false, arch);
+    std.debug.assert(stated.constant_time_multiply and !unstated.constant_time_multiply);
+    return .{
+        .features = features,
+        .stated_bits = bits_of(Object, stated),
+        .unstated_bits = bits_of(Object, unstated),
+        .statement = statement_of(features, arch),
+    };
+}
+
+/// chapulin's C value of `cpu`, in a host object, whose options take a description. A device
+/// object takes none, and chapulin names its `cpu_bits` there in a compile error.
+fn bits_of(comptime Object: type, cpu: Object.Cpu) u32 {
+    if (@FieldType(Object.ClientOptions, "cpu") == void) return 0;
+    return Object.cpu_bits(cpu);
 }
 
 /// chapulin's description of the CPU for the TCP object's calls, on the calling thread.
 pub fn tcp_cpu(context: Context) chapulin.tcp.Cpu {
-    const stated = statement(context.features, builtin.cpu.arch);
-    return cpu_of(chapulin.tcp.Cpu, context.features, stated, builtin.cpu.arch);
+    return context.tcp_description.on_thread();
 }
 
 /// chapulin's description of the CPU for the QUIC object's calls, on the calling thread.
 /// chapulin compiles its QUIC object apart, so the type is another type with the same fields.
 pub fn quic_cpu(context: Context) chapulin.quic.Cpu {
-    const stated = statement(context.features, builtin.cpu.arch);
-    const cpu = cpu_of(chapulin.quic.Cpu, context.features, stated, builtin.cpu.arch);
-    std.debug.assert(cpu.constant_time_multiply == stated);
-    return cpu;
+    return context.quic_description.on_thread();
 }
 
-/// Whether the calling thread runs the instructions chapulin's statement covers in constant time.
-/// - arm64: the thread's PSTATE.DIT, read where the features hold FEAT_DIT. A program sets it
-///   with `stdx.platform.set_data_independent_timing` on each thread that runs chapulin's code.
+/// Where the statement comes from on `arch`.
+/// - arm64: the thread's PSTATE.DIT, read where the features hold FEAT_DIT, without which the read
+///   faults. A program sets it with `stdx.platform.set_data_independent_timing` on each thread that
+///   runs chapulin's code.
 /// - x86-64: AES-NI, PCLMULQDQ and the widening multiply are on Intel's list of instructions
 ///   whose time does not depend on their data, and no program can read DOITM, so stdx states it
-///   for every x86-64 core.
+///   for every x86-64 core, as the owner ruled on 2026-11-26.
 /// - Any other architecture: no statement.
-fn statement(features: platform.CpuFeatures, arch: std.Target.Cpu.Arch) bool {
+fn statement_of(features: platform.CpuFeatures, arch: std.Target.Cpu.Arch) Statement {
     return switch (arch) {
-        .aarch64 => features.dit and platform.data_independent_timing(features),
-        .x86_64 => true,
-        else => false,
+        .aarch64 => if (features.dit) .thread_dit else .never,
+        .x86_64 => .always,
+        else => .never,
     };
 }
 
@@ -197,14 +282,13 @@ test "AES's bit needs the carry-less multiply of its own architecture" {
 }
 
 test "x86-64 states its timing, arm64 states the thread's PSTATE.DIT, and another states none" {
-    try testing.expect(statement(.{}, .x86_64));
-    try testing.expect(!statement(.{}, .riscv64));
-    try testing.expect(!statement(.{ .dit = false }, .aarch64));
+    try testing.expectEqual(Statement.always, statement_of(.{}, .x86_64));
+    try testing.expectEqual(Statement.never, statement_of(.{ .dit = true }, .riscv64));
+    try testing.expectEqual(Statement.never, statement_of(.{ .dit = false }, .aarch64));
+    try testing.expectEqual(Statement.thread_dit, statement_of(.{ .dit = true }, .aarch64));
+    try testing.expect(Statement.always.holds() and !Statement.never.holds());
     // arm64 reads the calling thread's mode, which no other host has: there the read is false.
-    const features = platform.CpuFeatures.detect();
-    const read = platform.data_independent_timing(features);
-    try testing.expectEqual(read, statement(features, .aarch64));
-    if (builtin.cpu.arch != .aarch64) try testing.expect(!statement(.{ .dit = true }, .aarch64));
+    try testing.expectEqual(platform.data_independent_timing(.{ .dit = true }), Statement.thread_dit.holds());
 }
 
 /// A fixed source for the tests, which writes the bytes of a counter. It is no random source.
@@ -237,4 +321,31 @@ test "the value keeps the program's features and random source, and both objects
     inline for (@typeInfo(chapulin.tcp.Cpu).@"struct".fields) |field| {
         try testing.expectEqual(@field(tcp, field.name), @field(quic, field.name));
     }
+    // The hash and the signer hold the TCP object's descriptions, and the signer the random source.
+    try testing.expectEqual(context.tcp_description, context.hash.description);
+    try testing.expectEqual(context.tcp_description, context.jws.description);
+    try testing.expectEqual(context.random.ptr, context.jws.random.ptr);
+}
+
+test "a call takes the description that init made for the thread's statement" {
+    var counter: Counter = .{};
+    const features = platform.CpuFeatures.detect();
+    const context = init(features, counter.source());
+    const statement = statement_of(features, builtin.cpu.arch);
+    const expected = described(features, statement.holds(), builtin.cpu.arch);
+    try testing.expectEqual(expected, tcp_cpu(context));
+    // The C values are chapulin's of the descriptions under the statement and without it.
+    const stated = chapulin.tcp.cpu_bits(described(features, true, builtin.cpu.arch));
+    const unstated = chapulin.tcp.cpu_bits(described(features, false, builtin.cpu.arch));
+    try testing.expectEqual(stated, context.tcp_description.stated_bits);
+    try testing.expectEqual(unstated, context.tcp_description.unstated_bits);
+    try testing.expectEqual(chapulin.tcp.cpu_bits(tcp_cpu(context)), context.tcp_description.bits_on_thread());
+    // A statement that holds takes the stated one, and one that does not the other.
+    var always = context.tcp_description;
+    always.statement = .always;
+    try testing.expect(always.on_thread().constant_time_multiply);
+    try testing.expectEqual(stated, always.bits_on_thread());
+    always.statement = .never;
+    try testing.expect(!always.on_thread().constant_time_multiply);
+    try testing.expectEqual(unstated, always.bits_on_thread());
 }

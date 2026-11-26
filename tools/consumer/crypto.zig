@@ -34,7 +34,7 @@ pub fn main(init: std.process.Init) !void {
     const crypto = stdx.crypto.init(features, secure.random());
 
     var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
-    try stdx.crypto.hash.sha256(crypto, &digest, "abc");
+    try crypto.hash.sha256(&digest, "abc");
     const hex = std.fmt.bytesToHex(digest, .lower);
     if (!std.mem.eql(u8, &hex, abc_digest)) return error.WrongDigest;
 }
