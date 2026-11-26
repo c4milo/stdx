@@ -56,9 +56,14 @@ run_check "rfcs, specs and data" check_copies
 run_check "corpus fetch pin" bash tools/corpus/fetch_check.sh
 run_check "package prune" bash tools/prune_packages_check.sh
 run_check "fuzz verdict" bash tools/fuzz_check.sh
-run_check "charts" python3 -I tools/charts.py --check
+# Each release draws the charts into the branch `charts` (decision 85 as amended on 2026-11-26), so
+# these check the tools that draw them and the pages on main that show them.
+run_check "chart pages" python3 -I tools/chart_docs.py --check
 run_check "charts tests" python3 -I tools/charts_wide_test.py
 run_check "chart pages tests" python3 -I tools/chart_docs_test.py
+run_check "chart change tests" python3 -I tools/chart_change_test.py
+run_check "bench release tests" python3 -I tools/bench_release_test.py
+run_check "charts release tests" python3 -I tools/charts_release_test.py
 run_check "test" zig build test
 # The unit tests built by Zig's own x86-64 backend, a caller's Debug default on x86-64 Linux: run
 # there, and only compiled on every other runner. The summary shows which, module by module.

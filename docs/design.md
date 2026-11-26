@@ -11987,6 +11987,30 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     running SHAKE128.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
+- **Step 34: each release draws its charts, and marks what changed since the previous release
+  (decision 85 as amended on 2026-11-26).** The owner asked for the benchmarks on each release
+  tag alone, a branch `charts` as connect-zig keeps, and marks that show whether stdx became
+  faster or slower. The `bench` workflow runs on a tag `v*`, and when a person names a tag in its
+  `release` input. Its `plan` job lists 48 jobs from `bench/charts.txt`: one for each codec on
+  each runner, and 18 regex jobs on each. Each job measures the previous release first. Its
+  `charts` job draws the charts and publishes them (`tools/charts_release.py` and
+  `tools/charts_release.sh`).
+  **Check:**
+  - `tools/chart_change_test.py`, `tools/bench_release_test.py`, `tools/charts_release_test.py`
+    and `tools/chart_docs_test.py` pass, and `tools/ci.sh` runs them and `tools/chart_docs.py
+    --check`. The release test draws all 18 charts from the committed reports of
+    `bench/results/`, each standing in for a job. A previous report with two gzip rows, gzip's
+    level 6 and a regex row of all 18 N2 jobs changed by 20% to 30% gives each of them its mark
+    and its row in the notes. The shell steps run against a bare repository and a stand-in `gh`.
+  - Mutations, 22, each `CAUGHT`: the threshold off; one job past no noise; 18 jobs past no
+    sign test; a missing job kept in the pairs; the arrows swapped; a summary by the mean; no
+    dashed line; the previous release by text order; the fewest jobs a benchmark asks for; a
+    missing job let through; codec rows, regex rows and encoder levels each compared with the
+    release itself; no mark on an encoder's level; no note under a chart; `notes.md` written to
+    the branch; the notes appended and not replaced; no notes file read; an open release created
+    again; images of `docs/images/` let through; an old image left as it was; a module's README
+    asked for every chart.
+
 ## 9. Performance
 
 Decision 10 fixes the method before the first measurement, so the numbers cannot be shaped

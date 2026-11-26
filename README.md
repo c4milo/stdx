@@ -88,21 +88,19 @@ runs.
 ## Performance
 
 The benchmarks compare stdx with other libraries on GitHub's hosted runners. Every library of a
-row runs in the same job ([decision 20](docs/decisions.md)). On the Arm Neoverse N2 runner:
+row runs in the same job ([decision 20](docs/decisions.md)). Each release runs every benchmark
+again, measures the previous release in the same jobs, and draws each chart into the branch
+[`charts`](https://github.com/c4milo/stdx/tree/charts) ([decision 85](docs/decisions.md)). A green
+▲ or a red ▼ in a chart marks a row 5% or more faster or slower than at the previous release.
 
-- [brotli](src/compress/brotli/README.md#performance) decodes faster than Google's decoder on all 39 corpus
-  files, at 1.10 to 3.36 times its speed.
-- [gzip](src/compress/deflate/README.md#performance) decodes faster than libdeflate on 31 of the 39 files.
-- [`json`](src/encoding/json/README.md#performance)'s `TextWriter` writes JSON at 1.64 to 16.35 times
-  serde_json's speed.
-- [`regex`](src/regex/README.md#performance) was tuned on each set that measures it. On rebar's
-  benchmarks outside its curated set it runs 125 of 181 searches faster than Rust's regex crate,
-  and 55 slower, the slowest by about 140 times.
-- [Zstandard](src/compress/zstd/README.md#performance) decodes slower than libzstd on 25 of the 39 files,
-  and libzstd's level 3 is both faster and smaller than stdx's levels 1 and 3.
-
-Each module's README shows its chart. [`docs/benchmarks.md`](docs/benchmarks.md) shows every
-chart, lists the counts of each, the losses included, and says how to run each benchmark again.
+Each module's README shows its chart: [brotli](src/compress/brotli/README.md#performance),
+[gzip](src/compress/deflate/README.md#performance), [Zstandard](src/compress/zstd/README.md#performance),
+[`json`](src/encoding/json/README.md#performance), [`base64`](src/encoding/base64/README.md#performance),
+[`hash`](src/hash/README.md#performance) and [`regex`](src/regex/README.md#performance).
+[The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists
+the counts of each chart, the losses included, and each release's notes list the rows that
+changed. [`docs/benchmarks.md`](docs/benchmarks.md) says how to read the charts and run each
+benchmark again.
 
 ## Status
 
