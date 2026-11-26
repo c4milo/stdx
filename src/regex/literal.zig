@@ -45,6 +45,7 @@ pub const no_place = std.math.maxInt(usize);
 pub const near_len = constants.literal_steps * constants.skip_lanes;
 
 extern fn stdx_regex_literal_find_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+extern fn stdx_regex_literal_find_places_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, places: [*]usize, places_len: usize) callconv(.c) usize;
 extern fn stdx_regex_literal_find_counting_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, misses: *usize) callconv(.c) usize;
 
 /// A bit for each place of a literal.
@@ -192,6 +193,24 @@ pub const Literal = extern struct {
             return find_far(literal, haystack, near);
         }
         return literal_find.find(constants.skip_lanes, literal, haystack, from, {});
+    }
+
+    /// True where `find_places` serves a search from `from` in a text of `haystack_len` octets:
+    /// with `wide`, for a literal of two octets or more and more than `near_len` octets left. A
+    /// literal of one octet, or a text with fewer left, finds its place with no call.
+    pub fn takes_places(literal: *const Literal, haystack_len: usize, from: usize) bool {
+        return has_kernels and literal.wide and literal.len > 1 and haystack_len - from > near_len;
+    }
+
+    /// The places of the literal from `from` on, none inside another, written to `places` in
+    /// order: each search starts where the place before it ends. Gives their count, under
+    /// `places.len` only where the text holds no more. One call of the variant object finds them
+    /// all: a call for each place cost `Matches` more time than its instructions.
+    pub noinline fn find_places(literal: *const Literal, haystack: []const u8, from: usize, places: []usize) usize {
+        assert(literal.takes_places(haystack.len, from) and places.len != 0);
+        const count = stdx_regex_literal_find_places_x86_64_avx2(literal, haystack.ptr, haystack.len, from, places.ptr, places.len);
+        assert(count <= places.len);
+        return count;
     }
 
     /// `find` for a search that keeps an account, claim R14's or claim R4's: each candidate that

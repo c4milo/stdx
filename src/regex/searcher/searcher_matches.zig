@@ -21,6 +21,12 @@ pub const Matches = struct {
     position: usize = 0,
     /// Where the last match ended.
     last_end: ?usize = null,
+    /// The places of claim R2's literal that one search found from `places_at` on, and the next
+    /// of them that `next` gives. `next` reads them only while `position` stands where it left it.
+    places: [constants.literal_places_max]usize = undefined,
+    places_len: u8 = 0,
+    places_next: u8 = 0,
+    places_at: usize = 0,
 
     pub fn next(matches: *Matches) ?Span {
         if (matches.position > matches.haystack.len) return null;
@@ -86,13 +92,51 @@ pub const Matches = struct {
     /// `next` for a pattern that is its literal (claim R2): each place of the literal is a match
     /// of one octet or more, so none is empty.
     fn next_exact(matches: *Matches, literal: *const Literal) ?Span {
-        const start = literal.find(matches.haystack, matches.position) orelse {
-            matches.position = matches.haystack.len + 1;
-            return null;
-        };
-        matches.position = start + literal.len;
+        // A literal of one octet takes no places of a search (`Literal.takes_places`).
+        if (literal.len == 1) {
+            const start = literal.find(matches.haystack, matches.position) orelse return matches.end_exact();
+            return matches.span_exact(start, literal.len);
+        }
+        const start = matches.next_place(literal, matches.position) orelse return matches.end_exact();
+        return matches.span_exact(start, literal.len);
+    }
+
+    /// The match of claim R2's literal at `start`, and `position` past it.
+    inline fn span_exact(matches: *Matches, start: usize, len: usize) Span {
+        matches.position = start + len;
         matches.last_end = matches.position;
         return .{ .start = @intCast(start), .end = @intCast(matches.position) };
+    }
+
+    /// No match is left.
+    fn end_exact(matches: *Matches) ?Span {
+        matches.position = matches.haystack.len + 1;
+        return null;
+    }
+
+    /// The next place of claim R2's literal from `from`: the next of `places` where `from` is where
+    /// `next` left `position`, or else a search's. A caller that moved `position` makes the places
+    /// stale, and the search finds them again.
+    fn next_place(matches: *Matches, literal: *const Literal, from: usize) ?usize {
+        if (matches.places_next < matches.places_len) {
+            if (matches.places_at == from) return matches.take_place(literal);
+            matches.places_len = 0;
+        }
+        if (!literal.takes_places(matches.haystack.len, from)) return literal.find(matches.haystack, from);
+        const found = literal.find_places(matches.haystack, from, &matches.places);
+        matches.places_len = @intCast(found);
+        matches.places_next = 0;
+        if (found == 0) return null;
+        return matches.take_place(literal);
+    }
+
+    /// The next of `places`, and where `next` leaves `position` after it.
+    fn take_place(matches: *Matches, literal: *const Literal) usize {
+        assert(matches.places_next < matches.places_len);
+        const start = matches.places[matches.places_next];
+        matches.places_next += 1;
+        matches.places_at = start + literal.len;
+        return start;
     }
 
     fn find_after(matches: *Matches, empty: Span) ?Span {

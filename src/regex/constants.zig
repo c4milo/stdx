@@ -233,9 +233,8 @@ pub const account_rest_doublings_max = 4;
 /// program, before it judges claim R4's second and third rules, claim R13 and claim R14
 /// (searcher_claim.zig). At `init` their walks made a pattern ready at 0.16 to 0.85 of the
 /// speed before. They take 13 to 123 ns an instruction in a cloud container, and a plain scan
-/// takes about 1 ns a byte. So a searcher makes the walks once, after a scan that cost it
-/// about half as much or more (design §8 part 22q). A searcher that is given less never pays
-/// for them.
+/// takes about 1 ns a byte. So a searcher makes the walks once, after a scan that cost it about
+/// half as much or more (design §8 part 22q). A searcher given less never pays for them.
 pub const claim_text_per_instruction = 64;
 
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
@@ -307,6 +306,9 @@ pub const octet_near_len = 256;
 /// The blocks whose candidates held no place before claim R2's search compares a third octet:
 /// on rebar's `literal-never-match-tricksy` it took 86% of the instructions away.
 pub const literal_third_misses = 4;
+
+/// The places of claim R2's literal that `Matches` takes from one search: one call, not eight.
+pub const literal_places_max = 8;
 
 /// The literals claim R5 searches for at most, one of which every match starts with: 64, as many
 /// as Rust's regex crate gives Teddy. The owner ruled it on 2026-11-22 (decision 86 as amended):
@@ -473,16 +475,14 @@ pub const dfa_slots_first = 64;
 /// seeds need, so this sets how many states the cache can count, not the room each one takes.
 pub const dfa_record_words = 12;
 
-/// The words before the packed seeds in a state's record: its flags and the count of the seeds'
-/// octets.
+/// The words before the packed seeds in a state's record: its flags and the count of their octets.
 pub const dfa_record_head = 2;
 
 /// The hash a cache keys its states by: FNV-1a over a record's flags and its packed seeds.
 pub const fnv_offset_basis = 0x811C_9DC5;
 pub const fnv_prime = 0x0100_0193;
 
-/// The bits of a record's first word that hold what the octet behind the state is to an
-/// assertion.
+/// The bits of a record's first word that hold what the octet behind the state is to assertions.
 pub const context_bits = 2;
 
 /// The contexts an octet falls in, which the assertions read: the edge of the text, a line feed, a

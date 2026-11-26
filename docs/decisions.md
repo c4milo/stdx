@@ -6047,6 +6047,11 @@ last part lists what still waits on a ruling.
       searcher reads no DFA: each place of the literal is a match (design §8 step 22, part 22c).
       Since 2026-11-23, `Matches.next` takes such a pattern's next place from the literal
       itself, where it went through `Searcher.find` (design §8 part 22n).
+      - Amended on 2026-11-26 (design §8 part 22q): where the variant object searches a literal
+        of two octets or more, with more than `near_len` octets left, one call finds the next
+        `literal_places_max` places, 8, none inside another. `Matches` keeps them and gives
+        one a call. A call for each place cost the time of a call where memchr's costs a branch:
+        `The` over sherlock.txt took 18% less time.
       - `Literal.of` reads the literal from the forward program: the instructions from the entry
         that each take one octet, through saves, up to `literal_len_max`, 32 octets.
       - `Literal.find` compares the literal's octets at two offsets, `first_at` and `last_at`,

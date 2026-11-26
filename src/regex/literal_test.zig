@@ -236,6 +236,44 @@ test "find gives the place of a literal of one octet at every distance from its 
     }
 }
 
+test "takes_places takes a literal of two octets or more with more than near_len octets left" {
+    var literal: Literal = .{ .octets = undefined, .len = 2, .exact = true };
+    @memcpy(literal.octets[0..2], "ab");
+    literal.prepare();
+    literal.wide = true;
+    try testing.expectEqual(literal_file.has_kernels, literal.takes_places(literal_file.near_len + 1, 0));
+    try testing.expectEqual(literal_file.has_kernels, literal.takes_places(literal_file.near_len + 6, 5));
+    try testing.expect(!literal.takes_places(literal_file.near_len + 5, 5));
+    literal.wide = false;
+    try testing.expect(!literal.takes_places(literal_file.near_len + 1, 0));
+    literal.wide = true;
+    literal.len = 1;
+    try testing.expect(!literal.takes_places(literal_file.near_len + 1, 0));
+}
+
+test "find_places in the variant object gives the places a loop of find gives" {
+    if (!test_has_avx2(platform.CpuFeatures.detect())) return;
+    var generator = Generator.init(0x91ACF);
+    var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };
+    @memcpy(literal.octets[0..3], "aba");
+    literal.prepare();
+    literal.wide = true;
+    var haystack: [test_haystack_len]u8 = undefined;
+    var places: [constants.literal_places_max]usize = undefined;
+    for (0..64) |_| {
+        for (&haystack) |*octet| octet.* = "abx"[generator.below("abx".len)];
+        const from = generator.below(haystack.len - literal_file.near_len);
+        const count = literal.find_places(&haystack, from, &places);
+        // Each place is the next one a search from past the place before it finds.
+        var at = from;
+        for (places[0..count]) |place| {
+            try testing.expectEqual(@as(?usize, place), find_plain(&haystack, "aba", at));
+            at = place + literal.len;
+        }
+        if (count < places.len) try testing.expectEqual(@as(?usize, null), find_plain(&haystack, "aba", at));
+    }
+}
+
 /// The parts of the text of the test below: one near copy of the literal or none in each part, or
 /// the literal in the last.
 const count_parts = 4;

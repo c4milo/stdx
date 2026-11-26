@@ -11338,6 +11338,48 @@ to 12 are reordered and nothing else changes.
     next check reads, or is claim R13 with no reverse DFA, which reads with the forward DFA
     alone. A new test holds that last case to the matcher.
 
+  The places of a literal, eight a call (the owner's ruling of 2026-11-26):
+  - `sherlock/the-upper` counts `The` at 0.61 to 0.90 of Rust's crate, the lowest on x86-64.
+    stdx's AVX2 search took 229 thousand instructions a pass, and memchr's 231 thousand. The
+    gap is a cost a match: about 366 instructions to Rust's 135. Of them, 117 searched the 64
+    octets past the last match before the call into the variant object, and 76 made the call.
+  - A search with no block of its own first took 17% fewer instructions but ran `the`, whose
+    places stand close together, 10% to 20% slower: each call costs more time than its
+    instructions. Skipping the block after several far places did no better on `the`.
+  - `Literal.find_places` now finds the next `literal_places_max` places in one call of the
+    variant object, and `Matches` gives them one a call. It takes a literal of two octets or
+    more, with more than `near_len` octets left: a shorter search needs no call.
+  **Check:** `find_places` against a loop of `find` at each width; the bounds of
+  `takes_places`; `Matches` over a long text with the host's features and with none, and with
+  a position the caller moved; the filter under callgrind and its time; mutations; the paired
+  runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe for x86-64-v3, counted these instructions a pass of rebar's
+    `count_spans` model under callgrind.
+
+    | Pattern and text | Before | After |
+    | --- | ---: | ---: |
+    | `The`, sherlock.txt | 473,022 | 370,164 |
+    | `the`, sherlock.txt | 2,612,297 | 2,241,835 |
+    | ` the `, sherlock.txt | 2,504,823 | 2,182,256 |
+    | `Sherlock Holmes`, en-sampled.txt | 423,110 | 393,717 |
+    | `e.`, sherlock.txt | 21,754,414 | 21,780,757 |
+    | `e`, sherlock.txt | 6,982,466 | 7,037,054 |
+    | `y`, rsc's text of 51 octets | 328 | 332 |
+    | `The` twice in 51 octets | 898 | 939 |
+
+  - In seven passes of 1,000 runs on one core of the container, which is no judge, `The` took
+    a median of 32.2 µs a run in place of 39.1, `the` 216.9 in place of 230.0, and `e` 408.2
+    in place of 404.2.
+  - Mutations: 9, each CAUGHT, against `zig build test-regex`. A search after a place starts
+    one octet past it; a short batch counts no place; `takes_places` takes exactly
+    `near_len` octets left, a literal of one octet, or no `wide`; a moved position keeps the
+    places; a new batch skips its first; each match drops the batch; the variant object finds
+    one place a call. A new batch that skips its first place passed every test until a test
+    ran `Matches` with the host's features: the searcher's tests ran with none.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

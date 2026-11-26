@@ -25,6 +25,20 @@ pub fn find(comptime width: usize, literal: *const Literal, haystack: []const u8
     return search(width, literal, haystack, from, haystack.len - literal.len + 1, misses);
 }
 
+/// The places of the literal from `from` on, none inside another, written to `places` in order:
+/// each search starts where the place before it ends. Gives their count, under `places.len` only
+/// where the text holds no more.
+pub fn find_places(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, places: []usize) usize {
+    assert(places.len != 0 and from <= haystack.len);
+    var at = from;
+    // Each turn writes one place, so the turns are at most the places asked for.
+    for (places, 0..) |*place, count| {
+        place.* = find(width, literal, haystack, at, {}) orelse return count;
+        at = place.* + literal.len;
+    }
+    return places.len;
+}
+
 /// `find`, for the places that start before `limit` alone. `Literal.find` searches one block this
 /// way before it calls the variant object, so a text where places stand close together pays no
 /// call for each. Inline: a ReleaseSafe build left it a call at each search.
@@ -370,5 +384,41 @@ test "find_octet gives the first place of an octet from every offset to every en
                 try testing.expectEqual(expected, find_octet(constants.avx2_lanes, &text, from, end, 'x'));
             }
         }
+    }
+}
+
+/// The blocks of the widest search in the text of the test below, so that places stand past
+/// several of them.
+const places_text_blocks = 3;
+const places_text_len = places_text_blocks * wide_block_len;
+
+/// The places a loop of `find` gives from `from`, none inside another, up to `places.len`.
+fn places_plain(literal: *const Literal, haystack: []const u8, from: usize, places: []usize) usize {
+    var at = from;
+    for (places, 0..) |*place, count| {
+        place.* = find(constants.skip_lanes, literal, haystack, at, {}) orelse return count;
+        at = place.* + literal.len;
+    }
+    return places.len;
+}
+
+test "find_places gives the places a loop of find gives, none inside another, at each width" {
+    var generator = @import("codec").testing.split.Generator.init(0x91ACE);
+    // `aba` stands at overlapping places in `ababa`: the second search starts past the first.
+    var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };
+    @memcpy(literal.octets[0..3], "aba");
+    literal.prepare();
+    var text: [places_text_len]u8 = undefined;
+    var expected: [constants.literal_places_max]usize = undefined;
+    var places: [constants.literal_places_max]usize = undefined;
+    for (0..256) |_| {
+        for (&text) |*octet| octet.* = "abx"[generator.below("abx".len)];
+        const from = generator.below(text.len + 1);
+        const len = 1 + generator.below(places.len);
+        const count = places_plain(&literal, &text, from, expected[0..len]);
+        try testing.expectEqual(count, find_places(constants.skip_lanes, &literal, &text, from, places[0..len]));
+        try testing.expectEqualSlices(usize, expected[0..count], places[0..count]);
+        try testing.expectEqual(count, find_places(constants.avx2_lanes, &literal, &text, from, places[0..len]));
+        try testing.expectEqualSlices(usize, expected[0..count], places[0..count]);
     }
 }
