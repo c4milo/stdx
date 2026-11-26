@@ -80,13 +80,22 @@ inline fn count_blocks(comptime width: usize, literal: *const Literal, comptime 
 inline fn count_run(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize, tally: *Tally, misses: anytype) Stop {
     const wanted = literal_find.wanted_of(width, literal);
     const run_len = steps * width;
+    // The offsets and the tally stay in registers through the loop, as in the search: a write
+    // through `tally` could change `literal` as far as LLVM knows, and it read both offsets again
+    // for each block.
+    const first = literal.first_at;
+    const last = literal.last_at;
+    var counted = tally.*;
+    defer tally.* = counted;
     var blocks_missed: usize = 0;
     var index = from;
     // A block reads `run_len` octets from `index + first_at`, `index + last_at` and
     // `index + third_at`, whose last is under the haystack's length while `index` stands
     // `run_len` before `end`.
     while (end - index >= run_len) : (index += run_len) {
-        switch (count_block(width, literal, form, steps, third, &wanted, haystack, index, tally, misses)) {
+        const firsts = haystack[index + first ..][0..run_len];
+        const lasts = if (form == .single) firsts else haystack[index + last ..][0..run_len];
+        switch (count_block(width, literal, form, steps, third, firsts, lasts, &wanted, haystack, index, &counted, misses)) {
             .none => {},
             .placed => {
                 if (third) return .{ .index = index + run_len, .third = false };
@@ -103,12 +112,12 @@ inline fn count_run(comptime width: usize, literal: *const Literal, comptime for
 /// What a block held: no candidate that a run compares, candidates and no place, or a place.
 const Block = enum { none, missed, placed };
 
-/// Counts the places of the block of `steps` steps at `index`. A block tests all its steps before
-/// it looks at one, so a block with no candidate costs one branch.
-inline fn count_block(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, comptime third: bool, wanted: anytype, haystack: []const u8, index: usize, tally: *Tally, misses: anytype) Block {
-    const run_len = steps * width;
-    const firsts = haystack[index + literal.first_at ..][0..run_len];
-    const lasts = if (form == .single) firsts else haystack[index + literal.last_at ..][0..run_len];
+/// Counts the places of the block of `steps` steps at `index`, whose octets at `first_at` and
+/// `last_at` are `firsts` and `lasts`. A block tests all its steps before it looks at one, so a
+/// block with no candidate costs one branch. No branch hint: `@branchHint(.unlikely)`, as in the
+/// search, kept the loop's registers for a block with no candidate, and spilled them around each
+/// block with one, which cost a text of many places more than it saved a text of none.
+inline fn count_block(comptime width: usize, literal: *const Literal, comptime form: literal_find.Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: anytype, haystack: []const u8, index: usize, tally: *Tally, misses: anytype) Block {
     if (!literal_find.any_candidate(width, form, steps, firsts, lasts, wanted)) return .none;
     // Most blocks lose every candidate at the third octet, as in the search. One test of all the
     // steps says so.

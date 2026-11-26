@@ -11460,6 +11460,17 @@ to 12 are reordered and nothing else changes.
     counts from one octet on; `count` takes the walk of `next`, which a test of `places_at`
     catches. A check that skipped a candidate before the last step's start was removed: the end
     of the last place counted skips each such candidate already.
+  - The runs 45876587247 and 45876591445 measured `8e868fb` against `edb9a72`, each in one job
+    on the N2 and one on x86-64, an EPYC 9V74 and an EPYC 7763. By decision 20's rule, no row of
+    the 284 ran faster in all four jobs, and 9 ran slower.
+    - On x86-64, `01-literal/sherlock-en` ran 1.42 and 1.39 times as fast, from 0.93 and 0.88 of
+      Rust's crate to 1.31 and 1.24. `01-literal/sherlock-ru` ran 1.26 and 1.27 times as fast,
+      from 1.04 and 0.94 to 1.32 and 1.20. On the N2 they ran 1.01 and 0.95 times as fast.
+    - The rows of a literal with few places or none ran slower in all four jobs.
+      `folly/literal-never-match-tricksy` ran 0.15 to 0.30 times as fast, and
+      `leipzig/twain-insensitive` 0.63 to 0.82. `opt/prefilter/literal-english` ran 0.78 to 0.87,
+      `folly/literal-never-match-rare` 0.77 to 0.84, and `01-literal/sherlock-zh` 0.90 to 0.92.
+      The count compared no third octet, and the next entry gives it the search's switch.
 
   The count's compare of a third octet (the owner's ruling of 2026-11-26):
   - The runs 45871154553 and 45871160154 showed `01-literal/sherlock-zh` slower on x86-64. The
@@ -11505,6 +11516,37 @@ to 12 are reordered and nothing else changes.
     the switch back one block late; the misses counted from one. NOT CAUGHT: no test of all
     steps. Its count is the same, and the filter counts `夏洛克·福尔摩斯` with no features at
     561,485 instructions a pass in place of 478,840.
+  - The filter counts `b83efe9` against `20361c8` on the rows that `8e868fb` lost.
+    `folly/literal-never-match-tricksy` takes 82,720 instructions a pass in place of 91,304, and
+    546,682 in `8e868fb`. `leipzig/twain-insensitive` takes 7.70 million in place of 8.42
+    million, and 10.56 million in `8e868fb`.
+
+  The count's offsets in registers (the owner's ruling of 2026-11-26):
+  - Built with no features, the count's loop read `first_at` and `last_at` from the literal for
+    each block, where the search's loop keeps them in registers. The count wrote its tally
+    through a pointer, and LLVM could not show that the writes left the literal as it was.
+  - `count_run` now reads both offsets once, and keeps the tally in a local that it writes back
+    when it returns. A branch hint, as in the search, cut the loop's work on a text with no
+    place by 3% to 5% and raised it by 48% on `the`, so the count takes none.
+  **Check:** the count's tests, as before; the filter under callgrind; the paired runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` exits 0.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions a pass of
+    `Matches.count` alone with no features, the path the N2 takes. With AVX2 the counts of
+    `b83efe9` and of this change are the same to 1%.
+
+    | Pattern and text | `b83efe9` | Now |
+    | --- | ---: | ---: |
+    | `the`, sherlock.txt | 1,115,362 | 908,092 |
+    | `e`, sherlock.txt | 1,408,356 | 1,228,477 |
+    | `The`, sherlock.txt | 434,573 | 412,623 |
+    | `(?i)Twain`, leipzig-3200.txt | 15,673,386 | 15,391,810 |
+    | `夏洛克·福尔摩斯`, zh-sampled.txt | 478,842 | 481,529 |
+    | `Twain`, leipzig-3200.txt | 9,297,852 | 9,402,728 |
+    | `ZQZQZQZQZQ`, rust-src-tools.txt | 4,096,527 | 4,269,606 |
+
+  - `ZQZQZQZQZQ` takes 4.2% more instructions than in `b83efe9`, and 1.4% more than the search
+    of `edb9a72`, 4,211,898.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
