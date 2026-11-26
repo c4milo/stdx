@@ -217,6 +217,12 @@ pub noinline fn is_match(searcher: *Searcher, haystack: []const u8) ?bool {
     // A claim with an account takes its own call, so that a search of a short text does not
     // set up the frame of the other claims' scans, which `find_by_claim` holds inline.
     const by_account = !searcher.at_end and (searcher.inner != null or searcher.suffix_wide);
+    // While the claim rests, the forward scan of `Searcher.is_match` answers with no call of the
+    // claim's. That scan does not say where it stopped, so the whole text counts toward the rest.
+    if (by_account and searcher.account.rest != 0) {
+        searcher.account.pass(haystack.len);
+        return null;
+    }
     if (by_account and answered(searcher, haystack.len) == null) {
         if (no_place(searcher, haystack)) return false;
     }
@@ -271,17 +277,18 @@ inline fn find_by_suffix(searcher: *Searcher, suffix: *const Literal, haystack: 
 }
 
 /// Claim R4 under its second rule or its third: `find_by_suffix`, with the searcher's account
-/// of what the places cost (searcher_account.zig). A search pays for its start and for each
-/// place, and leaves the places once it has lost more than the account holds.
+/// of what the places cost (searcher_account.zig). A search pays for each place and each
+/// candidate that held none, and leaves the places once it has lost more than the account holds.
 fn find_wide_suffix(account: *Account, reverse: *Dfa, suffix: *const Literal, haystack: []const u8, from: usize) Found {
     assert(!account.dropped);
     if (account.rest != 0) return .plain;
-    var paid: usize = constants.account_place_bytes;
+    // A search pays nothing for its start, as claim R14's does (design §8 part 22q).
+    var paid: usize = 0;
     var index = from;
     // Each turn goes on from one byte past the place before, so the turns are at most the bytes
     // from `from` and one.
     for (0..haystack.len - from + 1) |_| {
-        const place = suffix.find(haystack, index) orelse break;
+        const place = searcher_account.find_charged(suffix, haystack, index, &paid) orelse break;
         paid += constants.account_place_bytes;
         if (account.overdrawn(place - from, paid)) {
             account.settle(0, paid);

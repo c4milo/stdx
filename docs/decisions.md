@@ -6564,6 +6564,18 @@ last part lists what still waits on a ruling.
           lost 35 bytes on a line of 29. So the account dropped the claim on three patterns of
           longer literals, where the claim took 5% to 12% fewer instructions. Claim R4's
           search still pays for its start, which no probe measured.
+        - Amended a third time by the owner's ruling of 2026-11-26 (design §8 part 22q). A
+          search pays `account_miss_bytes`, 24, for each candidate of its literal that held no
+          place, and claim R4's search pays nothing for its start too. With no charge for the
+          start, the account kept claim R14 where a literal's octets stand often, and there it
+          lost 15% to 24%. Its search compared 2.2 candidates a line in vain, and the account
+          saw none of that cost. Claim R2's search counts nothing, and compiles as before.
+        - In `is_match`, a search at rest goes straight to the plain scan, and the whole text
+          counts toward the rest. At 24 a miss, a claim whose misses stand together in parts of
+          a text rests often, and its calls at rest cost 8% over the plain scan.
+        - `[a-z]+ +the` still keeps claim R4 and loses 7%. On lines a place costs more than
+          `account_place_bytes`, about 470 instructions by a fit, and no charge for a miss sees
+          it.
         - A trial starts with a credit of `account_credit_bytes`, 2^12. A search that has lost
           more than the account holds leaves its places, and the claim rests while the plain
           search covers `account_rest_bytes`, 2^16. Then it tries again. Each trial that loses

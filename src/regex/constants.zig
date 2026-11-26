@@ -40,8 +40,7 @@ pub const octet_ranges_max = octet_values / 2;
 
 /// The largest count a range quantifier names, and the largest product of the counts of nested
 /// range quantifiers. RFC 9485 §8 lets an implementation limit both. A count multiplies the
-/// program, so the limit bounds the instructions one quantifier adds. RE2 and Go's regexp hold the
-/// same 1,000.
+/// program, so the limit bounds the instructions one quantifier adds. RE2 and Go's hold 1,000.
 pub const repeat_max = 1000;
 
 /// The base of a count's digits, of a `\x` escape's, and of an octal escape's.
@@ -205,19 +204,20 @@ pub const inner_candidates_max = 8;
 /// begun. With a space as its literal, `[A-Z][a-z]+ [A-Z][a-z]+` took 38 ns a place on the N2
 /// where the plain scan took 0.93 ns a byte, so a text whose places stand under some 41 bytes
 /// apart loses (design §8 part 22q). 64 leaves the claim to texts where it gains by half or
-/// more. Claim R4's search pays as much for its start. Claim R14's start costs less than the
-/// plain search's, and pays nothing.
+/// more. A search's start pays nothing: it costs less than the plain search's.
 pub const account_place_bytes = 64;
 
-/// What a trial of a claim with an account may lose before the claim rests, in bytes of a
-/// plain scan. A trial that fails then loses about a sixteenth of the text that the first rest
-/// covers.
+/// What such a search pays for each candidate of its literal that held no place: a compare of the
+/// literal whole, 40 to 51 instructions, where a search saved 2.3 a byte (design §8 part 22q).
+pub const account_miss_bytes = 24;
+
+/// What a trial of a claim with an account may lose before the claim rests, in bytes of a plain
+/// scan: about a sixteenth of the text that the first rest covers.
 pub const account_credit_bytes = 1 << 12;
 
-/// The most an account holds: its credit, and as much again that its searches gained. An
-/// account that holds it has earned back what a trial may lose, so its next rest is the first
-/// one's. A higher bound would let a long text of far places pay for as long a text of close
-/// ones.
+/// The most an account holds: its credit, and as much again that its searches gained. An account
+/// that holds it earned back what a trial may lose, so its next rest is the first one's. A higher
+/// bound would let a long text of far places pay for as long a text of close ones.
 pub const account_balance_max = 2 * account_credit_bytes;
 
 /// The bytes of text the plain search covers while a claim with an account rests, before the

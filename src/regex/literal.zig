@@ -45,6 +45,7 @@ pub const no_place = std.math.maxInt(usize);
 pub const near_len = constants.literal_steps * constants.skip_lanes;
 
 extern fn stdx_regex_literal_find_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+extern fn stdx_regex_literal_find_counting_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, misses: *usize) callconv(.c) usize;
 
 /// A bit for each place of a literal.
 pub const Folds = std.meta.Int(.unsigned, constants.literal_len_max);
@@ -181,16 +182,29 @@ pub const Literal = extern struct {
             if (literal_find.find_octet(constants.skip_lanes, haystack, from, near, literal.octets[0])) |offset| return offset;
             if (near == haystack.len) return null;
             if (has_kernels and literal.wide) return find_far(literal, haystack, near);
-            return literal_find.find(constants.skip_lanes, literal, haystack, near);
+            return literal_find.find(constants.skip_lanes, literal, haystack, near, {});
         }
         if (has_kernels and literal.wide) {
             // The variant object's search is a call no compiler inlines. A place within a block
             // of `from`, as in a text where the literal is common, is found without a call.
             const near = @min(haystack.len, from + near_len);
-            if (literal_find.find_before(constants.skip_lanes, literal, haystack, from, near)) |offset| return offset;
+            if (literal_find.find_before(constants.skip_lanes, literal, haystack, from, near, {})) |offset| return offset;
             return find_far(literal, haystack, near);
         }
-        return literal_find.find(constants.skip_lanes, literal, haystack, from);
+        return literal_find.find(constants.skip_lanes, literal, haystack, from, {});
+    }
+
+    /// `find` for a search that keeps an account, claim R14's or claim R4's: each candidate that
+    /// held no place adds one to `misses`, a compare of the literal whole that a plain scan does
+    /// not pay. A literal of one octet has no such candidate.
+    pub fn find_counting(literal: *const Literal, haystack: []const u8, from: usize, misses: *usize) ?usize {
+        if (literal.len == 1) return literal.find(haystack, from);
+        if (has_kernels and literal.wide) {
+            const near = @min(haystack.len, from + near_len);
+            if (literal_find.find_before(constants.skip_lanes, literal, haystack, from, near, misses)) |offset| return offset;
+            return find_far_counting(literal, haystack, near, misses);
+        }
+        return literal_find.find(constants.skip_lanes, literal, haystack, from, misses);
     }
 
     /// The variant object's search from `near`, out of line, so that `find` stays small enough
@@ -198,6 +212,13 @@ pub const Literal = extern struct {
     noinline fn find_far(literal: *const Literal, haystack: []const u8, near: usize) ?usize {
         if (haystack.len - near < literal.len) return null;
         const found = stdx_regex_literal_find_x86_64_avx2(literal, haystack.ptr, haystack.len, near);
+        return if (found == no_place) null else found;
+    }
+
+    /// `find_far` for `find_counting`.
+    noinline fn find_far_counting(literal: *const Literal, haystack: []const u8, near: usize, misses: *usize) ?usize {
+        if (haystack.len - near < literal.len) return null;
+        const found = stdx_regex_literal_find_counting_x86_64_avx2(literal, haystack.ptr, haystack.len, near, misses);
         return if (found == no_place) null else found;
     }
 

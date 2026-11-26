@@ -394,6 +394,20 @@ test "a search that finds no place pays nothing for its start, gains the text it
     try testing.expectEqual(@as(@TypeOf(searcher.matcher.work), 0), searcher.matcher.work);
 }
 
+test "a search of a text with no place pays for each candidate of the literal that held none" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+x:y[ab]+", searcher_test.cache_words_max);
+    const literal = fixture.searcher.inner.?;
+    try testing.expectEqualStrings("x:y", literal.slice());
+    // Each copy changes the octet at neither compared offset: a candidate and no place. The text
+    // holds a step, which compares both offsets at once.
+    var text = ("ax:yb ax:yb ax:yb" ++ "b" ** constants.skip_lanes).*;
+    for (0..3) |copy| text[copy * "ax:yb ".len + 1 + 3 - literal.first_at - literal.last_at] = '!';
+    try testing.expect(!fixture.searcher.is_match(&text));
+    const balance = constants.account_credit_bytes + text.len - 3 * constants.account_miss_bytes;
+    try testing.expectEqual(@as(usize, balance), fixture.searcher.account.balance);
+}
+
 test "an is_match of a text with no place pays nothing for its start, and runs no matcher" {
     var fixture: Fixture = .{ .fresh_account = false };
     try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
@@ -408,6 +422,10 @@ test "an is_match of a text with no place pays nothing for its start, and runs n
     searcher.account.rest = far_gap + 1;
     try testing.expect(!searcher.is_match(&text));
     try testing.expectEqual(@as(usize, 1), searcher.account.rest);
+    // A text with a match counts whole too: that search does not say where the match ends.
+    searcher.account.rest = 2 * "abxab ".len;
+    try testing.expect(searcher.is_match("abxab "));
+    try testing.expectEqual(@as(usize, "abxab ".len), searcher.account.rest);
     // A literal of two octets takes the search from its places, which gains the text as well.
     try fixture.init("[ab]+xy[ab]+", searcher_test.cache_words_max);
     try testing.expectEqualStrings("xy", searcher.inner.?.slice());

@@ -236,6 +236,67 @@ test "find gives the place of a literal of one octet at every distance from its 
     }
 }
 
+/// The parts of the text of the test below: one near copy of the literal or none in each part, or
+/// the literal in the last.
+const count_parts = 4;
+
+/// Requires `find_counting` to give `expected` and count `misses` at each width the host runs.
+fn expect_counting(literal: *Literal, avx2: bool, haystack: []const u8, from: usize, expected: ?usize, misses: usize) !void {
+    for ([_]bool{ false, true }) |wide| {
+        if (wide and !avx2) return;
+        literal.wide = wide;
+        var counted: usize = 0;
+        try testing.expectEqual(expected, literal.find_counting(haystack, from, &counted));
+        try testing.expectEqual(misses, counted);
+    }
+}
+
+/// Writes one near copy of a literal or none into each part of `haystack`, or into the last part
+/// the literal, and gives each one's start. A copy changes the octet at neither compared offset:
+/// a candidate and no place. Gives whether the last part holds the literal.
+fn count_text(generator: *Generator, literal: *const Literal, haystack: []u8, starts: *[count_parts]?usize) bool {
+    var other: usize = 0;
+    while (other == literal.first_at or other == literal.last_at) other += 1;
+    const part = haystack.len / count_parts;
+    @memset(haystack, '.');
+    starts.* = @splat(null);
+    for (starts, 0..) |*start, index| {
+        if (generator.next() & 1 == 0) continue;
+        const at = index * part + generator.below(part - literal.len);
+        @memcpy(haystack[at..][0..literal.len], literal.slice());
+        haystack[at + other] = '!';
+        start.* = at;
+    }
+    // The last part's copy sits where the search takes its last step, at times.
+    const whole = starts[count_parts - 1] != null and generator.next() & 1 == 0;
+    if (whole) haystack[starts[count_parts - 1].? + other] = literal.octets[other];
+    return whole;
+}
+
+test "find_counting counts each candidate that held no place before the place it finds" {
+    const avx2 = test_has_avx2(platform.CpuFeatures.detect());
+    var generator = Generator.init(0xC0C7);
+    var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };
+    @memcpy(literal.octets[0..3], "x:y");
+    literal.prepare();
+    // Past the octets that `find_counting` takes before it calls the variant object. At most
+    // three blocks miss, so that no run turns to a third octet and leaves a candidate uncompared.
+    var haystack: [3 * constants.octet_near_len]u8 = undefined;
+    var starts: [count_parts]?usize = undefined;
+    for (0..256) |_| {
+        const whole = count_text(&generator, &literal, &haystack, &starts);
+        const from = generator.below(haystack.len + 1);
+        const last = starts[count_parts - 1];
+        const found: ?usize = if (whole and last.? >= from) last else null;
+        var misses: usize = 0;
+        for (starts, 0..) |start, index| {
+            if (whole and index == count_parts - 1) continue;
+            misses += @intFromBool(start != null and start.? >= from);
+        }
+        try expect_counting(&literal, avx2, &haystack, from, found, misses);
+    }
+}
+
 /// A text of near copies of the literal: each copy has one octet changed, and in either case
 /// where its place folds. A search of it takes a third octet after its first misses.
 const near_text_len = 4096;

@@ -13,6 +13,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const Span = @import("../matcher.zig").Span;
+const Literal = @import("../literal.zig").Literal;
 
 /// What a search from a literal's places found.
 pub const Found = union(enum) {
@@ -26,9 +27,9 @@ pub const Found = union(enum) {
 
 /// One searcher's account of such a claim, in bytes of a plain scan. A search from the places
 /// that answers gains the bytes of text it covered, which a plain scan reads one by one. It
-/// pays `account_place_bytes` for each place, and claim R4's search for its start too, and the
-/// bytes of each forward scan that found no match. A search that leaves its places to the plain
-/// search gains nothing.
+/// pays `account_place_bytes` for each place, `account_miss_bytes` for each candidate of the
+/// literal that held no place, and the bytes of each forward scan that found no match. A search
+/// that leaves its places to the plain search gains nothing.
 pub const Account = struct {
     /// What the claim holds: the credit of `account_credit_bytes` it starts a trial with, and
     /// what its searches gained less what they paid, up to `account_balance_max`.
@@ -75,6 +76,20 @@ pub const Account = struct {
         account.rest -|= covered;
     }
 };
+
+/// The next place of `literal` at or after `from`, with each candidate that held no place
+/// charged to `paid`. A literal whose octets the text holds often has many such candidates,
+/// and a search of a text with no place would otherwise seem to gain its bytes for nothing.
+pub fn find_charged(literal: *const Literal, haystack: []const u8, from: usize, paid: *usize) ?usize {
+    var misses: usize = 0;
+    const place = literal.find_counting(haystack, from, &misses);
+    // Most searches meet no such candidate, and pay nothing here.
+    if (misses != 0) {
+        assert(misses <= haystack.len - from);
+        paid.* +|= misses *| constants.account_miss_bytes;
+    }
+    return place;
+}
 
 const testing = std.testing;
 
@@ -139,4 +154,23 @@ test "a trial that earns the account's bound makes the next rest the first one's
     try testing.expectEqual(@as(u8, 0), account.poor_trials);
     account.settle(0, constants.account_balance_max + 1);
     try testing.expectEqual(@as(usize, constants.account_rest_bytes), account.rest);
+}
+
+test "find_charged charges each candidate that held no place, and gives the place" {
+    var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };
+    @memcpy(literal.octets[0..3], "x:y");
+    literal.prepare();
+    // Each copy changes the octet at neither compared offset: a candidate and no place.
+    var text = "x:y x:y x:y x:y".*;
+    const other = 3 - literal.first_at - literal.last_at;
+    for (0..3) |copy| text[copy * "x:y ".len + other] = '!';
+    var paid: usize = 1;
+    try testing.expectEqual(@as(?usize, 12), find_charged(&literal, &text, 0, &paid));
+    try testing.expectEqual(@as(usize, 1 + 3 * constants.account_miss_bytes), paid);
+    paid = 0;
+    try testing.expectEqual(@as(?usize, null), find_charged(&literal, text[0..11], 4, &paid));
+    try testing.expectEqual(@as(usize, 2 * constants.account_miss_bytes), paid);
+    paid = 0;
+    try testing.expectEqual(@as(?usize, null), find_charged(&literal, text[0..11], 8, &paid));
+    try testing.expectEqual(@as(usize, constants.account_miss_bytes), paid);
 }

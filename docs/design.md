@@ -11241,6 +11241,60 @@ to 12 are reordered and nothing else changes.
   - Mutations: 3, each CAUGHT, against `zig build test-regex`: the start pays
     `account_place_bytes` again; it pays one byte; an `is_match` with no place gains nothing.
 
+  The misses of the literal search charged (decision 86 as amended by the owner's ruling of
+  2026-11-26):
+  - With no charge for the start, the account kept claim R14 on `([a-z]+) the ([a-z]+)` and
+    `([a-z]+) and ([a-z]+)`, where it took 15% to 24% more instructions than the plain search.
+    Its literal search compared 2.2 candidates a line that held no place, and the account
+    counted the search as a gain.
+  - `Literal.find_counting` counts each candidate that held no place, and claims R14 and R4
+    charge `account_miss_bytes` for each. A fit over the probe's rows gave a candidate 40 to 51
+    instructions, where a search with no place saved 2.3 instructions a byte: some 19 bytes.
+    24 drops the claim where it lost, and 16 kept it on `and` at 36% over the plain search.
+  - Claim R2's search passes no counter, and compiles as before. Claim R4's search pays
+    nothing for its start, as claim R14's does.
+  - At 24 a miss, `[A-Za-z]+ +http`'s misses stand together in parts of the text, and claim R4
+    rested there again and again. At rest, `is_match` went through the claim's calls to the
+    plain search, 8% over it. It now goes straight to the plain scan, and counts the whole text
+    toward the rest, since that scan does not say where a match ends.
+  **Check:** each candidate before the place counted at each width, in blocks, in the last step
+  and in a text under a step; each claim charges its misses; a text dense with misses rests
+  claim R4; an `is_match` at rest; claim R2's instructions; the probe; mutations; the paired
+  runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The probe of the entries above, over the same 4,000,000 octets, counted these instructions
+    a line. The plain search is the searcher with claims R14 and R4 off. "Dropped" says that
+    the account dropped the claim.
+
+    | Pattern | Claim | Plain | `1a615c2` | `241509d` | Misses charged |
+    | --- | --- | ---: | ---: | ---: | ---: |
+    | `email` | R14 | 529 | 292 | 292 | 294 |
+    | `date` | R14 | 391 | 382 | 358 | 345 |
+    | `([^ @.]+)\.com([^ @]*)` | R14 | 529 | 529, dropped | 474 | 482 |
+    | `([a-z]+)://([^ ]+)` | R14 | 524 | 521, dropped | 500 | 508 |
+    | `([a-z]+)@@([a-z]+)` | R14 | 532 | 532, dropped | 468 | 476 |
+    | `([a-z]+) the ([a-z]+)` | R14 | 495 | 495, dropped | 615 | 495, dropped |
+    | `([a-z]+) and ([a-z]+)` | R14 | 515 | 515, dropped | 591 | 515, dropped |
+    | `([a-z]+)\.([a-z]+)` | R14 | 517 | 532, dropped | 557, dropped | 503 |
+    | `\w+\s+Holmes` | R4 | 531 | 525, dropped | 525, dropped | 469 |
+    | `[A-Za-z]+ +http` | R4 | 526 | 525, dropped | 525, dropped | 501 |
+    | `\w+\s+function` | R4 | 523 | 523, dropped | 523, dropped | 467 |
+    | `[a-z]+ +the` | R4 | 483 | 483, dropped | 483, dropped | 516 |
+
+  - `[a-z]+ +the` loses 7%. One line in seven holds a place of its literal, and the same fit
+    gives a place of claim R4 about 470 instructions on a line, where `account_place_bytes`
+    charges 64 bytes. No charge for a miss sees it.
+  - Claim R2's search, by the same probe: `Holmes\w*` 285.3 instructions a line before and
+    285.5 after, `the\s+\w+` 325.1 and 325.2, `https?://[^ ]+` 293.1 and 293.3.
+  - Mutations: 13, each CAUGHT, against `zig build test-regex`. A miss costs nothing, which a
+    new test of a text dense with misses catches and no test did before. No miss is counted. A
+    block counts none, nor the last step, nor a text under a step. The last step counts a
+    candidate before its start. The variant object counts nothing. A single miss is not
+    charged. Claim R14 and claim R4 each count no miss. Claim R4 pays for its start. A search
+    at rest takes the claim's calls, and counts nothing toward the rest.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

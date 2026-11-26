@@ -16,24 +16,25 @@ const block_len = constants.literal_steps * constants.skip_lanes;
 const wide_block_len = constants.literal_wide_steps * constants.skip_lanes;
 
 /// The first offset at or after `from` where the literal stands whole in `haystack`, or null,
-/// found `width` octets a step.
-pub fn find(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize) ?usize {
+/// found `width` octets a step. `misses` counts the candidates that held no place: a `*u32` for
+/// the searches that keep an account, and `{}` for claim R2's, which then compiles no count.
+pub fn find(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, misses: anytype) ?usize {
     assert(from <= haystack.len);
     assert(literal.len >= 1);
     if (haystack.len - from < literal.len) return null;
-    return search(width, literal, haystack, from, haystack.len - literal.len + 1);
+    return search(width, literal, haystack, from, haystack.len - literal.len + 1, misses);
 }
 
 /// `find`, for the places that start before `limit` alone. `Literal.find` searches one block this
 /// way before it calls the variant object, so a text where places stand close together pays no
 /// call for each. Inline: a ReleaseSafe build left it a call at each search.
-pub inline fn find_before(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, limit: usize) ?usize {
+pub inline fn find_before(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, limit: usize, misses: anytype) ?usize {
     assert(from <= haystack.len);
     assert(literal.len >= 1);
     if (haystack.len - from < literal.len) return null;
     const end = @min(haystack.len - literal.len + 1, limit);
     if (end <= from) return null;
-    return search(width, literal, haystack, from, end);
+    return search(width, literal, haystack, from, end, misses);
 }
 
 /// The first offset at or after `from` and before `end` where `octet` stands, `width` octets a
@@ -75,40 +76,47 @@ pub inline fn find_octet(comptime width: usize, haystack: []const u8, from: usiz
 
 /// The first place of the literal that starts at or after `from` and before `end`, where the
 /// haystack holds the literal's octets from each such place.
-inline fn search(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, end: usize) ?usize {
+inline fn search(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, end: usize, misses: anytype) ?usize {
     // The runs of blocks, each a loop of `inline for` steps inlined here, pass Zig's default.
     @setEvalBranchQuota(constants.comptime_branch_quota);
     // A literal whose two compared places take one case each needs no OR in its loop.
     const ends_fold = literal.fold_octets[literal.first_at] | literal.fold_octets[literal.last_at] != 0;
-    const wide = lanes(width, literal, ends_fold, wide_block_len / width, false, haystack, from, end);
+    const wide = lanes(width, literal, ends_fold, wide_block_len / width, false, haystack, from, end, misses);
     if (wide.found) |offset| return offset;
-    const after = lanes(width, literal, ends_fold, block_len / width, false, haystack, wide.index, end);
+    const after = lanes(width, literal, ends_fold, block_len / width, false, haystack, wide.index, end, misses);
     if (after.found) |offset| return offset;
-    const step = lanes(width, literal, ends_fold, 1, false, haystack, after.index, end);
+    const step = lanes(width, literal, ends_fold, 1, false, haystack, after.index, end, misses);
     if (step.found) |offset| return offset;
     if (step.index == end) return null;
     // Fewer than `width` places are left. Where the text holds a step's places, one step that
     // ends at `end` takes them: a text under one block took them one at a time.
-    if (end >= width) return last_step(width, literal, ends_fold, haystack, step.index, end);
+    if (end >= width) return last_step(width, literal, ends_fold, haystack, step.index, end, misses);
     const first = literal.first_at;
     const first_fold = literal.fold_octets[first];
     for (step.index..end) |index| {
-        if (haystack[index + first] | first_fold == literal.octets[first] and literal.stands_at(haystack, index)) return index;
+        if (haystack[index + first] | first_fold != literal.octets[first]) continue;
+        if (literal.stands_at(haystack, index)) return index;
+        count_miss(misses);
     }
     return null;
+}
+
+/// Counts a candidate that held no place, where `misses` is a counter.
+inline fn count_miss(misses: anytype) void {
+    if (@TypeOf(misses) != void) misses.* += 1;
 }
 
 /// The first place of the literal from `index` to `end`, fewer than `width` places, by the step
 /// of `width` places that ends at `end`. The step's places before `index` are left out: the
 /// blocks passed those from `from` on, and the search does not take those before `from`.
-inline fn last_step(comptime width: usize, literal: *const Literal, ends_fold: bool, haystack: []const u8, index: usize, end: usize) ?usize {
-    if (ends_fold) return by_last_step(width, literal, .folding, haystack, index, end);
-    if (literal.len == 1) return by_last_step(width, literal, .single, haystack, index, end);
-    return by_last_step(width, literal, .plain, haystack, index, end);
+inline fn last_step(comptime width: usize, literal: *const Literal, ends_fold: bool, haystack: []const u8, index: usize, end: usize, misses: anytype) ?usize {
+    if (ends_fold) return by_last_step(width, literal, .folding, haystack, index, end, misses);
+    if (literal.len == 1) return by_last_step(width, literal, .single, haystack, index, end, misses);
+    return by_last_step(width, literal, .plain, haystack, index, end, misses);
 }
 
 /// `last_step` for a literal's form.
-inline fn by_last_step(comptime width: usize, literal: *const Literal, comptime form: Form, haystack: []const u8, index: usize, end: usize) ?usize {
+inline fn by_last_step(comptime width: usize, literal: *const Literal, comptime form: Form, haystack: []const u8, index: usize, end: usize, misses: anytype) ?usize {
     assert(index < end and end - index < width);
     const start = end - width;
     const wanted = wanted_of(width, literal);
@@ -119,7 +127,9 @@ inline fn by_last_step(comptime width: usize, literal: *const Literal, comptime 
     // Each set bit is one place to compare, at most `width` of them.
     while (mask != 0) : (mask &= mask - 1) {
         const candidate = start + Step.first(mask);
-        if (candidate >= index and literal.stands_at(haystack, candidate)) return candidate;
+        if (candidate < index) continue;
+        if (literal.stands_at(haystack, candidate)) return candidate;
+        count_miss(misses);
     }
     return null;
 }
@@ -151,10 +161,10 @@ const Form = enum { plain, folding, single };
 
 /// The run of blocks for a literal's form, with `third_at`'s octet compared at each candidate
 /// where `third` holds. Inline, as it only picks a loop.
-inline fn lanes(comptime width: usize, literal: *const Literal, ends_fold: bool, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize) Found {
-    if (ends_fold) return by_lanes(width, literal, .folding, steps, third, haystack, from, end);
-    if (literal.len == 1) return by_lanes(width, literal, .single, steps, third, haystack, from, end);
-    return by_lanes(width, literal, .plain, steps, third, haystack, from, end);
+inline fn lanes(comptime width: usize, literal: *const Literal, ends_fold: bool, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize, misses: anytype) Found {
+    if (ends_fold) return by_lanes(width, literal, .folding, steps, third, haystack, from, end, misses);
+    if (literal.len == 1) return by_lanes(width, literal, .single, steps, third, haystack, from, end, misses);
+    return by_lanes(width, literal, .plain, steps, third, haystack, from, end, misses);
 }
 
 /// The first place of the literal that a whole block of `steps` steps holds, or the offset of
@@ -163,13 +173,13 @@ inline fn lanes(comptime width: usize, literal: *const Literal, ends_fold: bool,
 /// per-search setup costs a text whose places stand close together about 4% more instructions.
 /// Without `third`, a run of a literal that has a third offset goes on with `third` after
 /// `literal_third_misses` blocks whose candidates held no place.
-inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize) Found {
+inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, haystack: []const u8, from: usize, end: usize, misses: anytype) Found {
     comptime assert(block_len % width == 0 and wide_block_len % width == 0);
     const steps_len = steps * width;
     const first = literal.first_at;
     const last = literal.last_at;
     const wanted = wanted_of(width, literal);
-    var misses: usize = 0;
+    var blocks_missed: usize = 0;
     var index = from;
     // A block reads `steps_len` octets from `index + first` and as many from `index + last`, whose
     // last is `end + steps_len - 2 + last`, under the haystack's length. `third_at` is under the
@@ -182,27 +192,27 @@ inline fn by_lanes(comptime width: usize, literal: *const Literal, comptime form
             // So LLVM keeps the wanted octets in registers through the loop, and writes them to
             // the stack around this path's compare, a call, alone.
             @branchHint(.unlikely);
-            if (first_stands(width, literal, form, steps, third, firsts, lasts, &wanted, haystack, index)) |place| {
+            if (first_stands(width, literal, form, steps, third, firsts, lasts, &wanted, haystack, index, misses)) |place| {
                 return .{ .found = place, .index = index };
             }
-            if (!third and missed(literal, &misses)) return with_third(width, literal, form, steps, haystack, index + steps_len, end);
+            if (!third and missed(literal, &blocks_missed)) return with_third(width, literal, form, steps, haystack, index + steps_len, end, misses);
         }
     }
     return .{ .found = null, .index = index };
 }
 
-/// Counts a block whose candidates held no place in `misses`, and gives true once they are
+/// Counts a block whose candidates held no place in `blocks`, and gives true once they are
 /// `literal_third_misses`. A literal with no third offset counts none: its candidates are its
 /// places.
-inline fn missed(literal: *const Literal, misses: *usize) bool {
-    misses.* += @intFromBool(literal.third_at != literal.first_at);
-    return misses.* == constants.literal_third_misses;
+inline fn missed(literal: *const Literal, blocks: *usize) bool {
+    blocks.* += @intFromBool(literal.third_at != literal.first_at);
+    return blocks.* == constants.literal_third_misses;
 }
 
 /// The run of blocks from `from` that compares the octet at `third_at` too, and says so. Out of
 /// `by_lanes`'s loop: it is the one call of the run with `third`.
-inline fn with_third(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, haystack: []const u8, from: usize, end: usize) Found {
-    var rest = by_lanes(width, literal, form, steps, true, haystack, from, end);
+inline fn with_third(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, haystack: []const u8, from: usize, end: usize, misses: anytype) Found {
+    var rest = by_lanes(width, literal, form, steps, true, haystack, from, end, misses);
     rest.third_from = from;
     return rest;
 }
@@ -246,14 +256,14 @@ inline fn any_candidate(comptime width: usize, comptime form: Form, comptime ste
 /// mask, which one loop takes a bit at a time. A loop for each step's mask cost x86-64 a branch
 /// for each step, which a text of many candidates mispredicts: rows whose literal stands every
 /// line or so ran 6% to 12% slower, with fewer instructions (design §8 part 22n).
-inline fn first_stands(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize) ?usize {
+inline fn first_stands(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize, misses: anytype) ?usize {
     if (comptime third) {
         // Most blocks lose every candidate at the third octet. One test of all the steps says so.
         var any: @Vector(width, u8) = @splat(0);
         inline for (0..steps) |step| any |= candidate_lanes(width, literal, form, steps, third, firsts, lasts, wanted, haystack, index, step);
         if (!lane_places.Places(width).any(any)) return null;
     }
-    if (comptime lane_places.narrows(width)) return first_stands_by_step(width, literal, form, steps, third, firsts, lasts, wanted, haystack, index);
+    if (comptime lane_places.narrows(width)) return first_stands_by_step(width, literal, form, steps, third, firsts, lasts, wanted, haystack, index, misses);
     const Step = lane_places.Places(width);
     const BlockMask = std.meta.Int(.unsigned, steps * width);
     var mask: BlockMask = 0;
@@ -262,13 +272,14 @@ inline fn first_stands(comptime width: usize, literal: *const Literal, comptime 
     while (mask != 0) : (mask &= mask - 1) {
         const candidate = index + @ctz(mask);
         if (literal.stands_at(haystack, candidate)) return candidate;
+        count_miss(misses);
     }
     return null;
 }
 
 /// `first_stands` where SHRN gives the places: a step's places are a word of their own, so that
 /// no mask of four bits a place is wider than a word.
-inline fn first_stands_by_step(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize) ?usize {
+inline fn first_stands_by_step(comptime width: usize, literal: *const Literal, comptime form: Form, comptime steps: usize, comptime third: bool, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width), haystack: []const u8, index: usize, misses: anytype) ?usize {
     const Step = lane_places.Places(width);
     var masks: [steps]Step.Mask = undefined;
     inline for (&masks, 0..) |*mask, step| mask.* = Step.of(candidate_lanes(width, literal, form, steps, third, firsts, lasts, wanted, haystack, index, step));
@@ -278,6 +289,7 @@ inline fn first_stands_by_step(comptime width: usize, literal: *const Literal, c
         while (mask != 0) : (mask &= mask - 1) {
             const candidate = index + step * width + Step.first(mask);
             if (literal.stands_at(haystack, candidate)) return candidate;
+            count_miss(misses);
         }
     }
     return null;
@@ -320,13 +332,13 @@ test "a run compares a third octet once literal_third_misses blocks held candida
     const place = (test_blocks - 1) * wide_block_len + needle.len;
     @memcpy(text[place..][0..needle.len], needle);
     const end = text.len - needle.len + 1;
-    const run = lanes(constants.skip_lanes, &literal, false, wide_block_len / constants.skip_lanes, false, &text, 0, end);
+    const run = lanes(constants.skip_lanes, &literal, false, wide_block_len / constants.skip_lanes, false, &text, 0, end, {});
     try testing.expectEqual(@as(?usize, place), run.found);
     try testing.expectEqual(@as(?usize, constants.literal_third_misses * wide_block_len), run.third_from);
     // With one miss fewer, the run finds the literal before it would compare a third octet.
     const early = (constants.literal_third_misses - 1) * wide_block_len + needle.len;
     @memcpy(text[early..][0..needle.len], needle);
-    const sooner = lanes(constants.skip_lanes, &literal, false, wide_block_len / constants.skip_lanes, false, &text, 0, end);
+    const sooner = lanes(constants.skip_lanes, &literal, false, wide_block_len / constants.skip_lanes, false, &text, 0, end, {});
     try testing.expectEqual(@as(?usize, early), sooner.found);
     try testing.expectEqual(@as(?usize, null), sooner.third_from);
 }

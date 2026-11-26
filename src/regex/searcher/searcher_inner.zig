@@ -57,7 +57,7 @@ pub fn find(account: *Account, forward: *Dfa, reverse: *Dfa, literal: *const Lit
     // Each turn goes on from one byte past the place before, so the turns are at most the bytes
     // from `from` and one.
     for (0..haystack.len - from + 1) |_| {
-        const place = literal.find(haystack, at) orelse break;
+        const place = searcher_account.find_charged(literal, haystack, at, &paid) orelse break;
         paid += constants.account_place_bytes;
         // The plain search answers where the next place stands before the byte the last forward
         // scan stopped at, and where the places cost more than the account holds. It reads the

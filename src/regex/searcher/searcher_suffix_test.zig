@@ -371,8 +371,8 @@ const rests = constants.account_rest_doublings_max + 1;
 fn lose_trial(fixture: *Fixture) !void {
     const searcher = &fixture.searcher;
     const span: Span = .{ .start = 0, .end = short_text.len };
-    // Each search loses what a place and a start cost, less the text, so the searches are at
-    // most the bytes of the credit, and one.
+    // Each search loses what a place costs, less the text, so the searches are at most the bytes
+    // of the credit, and one.
     for (0..constants.account_credit_bytes + 1) |_| {
         if (searcher.account.rest != 0 or searcher.suffix == null) return;
         try testing.expectEqual(@as(?Span, span), searcher.find(short_text, 0));
@@ -385,13 +385,13 @@ test "a searcher rests claim R4's second and third rules on a text too short for
     try fixture.init("[abx]+ +xa", searcher_test.cache_words_max);
     const searcher = &fixture.searcher;
     try testing.expect(searcher.suffix != null and searcher.suffix_wide and searcher.by_claim);
-    // A search pays for its start and for its place, and gains the text to its match's end.
+    // A search pays for its place and nothing for its start, and gains the text to its match's end.
     try testing.expectEqual(@as(?Span, .{ .start = 0, .end = short_text.len }), searcher.find(short_text, 0));
-    var balance: usize = constants.account_credit_bytes + short_text.len - constants.account_place_bytes - constants.account_place_bytes;
+    var balance: usize = constants.account_credit_bytes + short_text.len - constants.account_place_bytes;
     try testing.expectEqual(balance, searcher.account.balance);
-    // A search that finds no place pays for its start, and gains the text.
-    try testing.expectEqual(@as(?Span, null), searcher.find(rest_text[0 .. constants.account_place_bytes + 1], 0));
-    balance += 1;
+    // A search that finds no place gains the text.
+    try testing.expectEqual(@as(?Span, null), searcher.find(rest_text[0..short_text.len], 0));
+    balance += short_text.len;
     try testing.expectEqual(balance, searcher.account.balance);
     for (0..rests) |trial| {
         try lose_trial(&fixture);
@@ -413,6 +413,44 @@ test "a searcher rests claim R4's second and third rules on a text too short for
     try lose_trial(&fixture);
     try testing.expect(searcher.suffix == null and !searcher.suffix_wide and !searcher.by_claim);
     try fixture.expect_agree_everywhere("ab xa  xa abx xa");
+}
+
+test "a search of claim R4's second and third rules pays for each candidate that held no place" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+ +x:y", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.suffix_wide);
+    const literal = fixture.searcher.suffix.?;
+    try testing.expectEqualStrings(" x:y", literal.slice());
+    // Each copy changes an octet at neither compared offset: a candidate and no place. The text
+    // holds a step, which compares both offsets at once.
+    var other: usize = 0;
+    while (other == literal.first_at or other == literal.last_at) other += 1;
+    var text = ("a x:y a x:y a x:y" ++ "b" ** constants.skip_lanes).*;
+    for (0..3) |copy| text[copy * "a x:y ".len + 1 + other] = '!';
+    try testing.expectEqual(@as(?Span, null), fixture.searcher.find(&text, 0));
+    const balance = constants.account_credit_bytes + text.len - 3 * constants.account_miss_bytes;
+    try testing.expectEqual(@as(usize, balance), fixture.searcher.account.balance);
+}
+
+/// The copies of the text below: each loses what a miss costs less its bytes, and together more
+/// than the credit.
+const dense_copies = 256;
+
+test "a search whose literal's candidates hold no place rests claim R4's second and third rules" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+ +x:y", searcher_test.cache_words_max);
+    const literal = fixture.searcher.suffix.?;
+    // The octet no compare reads, not the third either, which the search compares once its
+    // blocks missed: each copy stays a candidate and no place.
+    var other: usize = 0;
+    while (other == literal.first_at or other == literal.last_at or other == literal.third_at) other += 1;
+    var text: [dense_copies * "a x:y ".len]u8 = undefined;
+    for (0..dense_copies) |copy| {
+        @memcpy(text[copy * "a x:y ".len ..][0.."a x:y ".len], "a x:y ");
+        text[copy * "a x:y ".len + 1 + other] = '!';
+    }
+    try testing.expectEqual(@as(?Span, null), fixture.searcher.find(&text, 0));
+    try testing.expect(fixture.searcher.account.rest != 0);
 }
 
 /// The bytes between two matches of the text below, as a count of what a place costs, and the
