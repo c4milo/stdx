@@ -173,8 +173,7 @@ pub const dfa_states_min = 20;
 
 /// The octets a lazy DFA must take, for each state it built since its cache last cleared, to go
 /// on after the cache fills again. Under it the cache is thrashing: building a state costs more
-/// than the matcher's step, so the search goes to the matcher. RE2 and Rust's regex use the same
-/// 10.
+/// than the matcher's step, so the search goes to the matcher. RE2 and Rust's regex use 10.
 pub const dfa_octets_per_state_min = 10;
 
 /// The searches a `Searcher` lets its lazy DFA give up before it stops trying the DFA.
@@ -301,6 +300,9 @@ pub const literal_steps = 4;
 /// The steps of a block of claim R2's search where the text has room: 128 octets, whose bounds
 /// checks and branch cost half of a block of `literal_steps`, which then takes what is left.
 pub const literal_wide_steps = 8;
+
+/// The octets a search of one octet takes by its own steps before claim R2's kernels: a line.
+pub const octet_near_len = 256;
 
 /// The blocks whose candidates held no place before claim R2's search compares a third octet:
 /// on rebar's `literal-never-match-tricksy` it took 86% of the instructions away.

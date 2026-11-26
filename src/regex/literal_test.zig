@@ -221,6 +221,21 @@ test "find gives the first place of the literal from every offset, as a plain se
     }
 }
 
+test "find gives the place of a literal of one octet at every distance from its start" {
+    const avx2 = test_has_avx2(platform.CpuFeatures.detect());
+    var literal: Literal = .{ .octets = undefined, .len = 1, .exact = true };
+    literal.octets[0] = 'a';
+    literal.prepare();
+    // Past the octets the search takes by its own steps, the kernels search the rest.
+    var haystack = [_]u8{'b'} ** (3 * constants.octet_near_len);
+    for (0..haystack.len) |place| {
+        haystack[place] = 'a';
+        for ([_]usize{ 0, @min(1, place), place / 2, place }) |from| try expect_find(&literal, avx2, &haystack, from, place);
+        try expect_find(&literal, avx2, &haystack, place + 1, null);
+        haystack[place] = 'b';
+    }
+}
+
 /// A text of near copies of the literal: each copy has one octet changed, and in either case
 /// where its place folds. A search of it takes a third octet after its first misses.
 const near_text_len = 4096;

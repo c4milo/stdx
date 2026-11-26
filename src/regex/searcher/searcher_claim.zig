@@ -168,15 +168,40 @@ inline fn find(searcher: *Searcher, haystack: []const u8, from: usize, span: *Sp
 }
 
 inline fn find_by_claim(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
-    if (searcher.excludes(haystack.len)) return .none;
-    if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
-    if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
+    if (answered(searcher, haystack.len)) |outcome| return outcome;
     if (searcher.at_end) return find_from_end(searcher, haystack, from, span);
     if (searcher.inner != null or searcher.suffix_wide) return find_by_account(searcher, haystack, from, span);
     // Claim R13's least length. The search of a claim with an account pays it as before.
     if (haystack.len - from < searcher.len_min) return .none;
     if (searcher.suffix) |*suffix| return find_by_suffix(searcher, suffix, haystack, from, span);
     return searcher.find_by_dfa(haystack, from, span);
+}
+
+/// The outcome of a search of a text of `len` bytes before any claim reads it: none where claim
+/// R13's lengths exclude it, and unknown where a DFA is not ready or gave up too often.
+inline fn answered(searcher: *const Searcher, len: usize) ?Outcome {
+    if (searcher.excludes(len)) return .none;
+    if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
+    if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
+    return null;
+}
+
+/// True where claim R14's literal is one octet, the claim searches, and the text holds no place
+/// of it: no match, since every match holds the literal. The account gains the text and pays
+/// nothing for the start, which costs less than the plain search's (design §8 part 22q), so
+/// the claim cannot lose by it.
+inline fn no_place(searcher: *Searcher, haystack: []const u8) bool {
+    const inner = &(searcher.inner orelse return false);
+    if (inner.len != 1 or searcher.account.rest != 0) return false;
+    if (inner.find(haystack, 0) != null) return false;
+    searcher.account.settle(haystack.len, 0);
+    assert(!searcher.account.dropped);
+    return true;
+}
+
+/// `find_by_claim` out of line, for `is_match`.
+noinline fn find_by_claim_apart(searcher: *Searcher, haystack: []const u8, span: *Span) Outcome {
+    return find_by_claim(searcher, haystack, 0, span);
 }
 
 /// `Searcher.is_match` for a searcher with a claim that goes to a place, or with one that
@@ -189,7 +214,17 @@ pub noinline fn is_match(searcher: *Searcher, haystack: []const u8) ?bool {
     if (searcher.deferred.any()) count_text(searcher, haystack.len);
     if (!searcher.at_end and searcher.suffix == null and searcher.inner == null) return null;
     var span: Span = undefined;
-    return switch (find_by_claim(searcher, haystack, 0, &span)) {
+    // A claim with an account takes its own call, so that a search of a short text does not
+    // set up the frame of the other claims' scans, which `find_by_claim` holds inline.
+    const by_account = !searcher.at_end and (searcher.inner != null or searcher.suffix_wide);
+    if (by_account and answered(searcher, haystack.len) == null) {
+        if (no_place(searcher, haystack)) return false;
+    }
+    const outcome = if (by_account)
+        answered(searcher, haystack.len) orelse find_by_account(searcher, haystack, 0, &span)
+    else
+        find_by_claim_apart(searcher, haystack, &span);
+    return switch (outcome) {
         .match => true,
         .none => false,
         .unknown => null,
@@ -290,7 +325,7 @@ noinline fn find_by_account(searcher: *Searcher, haystack: []const u8, from: usi
         .gave_up => return searcher.gave_up(),
         .plain => {},
     }
-    const outcome = searcher.find_by_dfa(haystack, from, span);
+    const outcome = find_plain(searcher, haystack, from, span);
     // The text that search covered counts toward the rest: to the match's end, or to the
     // text's end where it holds no match.
     switch (outcome) {
@@ -299,4 +334,9 @@ noinline fn find_by_account(searcher: *Searcher, haystack: []const u8, from: usi
         .unknown => {},
     }
     return outcome;
+}
+
+/// The two DFAs' search, out of line, so that `find_by_account` sets up no frame for its scans.
+noinline fn find_plain(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
+    return searcher.find_by_dfa(haystack, from, span);
 }

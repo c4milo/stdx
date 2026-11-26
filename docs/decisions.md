@@ -6069,8 +6069,9 @@ last part lists what still waits on a ruling.
         181 times where it holds `a` and the `e` nine octets on 13,509 times. A search that
         finds the literal soon keeps two offsets, and pays a test at each miss alone.
       - A literal of one octet that folds at no place, added 2026-11-26 (design §8 part 22q):
-        `Literal.find` compares one vector of the octet a step over the first `near_len` octets
-        from where it starts, and its last step ends where they end, and then goes on as before.
+        `Literal.find` compares one vector of the octet a step over the first `octet_near_len`
+        octets from where it starts, 256 since the layers' cut, a line of text. Its last step
+        ends where they end, and then it goes on as before.
         The two offsets' search set up its vectors and both of its kernels for each call: on
         lines of 29 octets, claim R14's search from `@` took about 175 instructions in it.
       - A place of the literal may fold: `(?i)` compiles an ASCII letter as a split between two
@@ -6553,6 +6554,10 @@ last part lists what still waits on a ruling.
           the plain one, with a place or with none. A grep of lines of 60 bytes with the
           pattern of a date, whose literal is `/`, ran at 0.68 to 0.85 of its base while a
           search with no place paid nothing.
+        - Amended on 2026-11-26 (design §8 part 22q): where the literal is one octet and the
+          text holds no place of it, `is_match` answers before it calls a scan, and the search
+          pays nothing for its start. It costs less than the plain search: on `email`'s lines,
+          292 instructions against 529.
         - A trial starts with a credit of `account_credit_bytes`, 2^12. A search that has lost
           more than the account holds leaves its places, and the claim rests while the plain
           search covers `account_rest_bytes`, 2^16. Then it tries again. Each trial that loses

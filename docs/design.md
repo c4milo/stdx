@@ -11176,6 +11176,44 @@ to 12 are reordered and nothing else changes.
     place where the steps stopped; a step's place one late; a folded octet takes the search of
     one octet; a short text's last octet left out.
 
+  The claim's layers for a literal of one octet (decision 86 as amended on 2026-11-26):
+  - After the search of one octet, claim R14 still took more instructions on `date`'s lines than
+    the plain search. Most of them were the claim's layers. `searcher_claim.is_match` set up a
+    frame of 696 bytes for the scans of every claim, and `searcher_inner.find` set up the frame
+    of its scans before it found a place.
+  - `is_match` now calls the search of a claim with an account apart from the other claims. The
+    scans of a place and the plain search each take a call of their own.
+  - Where the literal is one octet and the text holds no place of it, `is_match` answers no
+    match before it calls either. The account gains the text and pays nothing for the start,
+    since that search costs less than the plain one. A search with a place still pays for it.
+  - A search of one octet takes `octet_near_len`, 256 octets, by its own steps before the
+    kernels, where it took `near_len`, 64: a line of text.
+  **Check:** each place of a literal of one octet to three times `octet_near_len`, at both
+  widths; an `is_match` with no place pays nothing, and one that rests or has a longer literal
+  pays as before; an `is_match` whose DFAs gave up too often leaves them; the probe of `email`
+  and `date` under callgrind; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The probe of the entry above, over the same 4,000,000 octets, counted these instructions a
+    line. The plain search is the searcher with claim R14 off. As in that entry, the claim's
+    columns charge nothing for the start, so that the claim searches each line.
+
+    | Row | Plain search | Claim, before | Claim, after |
+    | --- | ---: | ---: | ---: |
+    | `email` | 529 | 397 | 292 |
+    | `date` | 391 | 431 | 358 |
+
+  - Under the charge the account now keeps the claim on both rows. `email` takes 292 a line,
+    and `date` takes 382, since its searches with a place pay for the start and the claim
+    rests at times.
+
+  - Mutations: 8, each CAUGHT, against `zig build test-regex`: `is_match` answers no match
+    where the text holds a place; it pays for the start; it takes a literal of two octets; it
+    runs while the claim rests; it calls the account's search after the DFAs gave up too
+    often, which the test of that case catches and no test did before; the kernels start one
+    octet late, at each width; `searcher_inner.find` pays nothing for its start.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

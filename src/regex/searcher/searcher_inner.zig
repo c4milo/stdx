@@ -85,8 +85,9 @@ pub fn find(account: *Account, forward: *Dfa, reverse: *Dfa, literal: *const Lit
 }
 
 /// The two scans of the literal's place at `place`: back to the start of the part before it,
-/// and forward from that start.
-fn scan_place(forward: *Dfa, reverse: *Dfa, haystack: []const u8, from: usize, place: usize) Place {
+/// and forward from that start. Out of line, so that a search of a text with no place sets up
+/// no frame for the scans.
+noinline fn scan_place(forward: *Dfa, reverse: *Dfa, haystack: []const u8, from: usize, place: usize) Place {
     const start = switch (dfa_reverse.scan_second(reverse, haystack, from, place)) {
         .gave_up => return .gave_up,
         .none => return .none,

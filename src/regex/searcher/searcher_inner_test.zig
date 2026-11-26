@@ -232,6 +232,25 @@ test "a search from a literal's places whose DFA gives up takes the matcher's an
     try testing.expect(fixture.searcher.give_ups > 0);
 }
 
+test "an is_match of a search from a literal's places leaves the DFAs once they gave up too often" {
+    const pattern = "[ab]{8}aa[ab]*xx[ab]+";
+    var fixture: Fixture = .{};
+    try fixture.init(pattern, 0);
+    try fixture.init(pattern, searcher_test.cache_sizes(&fixture.program).least);
+    try testing.expectEqualStrings("xx", fixture.searcher.inner.?.slice());
+    var generator = codec.testing.split.Generator.init(0x1AAE2);
+    var text: [give_up_text_len]u8 = undefined;
+    for (&text) |*octet| octet.* = "ab"[generator.below("ab".len)];
+    @memcpy(text[text.len - "xxa".len ..], "xxa");
+    // The DFAs of this text give up, as the test above shows, and the matcher answers.
+    fixture.searcher.give_ups = constants.dfa_give_ups_max;
+    try testing.expect(fixture.searcher.is_match(&text));
+    try testing.expectEqual(@as(u32, constants.dfa_give_ups_max), fixture.searcher.give_ups);
+    text[text.len - "xxa".len] = 'a';
+    try testing.expect(!fixture.searcher.is_match(&text));
+    try testing.expectEqual(@as(u32, constants.dfa_give_ups_max), fixture.searcher.give_ups);
+}
+
 /// The parts a generated pattern draws for what stands around its literal, and its literals.
 const generated_parts = [_][]const u8{ "[ab]", "[abx]", "x", "a", " ", "[ :]", "[^ ]", "\\b", "(?:a|xb)", "[x ]", ":", "y", "[^:]" };
 const generated_counts = [_][]const u8{ "", "", "+", "*", "?", "{2}", "{1,2}" };
@@ -373,6 +392,27 @@ test "a search that finds no place pays for its start, gains the text it covered
     try testing.expectEqual(balance, searcher.account.balance);
     try testing.expect(searcher.captures(&text, 0) == null);
     try testing.expectEqual(@as(@TypeOf(searcher.matcher.work), 0), searcher.matcher.work);
+}
+
+test "an is_match of a text with no place of a literal of one octet pays nothing for its start" {
+    var fixture: Fixture = .{ .fresh_account = false };
+    try fixture.init("[ab]+x[ab]+", searcher_test.cache_words_max);
+    const searcher = &fixture.searcher;
+    const text = [_]u8{' '} ** far_gap;
+    searcher.matcher.work = 0;
+    try testing.expect(!searcher.is_match(&text));
+    try testing.expectEqual(@as(usize, constants.account_credit_bytes + far_gap), searcher.account.balance);
+    try testing.expectEqual(@as(@TypeOf(searcher.matcher.work), 0), searcher.matcher.work);
+    try testing.expect(searcher.is_match("abxab"));
+    // While the claim rests, the plain search answers, and the text counts toward the rest.
+    searcher.account.rest = far_gap + 1;
+    try testing.expect(!searcher.is_match(&text));
+    try testing.expectEqual(@as(usize, 1), searcher.account.rest);
+    // A literal of two octets pays for the start, as a search with its places does.
+    try fixture.init("[ab]+xy[ab]+", searcher_test.cache_words_max);
+    try testing.expectEqualStrings("xy", searcher.inner.?.slice());
+    try testing.expect(!searcher.is_match(&text));
+    try testing.expectEqual(@as(usize, constants.account_credit_bytes + far_gap - constants.account_place_bytes), searcher.account.balance);
 }
 
 test "a search that leaves its places gives the match the plain search finds, and counts what it covered" {

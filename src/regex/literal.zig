@@ -177,7 +177,7 @@ pub const Literal = extern struct {
     /// The first offset at or after `from` where the literal stands whole in `haystack`, or null.
     pub fn find(literal: *const Literal, haystack: []const u8, from: usize) ?usize {
         if (literal.len == 1 and literal.folds == 0) {
-            const near = @min(haystack.len, from + near_len);
+            const near = @min(haystack.len, from + constants.octet_near_len);
             if (literal_find.find_octet(constants.skip_lanes, haystack, from, near, literal.octets[0])) |offset| return offset;
             if (near == haystack.len) return null;
             if (has_kernels and literal.wide) return find_far(literal, haystack, near);
