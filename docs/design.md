@@ -11520,6 +11520,21 @@ to 12 are reordered and nothing else changes.
     `folly/literal-never-match-tricksy` takes 82,720 instructions a pass in place of 91,304, and
     546,682 in `8e868fb`. `leipzig/twain-insensitive` takes 7.70 million in place of 8.42
     million, and 10.56 million in `8e868fb`.
+  - The runs 45884590870 and 45884598460 measured `b83efe9` against `4e2f367`, which holds the
+    code of `8e868fb`, each in one job on the N2 and one on x86-64, an EPYC 9V74 and an EPYC
+    7763. By decision 20's rule, 11 of the 284 rows ran faster in all four jobs, and one slower.
+    - Eight of the nine rows that `8e868fb` lost ran faster in all four jobs. The ninth,
+      `folly/literal-never-match-rare`, ran 1.02 to 1.19 times as fast, short of the rule on the
+      N2. `folly/literal-never-match-tricksy` ran 8.4 and 8.7
+      times as fast on x86-64, from 0.70 and 0.67 of Rust's crate to 5.90 and 5.84, and 3.5
+      times as fast on the N2. `leipzig/twain-insensitive` ran 1.67 times as fast on x86-64 and
+      1.26 on the N2.
+    - `01-literal/sherlock-zh` ran 1.15 to 1.17 times as fast on x86-64 and 1.07 on the N2, at
+      1.24 to 1.35 of Rust's crate on x86-64 and 0.94 to 0.95 on the N2.
+    - `folly/literal-never-match-frequent` ran 1.30 to 1.79 times as fast, and stays behind Rust's
+      crate: 0.54 to 0.72 on x86-64 and 0.67 on the N2.
+    - The compile of `[a-q][^u-z]{13}x` ran 0.96 to 0.98 times as fast. The filter counts
+      182,806 instructions a compile in both trees.
 
   The count's offsets in registers (the owner's ruling of 2026-11-26):
   - Built with no features, the count's loop read `first_at` and `last_at` from the literal for
