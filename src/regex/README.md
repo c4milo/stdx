@@ -6,7 +6,7 @@ gives ([decision 86](../../docs/decisions.md)).
 ## Use
 
 ```zig
-/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
+/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 8 MiB
 /// of it is the default cache, and a smaller cache costs speed, never an answer.
 fn count_matches(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, pattern: []const u8, haystack: []const u8) !u64 {
     var storage: [instructions_len]stdx.regex.Instruction = undefined;
@@ -41,7 +41,7 @@ fn first_group(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, patt
 - `compile` writes the pattern's program into `storage`. It returns a `stdx.regex.Error` for a
   pattern that it refuses, with one value for each cause.
 - The program reads `storage`, and the searcher reads `memory`. Keep both while the searcher runs.
-- A cache smaller than the default 4 MiB costs speed, and never an answer.
+- A cache smaller than the default 8 MiB costs speed, and never an answer.
 
 Each example is an excerpt of [`tools/consumer/main.zig`](../../tools/consumer/main.zig), a program
 that `zig build test` builds against this tree and runs.

@@ -247,10 +247,10 @@ pub const claim_text_per_instruction = 64;
 pub const dfa_run_plain_rows_max = utf8_len_max - 1;
 
 /// How a `Searcher` divides its cache once each DFA has its least: the forward DFA takes this many
-/// parts of `dfa_cache_parts`, and the reverse DFA the rest, by the owner's ruling of 2026-11-26.
-/// Two parts to one left the reverse DFA of `overlapping-words/russian` 370 of its 475 states.
-pub const dfa_forward_parts = 1;
-pub const dfa_cache_parts = 2;
+/// parts of `dfa_cache_parts`, the reverse DFA the rest. In two halves of 4 MiB, the forward DFA
+/// of rebar's `wild/url/search` did not hold its 4,257 states (the owner's ruling of 2026-11-26).
+pub const dfa_forward_parts = 2;
+pub const dfa_cache_parts = 3;
 
 /// The table that finds a written node of a trie (literal_trie.zig), past the program: a power of
 /// two of slots, at least 64 and one for each 8 octets of the literals, and 8 read from a hash's
@@ -276,11 +276,10 @@ pub const backtrack_skip_splits_max = 64;
 /// the matcher: a clear for 148,000 instructions cost `overlapping-words` 3 times its time.
 pub const backtrack_bits_words_max = 1 << 15;
 
-/// The words of cache a `Searcher` takes where its caller names no other size: 4 MiB, the memory
-/// Rust's regex crate lets the two lazy DFAs of one pattern take, 2 MiB each. The owner ruled it
-/// on 2026-11-22 (decision 86 as amended): at 512 kB the DFAs of rebar's date pattern, and of
-/// others of its size, did not start, and the matcher ran alone.
-pub const cache_words_default = 1 << 19;
+/// The words of cache a `Searcher` takes where its caller names no other size: 8 MiB, by the
+/// owner's ruling of 2026-11-26 (decision 86 as amended). At 4 MiB the reverse DFA of rebar's
+/// `overlapping-words/russian` and the forward DFA of `wild/url/search` did not both fit.
+pub const cache_words_default = 1 << 20;
 
 /// The octets one step of a skip judges: 16, the width of SSE2's and NEON's registers, which
 /// every x86-64 and aarch64 CPU has (claims R1 and R9).

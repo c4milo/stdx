@@ -11106,6 +11106,24 @@ to 12 are reordered and nothing else changes.
     the turn with two offsets. The fold was NOT CAUGHT until the test's texts held the literal
     in either case.
 
+  The default cache at 8 MiB, two parts to one (decision 86 as amended on 2026-11-26):
+  - The two halves lost `wild/url/search` four fifths of its speed, as the runs of "The cache in
+    two halves" show. In 4 MiB, the forward DFA of `url/search` holds its 4,257 states under two
+    parts to one alone, and the reverse DFA of `overlapping-words/russian` its 475 in two halves
+    alone. The owner ruled 8 MiB and two parts to one, where both hold their states.
+  **Check:** the division of the spare; both DFAs of `\p{L}{256}` start in the default cache,
+  and did not in 4 MiB; the filter and the probe of the three rows; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe, under the default: `url/search`'s forward DFA built its
+    4,257 states and cleared none, and counted its spans at 436.6 MB/s.
+    `10-bounded-repeat/context`'s forward DFA cleared 29 times, and the row ran at 76.7 MB/s.
+  - The probe of rebar's `grep_captures` model ran `russian` at 3.56 and 4.18 MB/s, its reverse
+    DFA with its 475 states and no clear, and `english` at 14.60.
+  - Mutations: 2, each CAUGHT, against `zig build test-regex`: two halves; and a default of
+    4 MiB.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

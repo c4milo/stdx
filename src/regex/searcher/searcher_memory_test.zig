@@ -1,5 +1,5 @@
 //! The searcher's division of its cache between its two DFAs (decision 86): one set of lists
-//! that both take, each DFA's least cache, and the rest in two halves, or the whole cache to
+//! that both take, each DFA's least cache, and the rest two parts to one, or the whole cache to
 //! the forward DFA where that does not fit.
 const std = @import("std");
 const testing = std.testing;
@@ -47,7 +47,7 @@ test "a DFA that shares its lists takes as many as its nodes need, and a least c
     try testing.expectEqual(dfa_file.Scan{ .found = 3 }, dfa.scan_forward("abc", 0, false));
 }
 
-test "a searcher gives each DFA its least, and divides the rest in two halves" {
+test "a searcher gives each DFA its least, and divides the rest two parts to one" {
     var fixture: Fixture = .{};
     try fixture.init("(a|b)+c", 0);
     try testing.expect(!fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
@@ -81,8 +81,12 @@ fn expect_states(fixture: *Fixture, dfa: *const Dfa, len: usize) !void {
 /// The states in each part of the spare `expect_split` gives a cache past the two leasts.
 const spare_states = 100;
 
-/// Requires a searcher whose cache holds a spare past the lists and the two leasts to give each
-/// DFA half of it, beside its least (the owner's ruling of 2026-11-26).
+/// The parts of the forward DFA for each of the reverse DFA's, as the owner ruled on 2026-11-26.
+const forward_parts_ruled = 2;
+
+/// Requires a searcher whose cache holds a spare past the lists and the two leasts to give the
+/// forward DFA two parts of it and the reverse DFA one, each beside its least (the owner's ruling
+/// of 2026-11-26).
 fn expect_split(fixture: *Fixture) !void {
     const part = Cache.memory_len(spare_states, @as(u32, fixture.program.class_count) + constants.context_count);
     const cache_words = words_for(least_of(&fixture.program) + constants.dfa_cache_parts * part);
@@ -91,8 +95,11 @@ fn expect_split(fixture: *Fixture) !void {
     try expect_states(fixture, &fixture.searcher.forward, forward_len);
     const reverse_len = cache_words * narrow_per_word - lists_of(&fixture.program) - forward_len;
     try expect_states(fixture, &fixture.searcher.reverse, reverse_len);
-    // The two halves: the reverse DFA takes no more than the word that rounds the cache up.
-    try testing.expect(reverse_len >= forward_len and reverse_len - forward_len < narrow_per_word);
+    // Two parts to one: the reverse DFA's part is half the forward DFA's, and the word that rounds
+    // the cache up.
+    const least = dfa_file.cache_len_min(&fixture.program);
+    const reverse_part = (forward_len - least) / forward_parts_ruled;
+    try testing.expect(reverse_len - least >= reverse_part and reverse_len - least - reverse_part < narrow_per_word);
 }
 
 /// Requires the two DFAs of `pattern`'s searcher to take one set of lists, whichever half of the
@@ -176,6 +183,31 @@ test "the default cache gives both DFAs of a large program their least" {
     program.reverse_nodes = default_room_instructions;
     const cache_len = constants.cache_words_default * narrow_per_word;
     try testing.expect(least_of(&program) <= cache_len);
+}
+
+/// The instructions and the nodes of one `\p{L}` in each half of a program, and the copies of it
+/// in rebar's `\p{L}{256}`, whose reverse DFA did not start in the 4 MiB the default was before
+/// the owner's ruling of 2026-11-26.
+const letter_forward_len = 1348;
+const letter_forward_nodes = 303;
+const letter_reverse_len = 1768;
+const letter_reverse_nodes = 1222;
+const letter_copies = 256;
+const old_default_words = 524_288;
+
+test "the default cache gives both DFAs of rebar's \\p{L}{256} their least, and 4 MiB did not" {
+    var fixture: Fixture = .{};
+    var program = try compiler.compile("a", .{}, &fixture.storage);
+    // As above, the least reads the program's lengths and its counts of nodes alone.
+    const forward_len = letter_copies * letter_forward_len;
+    const many: [*]const Instruction = @ptrCast(&fixture.storage);
+    program.instructions = many[0 .. forward_len + letter_copies * letter_reverse_len];
+    program.forward_len = forward_len;
+    program.reverse = forward_len;
+    program.forward_nodes = letter_copies * letter_forward_nodes;
+    program.reverse_nodes = letter_copies * letter_reverse_nodes;
+    try testing.expect(least_of(&program) > old_default_words * narrow_per_word);
+    try testing.expect(least_of(&program) <= constants.cache_words_default * narrow_per_word);
 }
 
 test "a program with no reverse half gives its whole cache to the forward DFA" {

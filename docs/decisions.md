@@ -5986,6 +5986,12 @@ last part lists what still waits on a ruling.
         whose texts the measurement had, no other DFA cleared under either division. An 8 MiB
         cache under two parts to one lost the ruling: it also held all 475 states, but each
         searcher of the default took 4 MiB more.
+      - Reversed by the owner's ruling of 2026-11-26, after the paired runs: two parts to one
+        again, with `cache_words_default` at 8 MiB. In two halves of 4 MiB, the forward DFA of
+        `wild/url/search` did not hold the 4,257 states it builds under `(?i)`, and the row ran at
+        0.20 to 0.23 of its speed. The 80 rows held neither its pattern nor its text. Under 8 MiB
+        both rows hold their states under either division, and `10-bounded-repeat/context` runs
+        fastest under two parts to one.
       - Amended by the owner's ruling of 2026-11-25 (design §8 part 22q): the two DFAs take one
         set of lists, as long as the larger half of the program needs, and each DFA's least is
         then its cache alone (`dfa_init.zig`). A search runs one DFA at a time, and each build
@@ -6725,7 +6731,7 @@ last part lists what still waits on a ruling.
     **The limits.** In `regex.constants`, each with its reason: `repeat_max`, 1,000; `depth_max`,
     96 open groups; `class_ranges_max`, 2,048 ranges a class; `groups_max`, 4,096 capture groups;
     `instructions_max`, 2^24; `dfa_states_min`, 20; `dfa_octets_per_state_min`, 10;
-    `dfa_give_ups_max`, 8; `cache_words_default`, 2^19 words; `dfa_slots_first`, 64, the slots
+    `dfa_give_ups_max`, 8; `cache_words_default`, 2^20 words; `dfa_slots_first`, 64, the slots
     of a cache's hash table that `init` and a clear write before the table doubles; and
     `dfa_run_plain_rows_max`, 3, the plain rows one after another that a run of matches takes.
     Claim R2's: `literal_len_max`,
@@ -7105,6 +7111,9 @@ last part lists what still waits on a ruling.
       ran them on the matcher alone, at 1/314 and 1/8 of Rust's speed (design §8 part 22n). stdx
       takes the memory up front, where Rust's crate grows to it, so a caller with many patterns
       names a smaller size.
+      - 2^20 words, 8 MiB, by the owner's ruling of 2026-11-26 (design §8 part 22q). At 4 MiB the
+        reverse DFA of `overlapping-words/russian` and the forward DFA of `wild/url/search` did
+        not both fit under either division, and the DFAs of `\p{L}{256}` did not start.
     - **owner** The vector check `json.is_utf8` stays in `json`. The `utf8` module holds the
       validator that Lean proves and the octets of one code point. To move the vector check
       there, `utf8` must import `codec` for the CPU's features and join the variant objects of

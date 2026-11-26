@@ -171,7 +171,7 @@ fn has_property(name: []const u8, scalar: u32) bool {
     return false;
 }
 
-/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 4 MiB
+/// Counts the matches of `pattern` in `haystack`. The program gives the searcher its memory: 8 MiB
 /// of it is the default cache, and a smaller cache costs speed, never an answer.
 fn count_matches(gpa: std.mem.Allocator, features: stdx.platform.CpuFeatures, pattern: []const u8, haystack: []const u8) !u64 {
     var storage: [instructions_len]stdx.regex.Instruction = undefined;
