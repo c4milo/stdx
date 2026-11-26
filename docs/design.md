@@ -11000,6 +11000,26 @@ to 12 are reordered and nothing else changes.
     a DFA's lists, and none of its cache; the fit of one least; the whole spare to the forward
     DFA; and a DFA's own lists one word short.
 
+  Claim R8's bits by node (decision 86 as amended on 2026-11-26):
+  - The backtracker kept a bit for each instruction at each offset of a span. A path steps from
+    node to node, so the bits of a `ranges` node's ranges were never set. Each bit is now found
+    by the node's number, `Instruction.node`: 28,540 a position for `overlapping-words`, in
+    place of 127,815. A span of up to 72 octets now fits under `backtrack_bits_words_max`.
+  **Check:** a span whose bits by instruction pass the bound and by node do not keeps the
+  backtracker, with its groups; the bound still holds where the nodes pass it; the probe of the
+  rows; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - A probe of rebar's `grep_captures` model, built ReleaseSafe, against `90c3b6b`, in turns:
+    `overlapping-words/english` ran at 2.75 and 2.77 MB/s before the change and 11.51 and
+    15.10 after it. `russian` ran at 1.18 to 1.30 either way: its DFAs give up, so claim R8
+    does not run. Under callgrind, built for x86-64-v3, three passes over 15,000 octets took
+    117,439,062 instructions before and 80,810,394 after for `english`, and 18,806,635 and
+    18,739,667 for `ascii`.
+  - Mutations: 3, each CAUGHT, against `zig build test-regex`: the bits sized by instructions;
+    a bit found by the instruction; the bits one node short.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
