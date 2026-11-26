@@ -11943,6 +11943,26 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     first run of the export mutation was `NOT CAUGHT`, since both ends then wrote zeros. A
     second label must now export another secret.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 32: FEAT_DIT from the core's MIDR, where a hypervisor hides it (decision 40 as amended
+  a sixth time).** GitHub's arm64 runners hide FEAT_DIT from AT_HWCAP on their Neoverse N2 cores.
+  The owner ruled that detection reports it by the MIDR once a probe shows the mode working there.
+  No public name changes.
+  **Check:**
+  - The probe, stdx CI run 551, on ubuntu-24.04-arm and ubuntu-26.04-arm: MIDR_EL1 0x410fd490,
+    HWCAP_DIT clear, and PSTATE.DIT set, read back and cleared on two threads, with no fault.
+  - `zig build test-platform` holds `implements_dit` to the N2 of any revision, and to no other
+    core, and holds Linux's detection to it beside HWCAP_DIT.
+  - `zig build platform-check` on a host whose /proc/cpuinfo lacks FEAT_DIT while detection has
+    it sets PSTATE.DIT on two threads, yields the core 1,000 times, reads it back and clears it.
+    `zig build test-tools` holds that verdict to stand-ins.
+  - Under QEMU 8 as a Neoverse N2 and as a Cortex-A72, the platform tests and the check's tests
+    pass for aarch64 Linux. QEMU reports the N2's FEAT_DIT, so the hidden case runs on the
+    runners alone.
+  - Mutations, 10, each `CAUGHT`: detection without the MIDR, or without HWCAP_DIT; the list
+    matching the part alone, or the maker alone; the N2's part off by one; the check passing a
+    hidden feature without the mode, or asking the mode where the report has it; and a round that
+    ignores the read after the yields, the clear, or a bit already set.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

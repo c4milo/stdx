@@ -44,6 +44,12 @@ pub const midr_architecture_shift: u6 = 16;
 pub const midr_part_shift: u6 = 4;
 pub const midr_revision_shift: u6 = 0;
 
+/// MIDR_EL1's Implementer code of Arm Limited, as Arm's reference assigns it.
+pub const midr_implementer_arm: u8 = 0x41;
+
+/// MIDR_EL1's PartNum of Arm's Neoverse N2, as its Technical Reference Manual gives it.
+pub const midr_part_neoverse_n2: u12 = 0xd49;
+
 /// Linux's arm64 AT_HWCAP2 word, bit 1: HWCAP2_SVE2, Arm's FEAT_SVE2.
 pub const hwcap2_sve2: usize = 1 << 1;
 

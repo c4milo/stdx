@@ -24,6 +24,11 @@ keeps no copy of it, and no codec probes the CPU.
   on. A program tells one core from another by its implementer and part, as `stdx.crypto` tells an
   Arm Neoverse N2. It is null on x86-64, on macOS, and on Linux without HWCAP_CPUID. On a system
   with cores of more than one kind, it names the core where detection ran.
+- `CpuFeatures.dit` on aarch64 Linux: AT_HWCAP's HWCAP_DIT, or a core that MIDR_EL1 names and
+  stdx knows to implement FEAT_DIT. A hypervisor may hide the feature, as GitHub's arm64 runners
+  hide it on their Neoverse N2 cores, where PSTATE.DIT still works. The list holds the N2 alone,
+  and a core joins it only with a probe of its own
+  ([decision 40](../../docs/decisions.md) as amended a sixth time).
 - `data_independent_timing(features)`: whether the calling thread's timing is data-independent.
   On arm64 it is PSTATE.DIT, and false on a core whose features hold no FEAT_DIT. On x86-64 it is
   false, because only the operating system reads DOITM.

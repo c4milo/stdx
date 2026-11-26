@@ -10,6 +10,12 @@
 //!
 //! On a system with cores of more than one kind, a thread may run on another kind after detection.
 //! The field names the core where detection ran.
+//!
+//! A hypervisor may hide a feature of the core from the ID registers, and Linux then leaves the
+//! feature's bit of AT_HWCAP clear. GitHub's arm64 runners are Neoverse N2 machines that hide
+//! FEAT_DIT, and on them PSTATE.DIT still sets, holds and clears on each thread (stdx CI run 551,
+//! 2026-11-26). So detection takes FEAT_DIT from the MIDR of a core in `dit_cores` too (decision 40
+//! as amended on 2026-11-26).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -28,6 +34,25 @@ pub const Midr = struct {
     /// The part's minor revision.
     revision: u4,
 };
+
+/// A core by its maker and part, the two fields that name it whatever its revision.
+const Core = struct { implementer: u8, part: u12 };
+
+/// The cores that implement FEAT_DIT, which detection reports though the system hides it. A core
+/// joins the list only once a probe on it shows PSTATE.DIT set, read back and cleared, as run 551
+/// showed for the Neoverse N2.
+const dit_cores = [_]Core{
+    .{ .implementer = constants.midr_implementer_arm, .part = constants.midr_part_neoverse_n2 },
+};
+
+/// Whether the core `midr` names implements FEAT_DIT, by `dit_cores`. False where no MIDR was read.
+pub fn implements_dit(midr: ?Midr) bool {
+    const core = midr orelse return false;
+    for (dit_cores) |listed| {
+        if (core.implementer == listed.implementer and core.part == listed.part) return true;
+    }
+    return false;
+}
 
 /// MIDR_EL1 of this core, where AT_HWCAP's `word` lets a program read it, and null elsewhere.
 pub fn read(word: usize) ?Midr {
@@ -89,6 +114,18 @@ test "a program reads MIDR_EL1 only where AT_HWCAP has HWCAP_CPUID, bit 11" {
     try testing.expectEqual(from_register(0x410f_d490), reading(1 << 11 | 1 << 3, stand_in.register).?);
     try testing.expectEqual(null, reading(1 << 3, stand_in.register));
     try testing.expectEqual(null, reading(0, stand_in.register));
+}
+
+test "a Neoverse N2 of any revision implements FEAT_DIT, and no other core is listed" {
+    try testing.expect(implements_dit(from_register(0x410f_d490)));
+    // r1p2 of the same part.
+    try testing.expect(implements_dit(from_register(0x411f_d492)));
+    // Arm's Neoverse N1 and Cortex-A72, the part number of the N2 under another maker, and Apple.
+    try testing.expect(!implements_dit(from_register(0x413f_d0c1)));
+    try testing.expect(!implements_dit(from_register(0x410f_d083)));
+    try testing.expect(!implements_dit(from_register(0x610f_d490)));
+    try testing.expect(!implements_dit(from_register(0x610f_0000)));
+    try testing.expect(!implements_dit(null));
 }
 
 test "detection on aarch64 Linux reads MIDR_EL1 exactly where AT_HWCAP lets it" {

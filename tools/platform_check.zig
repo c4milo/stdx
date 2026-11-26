@@ -27,6 +27,11 @@
 //!
 //! On any other host the check has no reference, says so, and passes having checked nothing.
 //!
+//! A hypervisor may hide FEAT_DIT from /proc/cpuinfo on a core that implements it, and detection
+//! then reports it by the core's MIDR. There the check runs PSTATE.DIT's own instructions in place
+//! of the report, and passes the field only when the mode sets, holds and clears
+//! (platform_check_dit.zig, decision 40 as amended on 2026-11-26).
+//!
 //! The check reads a file and runs a process, which no source under `src/` may do. That is why it
 //! is a tool, and not a unit test of the module.
 //!
@@ -34,6 +39,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const platform = @import("platform");
+const platform_check_dit = @import("platform_check_dit.zig");
 
 const CpuFeatures = platform.CpuFeatures;
 const Midr = platform.Midr;
@@ -92,10 +98,18 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     const detected = CpuFeatures.detect();
-    const reference = try read_reference(arena, init.io, detected.midr) orelse {
+    var reference = try read_reference(arena, init.io, detected.midr) orelse {
         std.debug.print("platform-check: no reference on {s}; nothing checked\n", .{system});
         return;
     };
+    const reported = reference.features.dit;
+    reference.features.dit = platform_check_dit.reported_dit(reference.covered.dit, reported, detected, platform_check_dit.holds) catch {
+        std.debug.print("platform-check FAILED: detection reports FEAT_DIT, and PSTATE.DIT does not hold\n", .{});
+        std.process.exit(1);
+    };
+    if (reference.features.dit != reported) {
+        std.debug.print("platform-check: {s} hides FEAT_DIT, and PSTATE.DIT sets, holds and clears\n", .{reference.source});
+    }
     const compared = reference.covered_of(detected);
     std.debug.print(
         "platform-check, {s}, libc {}: detection gives {any}; {s} gives {any}\n",
@@ -472,4 +486,8 @@ test "a core's lines give its MIDR in hexadecimal and decimal, and Linux's archi
 
 test "this build's target guarantees no feature" {
     try testing.expectEqual(CpuFeatures.none(), CpuFeatures.target());
+}
+
+test {
+    _ = platform_check_dit;
 }

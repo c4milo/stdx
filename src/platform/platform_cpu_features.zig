@@ -233,9 +233,16 @@ fn hwcap_word(entry: usize) usize {
 
 /// The features of Linux's two words, and MIDR_EL1 where AT_HWCAP lets a program read it.
 fn from_linux(word: usize, word2: usize) CpuFeatures {
-    var features = from_hwcap(word, word2);
-    features.midr = midr_file.read(word);
-    return features;
+    return with_core(from_hwcap(word, word2), midr_file.read(word));
+}
+
+/// `features` with the core `midr` names, and FEAT_DIT where that core implements it though the
+/// system hides it from AT_HWCAP (platform_midr.zig).
+fn with_core(features: CpuFeatures, midr: ?Midr) CpuFeatures {
+    var result = features;
+    result.midr = midr;
+    result.dit = features.dit or midr_file.implements_dit(midr);
+    return result;
 }
 
 /// The features of Linux's AT_HWCAP word, and of its AT_HWCAP2 word, `word2`, for SVE2.
@@ -313,6 +320,17 @@ test "the hardware capability words map the instructions of stdx.crypto, each fr
     try testing.expectEqual(CpuFeatures{ .sve2 = true }, from_hwcap(0, hwcap.sve2));
     // AT_HWCAP2's bit names SVE2 there alone, and AT_HWCAP's bit 1 is not it.
     try testing.expect(!from_hwcap(hwcap.sve2, 0).sve2);
+}
+
+test "a listed core gives FEAT_DIT though AT_HWCAP hides it, and an unlisted one gives AT_HWCAP's" {
+    const n2 = midr_file.from_register(0x410f_d490);
+    const n1 = midr_file.from_register(0x413f_d0c1);
+    // GitHub's arm64 runners: HWCAP_DIT clear, and the core a Neoverse N2.
+    try testing.expectEqual(CpuFeatures{ .aes = true, .dit = true, .midr = n2 }, with_core(from_hwcap(hwcap.aes, 0), n2));
+    try testing.expectEqual(CpuFeatures{ .aes = true, .midr = n1 }, with_core(from_hwcap(hwcap.aes, 0), n1));
+    try testing.expectEqual(CpuFeatures{ .aes = true }, with_core(from_hwcap(hwcap.aes, 0), null));
+    try testing.expectEqual(CpuFeatures{ .dit = true, .midr = n1 }, with_core(from_hwcap(hwcap.dit, 0), n1));
+    try testing.expectEqual(CpuFeatures{ .dit = true }, with_core(from_hwcap(hwcap.dit, 0), null));
 }
 
 test "the targets of an Apple M1 and a Neoverse N2 give the instructions of stdx.crypto they have" {
