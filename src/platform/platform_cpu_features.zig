@@ -19,11 +19,16 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const x86_file = @import("platform_cpu_features_x86.zig");
+const midr_file = @import("platform_midr.zig");
+const Midr = midr_file.Midr;
 
 pub const CpuFeatures = struct {
     /// x86-64: SSSE3's PSHUFB, a lookup of 16 entries for each of 16 lanes, which needs no
     /// register the operating system saves beyond SSE2's.
     ssse3: bool = false,
+    /// x86-64: SSE4.1, which the x86-64 baseline does not hold. Code for the SHA extensions and
+    /// for PCLMULQDQ uses it beside them.
+    sse4_1: bool = false,
     /// x86-64: PCLMULQDQ, with SSE4.1.
     pclmul: bool = false,
     /// x86-64: AVX2, with the operating system saving the YMM registers.
@@ -77,6 +82,10 @@ pub const CpuFeatures = struct {
     dit: bool = false,
     /// x86-64: VAES and VPCLMULQDQ on the YMM registers, with `avx2`.
     vaes: bool = false,
+    /// aarch64: MIDR_EL1 of the core detection ran on, which tells one core from another by its
+    /// implementer and part (platform_midr.zig). null on x86-64, on macOS, on Linux without
+    /// HWCAP_CPUID, and in `target()`, since a target names no core.
+    midr: ?Midr = null,
 
     /// No feature: every codec takes its scalar paths.
     pub fn none() CpuFeatures {
@@ -94,21 +103,25 @@ pub const CpuFeatures = struct {
         return detect_cpu().with(target());
     }
 
-    /// The features both sets hold.
+    /// The features both sets hold, and the core both name, or null where they name two.
     pub fn intersect(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
         var result: CpuFeatures = .{};
         inline for (std.meta.fields(CpuFeatures)) |field| {
+            if (field.type != bool) continue;
             @field(result, field.name) = @field(self, field.name) and @field(other, field.name);
         }
+        result.midr = if (std.meta.eql(self.midr, other.midr)) self.midr else null;
         return result;
     }
 
-    /// The features either set holds.
+    /// The features either set holds, and the core `self` names, or else the one `other` names.
     pub fn with(self: CpuFeatures, other: CpuFeatures) CpuFeatures {
         var result: CpuFeatures = .{};
         inline for (std.meta.fields(CpuFeatures)) |field| {
+            if (field.type != bool) continue;
             @field(result, field.name) = @field(self, field.name) or @field(other, field.name);
         }
+        result.midr = self.midr orelse other.midr;
         return result;
     }
 };
@@ -126,6 +139,7 @@ fn from_target(cpu: std.Target.Cpu) CpuFeatures {
     return switch (cpu.arch) {
         .x86_64 => .{
             .ssse3 = has_x86(cpu, .ssse3),
+            .sse4_1 = has_x86(cpu, .sse4_1),
             .pclmul = has_x86(cpu, .pclmul) and has_x86(cpu, .sse4_1),
             .avx2 = has_x86(cpu, .avx2),
             .bmi2 = has_x86(cpu, .bmi2) and has_x86(cpu, .ssse3),
@@ -191,7 +205,7 @@ const hwcap = struct {
 fn detect_aarch64() CpuFeatures {
     if (builtin.cpu.arch != .aarch64) unreachable;
     return switch (builtin.os.tag) {
-        .linux => from_hwcap(hwcap_word(std.elf.AT_HWCAP), hwcap_word(std.elf.AT_HWCAP2)),
+        .linux => from_linux(hwcap_word(std.elf.AT_HWCAP), hwcap_word(std.elf.AT_HWCAP2)),
         // Every aarch64 Mac is an Apple M-series part, which has these and whose MADD's addend
         // waits for its multiply. No M-series part has SVE2 outside SME's streaming mode.
         .macos => .{
@@ -217,6 +231,13 @@ fn hwcap_word(entry: usize) usize {
     return std.os.linux.getauxval(entry);
 }
 
+/// The features of Linux's two words, and MIDR_EL1 where AT_HWCAP lets a program read it.
+fn from_linux(word: usize, word2: usize) CpuFeatures {
+    var features = from_hwcap(word, word2);
+    features.midr = midr_file.read(word);
+    return features;
+}
+
 /// The features of Linux's AT_HWCAP word, and of its AT_HWCAP2 word, `word2`, for SVE2.
 fn from_hwcap(word: usize, word2: usize) CpuFeatures {
     return .{
@@ -238,6 +259,7 @@ const testing = std.testing;
 
 test {
     _ = x86_file;
+    _ = midr_file;
 }
 
 test "detection alone finds at least what the target guarantees" {
@@ -254,6 +276,18 @@ test "none holds nothing, and intersect and with combine field by field" {
     const right: CpuFeatures = .{ .avx2 = true, .crc32 = true };
     try testing.expectEqual(CpuFeatures{ .avx2 = true }, left.intersect(right));
     try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .crc32 = true }, left.with(right));
+}
+
+test "intersect keeps the core both name, and with keeps the first core either names" {
+    const n2 = midr_file.from_register(0x410f_d490);
+    const m1 = midr_file.from_register(0x610f_0000);
+    const on_n2: CpuFeatures = .{ .sha3 = true, .midr = n2 };
+    try testing.expectEqual(n2, on_n2.intersect(.{ .midr = n2 }).midr.?);
+    try testing.expectEqual(null, on_n2.intersect(.{ .midr = m1 }).midr);
+    try testing.expectEqual(null, on_n2.intersect(CpuFeatures.target()).midr);
+    try testing.expectEqual(n2, on_n2.with(.{ .midr = m1 }).midr.?);
+    try testing.expectEqual(m1, CpuFeatures.none().with(.{ .midr = m1 }).midr.?);
+    try testing.expectEqual(null, CpuFeatures.target().midr);
 }
 
 test "an Apple core's target has MADD's slow addend, and a Neoverse N2's does not" {
@@ -303,6 +337,9 @@ test "the target's SSSE3 counts alone, and its BMI2 only with SSSE3" {
     cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.ssse3));
     try testing.expect(from_target(cpu).bmi2);
     try testing.expect(from_target(cpu).ssse3);
+    try testing.expect(!from_target(cpu).sse4_1);
+    cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.sse4_1));
+    try testing.expect(from_target(cpu).sse4_1);
 }
 
 test "detection on this host finds what its architecture's feature set should" {

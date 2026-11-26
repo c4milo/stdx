@@ -58,7 +58,8 @@ and the widening multiply in data-independent time:
 Under the statement, chapulin runs AES-GCM and the widening multiplies on the instructions the
 features hold. Without it, chapulin runs TLS_CHACHA20_POLY1305_SHA256 and its code that needs no
 such mode. On arm64 under the statement, SHA-256, SHA-512 and SHA-3 run on the instructions the
-features hold. On x86-64, SHA-384 and SHA-512 run on AVX2 where the features hold it. Every other
+features hold, except SHA-3 on an Arm Neoverse N2, which `CpuFeatures.midr` names. That core runs
+Keccak faster in its general registers, and AES-GCM keeps the SHA-3 extension's EOR3 there. On x86-64, SHA-384 and SHA-512 run on AVX2 where the features hold it. Every other
 hash runs chapulin's portable code.
 
 stdx is the one place that asks chapulin for its module. So a program that names chapulin only

@@ -1,7 +1,10 @@
 //! The check of decision 40: on this host, `platform.CpuFeatures.detect()` gives the features the
 //! host reports through a source that detection does not read.
 //! - Linux on x86-64: /proc/cpuinfo, its `vendor_id` line and its `flags` line.
-//! - Linux on aarch64: /proc/cpuinfo, its `Features` line.
+//! - Linux on aarch64: /proc/cpuinfo, its `Features` line. Where it names `cpuid`, the MIDR is the
+//!   one a core's `CPU implementer`, `CPU variant`, `CPU part` and `CPU revision` lines give: the
+//!   core whose values match detection's, or the first core. Linux prints `CPU architecture: 8`
+//!   for each core, which stands for MIDR_EL1's 0xf.
 //! - macOS on aarch64: `sysctl hw.optional`, its `armv8_crc32` and its `arm.FEAT_` names.
 //! - macOS on x86-64: `sysctl -n machdep.cpu.vendor machdep.cpu.features
 //!   machdep.cpu.leaf7_features`.
@@ -10,7 +13,8 @@
 //! - A field the report names a feature for is true where the report holds the feature, and false
 //!   where it does not. A field that needs more than one feature, as `vaes` needs AVX2, VAES and
 //!   VPCLMULQDQ, is true only where the report holds each.
-//! - A field of the other architecture is false, since detection sets none of them.
+//! - A field of the other architecture is false, and `midr` is null on x86-64 and on a Mac, since
+//!   detection sets none of them there.
 //! - `madd_addend_slow` names no instruction, and no aarch64 report covers it. On a Mac, `avx512`
 //!   and `vnni` are left out too: macOS saves the AVX-512 registers only from a thread's first use
 //!   of them, so XCR0 can say nothing where the CPU has them.
@@ -32,6 +36,7 @@ const builtin = @import("builtin");
 const platform = @import("platform");
 
 const CpuFeatures = platform.CpuFeatures;
+const Midr = platform.Midr;
 
 /// The program macOS reads its sysctl values with.
 const sysctl_path = "/usr/sbin/sysctl";
@@ -40,20 +45,28 @@ const sysctl_path = "/usr/sbin/sysctl";
 const aarch64_fields = [_][]const u8{ "crc32", "pmull", "dotprod", "madd_addend_slow", "sha3", "sve2", "dit" };
 
 /// The fields of x86-64's features, which detection never sets on aarch64.
-const x86_fields = [_][]const u8{ "ssse3", "pclmul", "avx2", "avx512", "vpclmul", "vnni", "bmi2", "vpmullq_fast", "lazy_loop_fast", "vaes" };
+const x86_fields = [_][]const u8{ "ssse3", "sse4_1", "pclmul", "avx2", "avx512", "vpclmul", "vnni", "bmi2", "vpmullq_fast", "lazy_loop_fast", "vaes" };
 
 /// A report of the host's features, where it came from, and the fields it covers.
 const Reference = struct {
     source: []const u8,
     /// The features the report holds, in the fields it covers alone.
     features: CpuFeatures = .{},
-    /// True for each field the report covers.
+    /// True for each field the report covers. Its `midr` stays null: `midr_covered` says whether
+    /// the report covers that field.
     covered: CpuFeatures = .{},
+    midr_covered: bool = false,
 
     /// Records that the report gives `field` as `present`.
     fn give(self: *Reference, comptime field: []const u8, present: bool) void {
         @field(self.covered, field) = true;
         @field(self.features, field) = present;
+    }
+
+    /// Records that the report gives the core as `midr`.
+    fn give_midr(self: *Reference, midr: ?Midr) void {
+        self.midr_covered = true;
+        self.features.midr = midr;
     }
 
     /// Records each of `fields` as absent.
@@ -63,7 +76,9 @@ const Reference = struct {
 
     /// The fields of `detected` that this report covers.
     fn covered_of(self: Reference, detected: CpuFeatures) CpuFeatures {
-        return detected.intersect(self.covered);
+        var compared = detected.intersect(self.covered);
+        compared.midr = if (self.midr_covered) detected.midr else null;
+        return compared;
     }
 };
 
@@ -77,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     const detected = CpuFeatures.detect();
-    const reference = try read_reference(arena, init.io) orelse {
+    const reference = try read_reference(arena, init.io, detected.midr) orelse {
         std.debug.print("platform-check: no reference on {s}; nothing checked\n", .{system});
         return;
     };
@@ -91,12 +106,13 @@ pub fn main(init: std.process.Init) !void {
     std.process.exit(1);
 }
 
-/// The host's report, or null on a host the check has no source for.
-fn read_reference(arena: std.mem.Allocator, io: std.Io) !?Reference {
+/// The host's report, or null on a host the check has no source for. On Linux the MIDR is the
+/// core whose lines match `detected`, or the first core's when none does.
+fn read_reference(arena: std.mem.Allocator, io: std.Io, detected: ?Midr) !?Reference {
     switch (builtin.os.tag) {
         .linux => {
             const text = try read_cpuinfo(arena, io);
-            return from_cpuinfo(builtin.cpu.arch, text) orelse error.NoFeaturesLine;
+            return from_cpuinfo(builtin.cpu.arch, text, detected) orelse error.NoFeaturesLine;
         },
         .macos => return switch (builtin.cpu.arch) {
             .aarch64 => from_sysctl_arm(try run_sysctl(arena, io, &.{ sysctl_path, "hw.optional" })),
@@ -134,12 +150,53 @@ fn run_sysctl(arena: std.mem.Allocator, io: std.Io, argv: []const []const u8) ![
 }
 
 /// The report a Linux /proc/cpuinfo gives on `arch`, or null when it holds no line of features.
-fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8) ?Reference {
+fn from_cpuinfo(arch: std.Target.Cpu.Arch, text: []const u8, detected: ?Midr) ?Reference {
     return switch (arch) {
         .x86_64 => from_x86_flags(value_of(text, "flags") orelse return null, value_of(text, "vendor_id") orelse ""),
-        .aarch64 => from_aarch64_features(value_of(text, "Features") orelse return null),
+        .aarch64 => from_aarch64_cpuinfo(text, detected),
         else => null,
     };
+}
+
+/// The report of aarch64's `Features` line, and the core's MIDR where the line names `cpuid`.
+fn from_aarch64_cpuinfo(text: []const u8, detected: ?Midr) ?Reference {
+    const words = value_of(text, "Features") orelse return null;
+    var reference = from_aarch64_features(words);
+    reference.give_midr(if (has_word(words, "cpuid")) core_midr(text, detected) else null);
+    return reference;
+}
+
+/// The MIDR of the core in `text` whose lines give `detected`, or of the first core when none
+/// does, or null when no core's lines parse. Each core's lines follow its `processor` line.
+fn core_midr(text: []const u8, detected: ?Midr) ?Midr {
+    var first: ?Midr = null;
+    var cores = std.mem.splitSequence(u8, text, "\nprocessor");
+    while (cores.next()) |core| {
+        const midr = midr_of(core) orelse continue;
+        if (detected != null and std.meta.eql(midr, detected.?)) return midr;
+        if (first == null) first = midr;
+    }
+    return first;
+}
+
+/// The MIDR one core's lines give. Linux prints the architecture as 8 for every core, which
+/// stands for MIDR_EL1's 0xf.
+fn midr_of(core: []const u8) ?Midr {
+    const architecture = std.mem.trim(u8, value_of(core, "CPU architecture") orelse return null, " \t");
+    if (!std.mem.eql(u8, architecture, "8")) return null;
+    return .{
+        .implementer = number(u8, core, "CPU implementer") orelse return null,
+        .variant = number(u4, core, "CPU variant") orelse return null,
+        .architecture = 0xf,
+        .part = number(u12, core, "CPU part") orelse return null,
+        .revision = number(u4, core, "CPU revision") orelse return null,
+    };
+}
+
+/// The number a line gives, as 0x41 or as 1.
+fn number(comptime T: type, core: []const u8, name: []const u8) ?T {
+    const text = std.mem.trim(u8, value_of(core, name) orelse return null, " \t");
+    return std.fmt.parseInt(T, text, 0) catch null;
 }
 
 /// The report of x86-64's `flags` and `vendor_id` lines. Linux clears `avx` where the operating
@@ -157,6 +214,7 @@ fn from_x86_flags(words: []const u8, vendor: []const u8) Reference {
     const amd = has_word(vendor, "AuthenticAMD");
     var reference: Reference = .{ .source = "/proc/cpuinfo" };
     reference.give("ssse3", has(words, &.{"ssse3"}));
+    reference.give("sse4_1", has(words, &.{"sse4_1"}));
     reference.give("pclmul", has(words, &.{ "pclmulqdq", "sse4_1" }));
     reference.give("avx2", has(words, &.{"avx2"}));
     reference.give("avx512", avx512);
@@ -170,6 +228,7 @@ fn from_x86_flags(words: []const u8, vendor: []const u8) Reference {
     reference.give("sha512", has(words, &.{ "avx", "sha512" }));
     reference.give("vaes", has(words, &.{ "avx2", "vaes", "vpclmulqdq" }));
     reference.absent(&aarch64_fields);
+    reference.give_midr(null);
     return reference;
 }
 
@@ -203,6 +262,8 @@ fn from_sysctl_arm(text: []const u8) Reference {
     give_sysctl(&reference, "sve2", text, "hw.optional.arm.FEAT_SVE2");
     give_sysctl(&reference, "dit", text, "hw.optional.arm.FEAT_DIT");
     reference.absent(&x86_fields);
+    // macOS gives a program no read of MIDR_EL1.
+    reference.give_midr(null);
     return reference;
 }
 
@@ -219,6 +280,7 @@ fn give_sysctl(reference: *Reference, comptime field: []const u8, text: []const 
 fn from_machdep(text: []const u8) Reference {
     var reference: Reference = .{ .source = "sysctl machdep.cpu" };
     reference.give("ssse3", has_word(text, "SSSE3"));
+    reference.give("sse4_1", has_word(text, "SSE4.1"));
     reference.give("pclmul", has_word(text, "PCLMULQDQ") and has_word(text, "SSE4.1"));
     reference.give("avx2", has_word(text, "AVX2"));
     reference.give("vpclmul", has_word(text, "AVX1.0") and has_word(text, "VPCLMULQDQ"));
@@ -230,6 +292,7 @@ fn from_machdep(text: []const u8) Reference {
     reference.give("sha512", false);
     reference.give("vaes", has_word(text, "AVX2") and has_word(text, "VAES") and has_word(text, "VPCLMULQDQ"));
     reference.absent(&aarch64_fields);
+    reference.give_midr(null);
     return reference;
 }
 
@@ -268,9 +331,10 @@ const aarch64_cpuinfo = "processor\t: 0\n" ++
     "CPU implementer\t: 0x41\n";
 
 test "the flags line of x86-64's cpuinfo gives each feature from its own words" {
-    const zen4 = from_cpuinfo(.x86_64, x86_64_cpuinfo).?;
+    const zen4 = from_cpuinfo(.x86_64, x86_64_cpuinfo, null).?;
     try testing.expectEqual(CpuFeatures{
         .ssse3 = true,
+        .sse4_1 = true,
         .pclmul = true,
         .avx2 = true,
         .avx512 = true,
@@ -284,20 +348,24 @@ test "the flags line of x86-64's cpuinfo gives each feature from its own words" 
     }, zen4.features);
     // The words of `vmx flags` are no features, and the report covers every field.
     var every = CpuFeatures{};
-    inline for (std.meta.fields(CpuFeatures)) |field| @field(every, field.name) = true;
+    inline for (std.meta.fields(CpuFeatures)) |field| {
+        if (field.type == bool) @field(every, field.name) = true;
+    }
     try testing.expectEqual(every, zen4.covered);
-    try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n"));
+    try testing.expect(zen4.midr_covered and zen4.features.midr == null);
+    try testing.expectEqual(null, from_cpuinfo(.x86_64, "vmx flags\t: aes pclmulqdq\n", null));
 }
 
 test "a field that needs more than one word is false where one is missing" {
     const at = struct {
         fn flags(comptime words: []const u8) CpuFeatures {
-            return from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\nflags\t\t: fpu sse2 " ++ words ++ "\n").?.features;
+            return from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\nflags\t\t: fpu sse2 " ++ words ++ "\n", null).?.features;
         }
     };
     try testing.expect(at.flags("ssse3 sse4_1 sha_ni").sha256);
     try testing.expect(!at.flags("ssse3 sha_ni").sha256 and !at.flags("sse4_1 sha_ni").sha256);
     try testing.expect(!at.flags("pclmulqdq").pclmul and at.flags("pclmulqdq sse4_1").pclmul);
+    try testing.expect(at.flags("sse4_1").sse4_1 and !at.flags("sse4_2").sse4_1);
     try testing.expect(at.flags("avx2 vaes vpclmulqdq").vaes and !at.flags("avx2 vaes").vaes);
     try testing.expect(!at.flags("vaes vpclmulqdq").vaes);
     try testing.expect(!at.flags("vpclmulqdq").vpclmul and at.flags("avx vpclmulqdq").vpclmul);
@@ -309,25 +377,25 @@ test "a field that needs more than one word is false where one is missing" {
 
 test "the vendor_id line gives the two fields that choose a path" {
     const avx512 = "flags\t\t: avx512f avx512bw avx512dq avx512vl\n";
-    const intel = from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\n" ++ avx512).?.features;
+    const intel = from_cpuinfo(.x86_64, "vendor_id\t: GenuineIntel\n" ++ avx512, null).?.features;
     try testing.expect(intel.lazy_loop_fast and !intel.vpmullq_fast);
-    const amd = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\n" ++ avx512).?.features;
+    const amd = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\n" ++ avx512, null).?.features;
     try testing.expect(!amd.lazy_loop_fast and amd.vpmullq_fast);
-    const amd_without_avx512 = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\nflags\t\t: avx2\n").?.features;
+    const amd_without_avx512 = from_cpuinfo(.x86_64, "vendor_id\t: AuthenticAMD\nflags\t\t: avx2\n", null).?.features;
     try testing.expect(!amd_without_avx512.vpmullq_fast);
 }
 
 test "the Features line of aarch64's cpuinfo gives each feature from its own word" {
-    const n1 = from_cpuinfo(.aarch64, aarch64_cpuinfo).?;
+    const n1 = from_cpuinfo(.aarch64, aarch64_cpuinfo, null).?;
     try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true, .dotprod = true, .aes = true, .sha256 = true, .dit = true }, n1.features);
     try testing.expect(!n1.covered.madd_addend_slow and n1.covered.avx2 and n1.covered.sve2);
-    const every = from_cpuinfo(.aarch64, "Features\t: fp asimd aes pmull sha2 sha3 sha512 sve2 dit\n").?.features;
+    const every = from_cpuinfo(.aarch64, "Features\t: fp asimd aes pmull sha2 sha3 sha512 sve2 dit\n", null).?.features;
     try testing.expect(every.sha3 and every.sha512 and every.sve2);
     // SVE's own words are not the features.
-    const sve = from_cpuinfo(.aarch64, "Features\t: fp asimd sve svesha3 sveaes svepmull\n").?.features;
+    const sve = from_cpuinfo(.aarch64, "Features\t: fp asimd sve svesha3 sveaes svepmull\n", null).?.features;
     try testing.expectEqual(CpuFeatures{}, sve);
-    try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo));
-    try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo));
+    try testing.expectEqual(null, from_cpuinfo(.aarch64, x86_64_cpuinfo, null));
+    try testing.expectEqual(null, from_cpuinfo(.riscv64, aarch64_cpuinfo, null));
 }
 
 test "sysctl's values give 1 as present and 0 as absent, and a missing name leaves its field out" {
@@ -338,7 +406,7 @@ test "sysctl's values give 1 as present and 0 as absent, and a missing name leav
     try testing.expectEqual(CpuFeatures{ .crc32 = true, .pmull = true, .dotprod = true, .aes = true, .sha256 = true, .sha512 = true, .sha3 = true, .dit = true }, m1.features);
     try testing.expect(m1.covered.sve2 and !m1.covered.madd_addend_slow);
     const older = from_sysctl_arm("hw.optional.arm.FEAT_AES: 1\nhw.optional.arm.FEAT_SHA1: 1\nhw.optional.arm.FEAT_DIT: 2\n");
-    try testing.expect(older.covered.aes and older.features.aes);
+    try testing.expect(older.covered.aes and older.features.aes and older.midr_covered);
     try testing.expect(!older.covered.sve2 and !older.covered.sha256 and !older.covered.dit);
 }
 
@@ -346,6 +414,7 @@ test "machdep's words give each x86-64 feature, and no Intel Mac has SHA-512 or 
     const ice_lake = from_machdep("GenuineIntel\nFPU SSE AES PCLMULQDQ SSSE3 SSE4.1 AVX1.0\nAVX2 BMI2 SHA VAES VPCLMULQDQ AVX512F\n");
     try testing.expectEqual(CpuFeatures{
         .ssse3 = true,
+        .sse4_1 = true,
         .pclmul = true,
         .avx2 = true,
         .vpclmul = true,
@@ -357,15 +426,48 @@ test "machdep's words give each x86-64 feature, and no Intel Mac has SHA-512 or 
     }, ice_lake.features);
     try testing.expect(!ice_lake.covered.avx512 and !ice_lake.covered.vnni and ice_lake.covered.sha512);
     const without_sse4_1 = from_machdep("GenuineIntel\nFPU SSE AES PCLMULQDQ SSSE3\nAVX2 SHA VAES\n").features;
-    try testing.expect(!without_sse4_1.pclmul and !without_sse4_1.sha256 and !without_sse4_1.vaes);
+    try testing.expect(!without_sse4_1.pclmul and !without_sse4_1.sha256 and !without_sse4_1.sse4_1);
 }
 
 test "a report compares the fields it covers, and no other" {
     var reference: Reference = .{ .source = "a test" };
     reference.give("aes", true);
     reference.give("sha3", false);
-    try testing.expectEqual(CpuFeatures{ .aes = true }, reference.covered_of(.{ .aes = true, .sha3 = false, .avx2 = true }));
+    try testing.expectEqual(CpuFeatures{ .aes = true }, reference.covered_of(.{ .aes = true, .sha3 = false, .avx2 = true, .midr = neoverse_n2 }));
     try testing.expect(!std.meta.eql(reference.features, reference.covered_of(.{ .sha3 = true })));
+    reference.give_midr(neoverse_n2);
+    try testing.expectEqual(neoverse_n2, reference.covered_of(.{ .midr = neoverse_n2 }).midr.?);
+    try testing.expect(!std.meta.eql(reference.features, reference.covered_of(.{ .aes = true, .midr = cortex_a55 })));
+}
+
+/// Two cores of different kinds, as a big.LITTLE system's /proc/cpuinfo lists them.
+const two_cores = "processor\t: 0\n" ++
+    "Features\t: fp asimd aes pmull sha2 cpuid sve2\n" ++
+    "CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x1\nCPU part\t: 0xd05\nCPU revision\t: 0\n\n" ++
+    "processor\t: 1\n" ++
+    "Features\t: fp asimd aes pmull sha2 cpuid sve2\n" ++
+    "CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
+
+const cortex_a55: Midr = .{ .implementer = 0x41, .variant = 1, .architecture = 0xf, .part = 0xd05, .revision = 0 };
+const neoverse_n2: Midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 2 };
+
+test "the MIDR is the core whose lines match detection's, or the first core's, where cpuid is named" {
+    try testing.expectEqual(neoverse_n2, from_cpuinfo(.aarch64, two_cores, neoverse_n2).?.features.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, cortex_a55).?.features.midr.?);
+    try testing.expectEqual(cortex_a55, from_cpuinfo(.aarch64, two_cores, null).?.features.midr.?);
+    // Without cpuid, detection reads no MIDR, whatever the lines say.
+    const without_cpuid = "processor\t: 0\nFeatures\t: fp asimd sve2\nCPU implementer\t: 0x41\nCPU architecture: 8\n" ++
+        "CPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 2\n";
+    const reference = from_cpuinfo(.aarch64, without_cpuid, neoverse_n2).?;
+    try testing.expect(reference.midr_covered and reference.features.midr == null);
+}
+
+test "a core's lines give its MIDR in hexadecimal and decimal, and Linux's architecture 8 is 0xf" {
+    const core = "\t: 3\nCPU implementer\t: 0x61\nCPU architecture: 8\nCPU variant\t: 0x2\nCPU part\t: 0x022\nCPU revision\t: 11\n";
+    try testing.expectEqual(Midr{ .implementer = 0x61, .variant = 2, .architecture = 0xf, .part = 0x22, .revision = 11 }, midr_of(core).?);
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 7\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x41\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU revision\t: 0\n"));
+    try testing.expectEqual(null, midr_of("CPU implementer\t: 0x141\nCPU architecture: 8\nCPU variant\t: 0x0\nCPU part\t: 0xd49\nCPU revision\t: 0\n"));
 }
 
 test "this build's target guarantees no feature" {

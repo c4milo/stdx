@@ -69,6 +69,9 @@ fn cpu_of(comptime Cpu: type, features: platform.CpuFeatures, stated: bool, arch
     // Arm's list under FEAT_DIT names the hash instructions. stdx states their timing on arm64
     // alone, and on x86-64 chapulin hashes in general registers.
     const hash_stated = arm64 and stated;
+    // FEAT_SHA3 names EOR3, RAX1, XAR and BCAX. The EOR3 bit states EOR3 alone, which AES-GCM's
+    // passes run, and the SHA-3 bit all four, which Keccak runs (chapulin's decision 244).
+    const sha3_stated = hash_stated and features.sha3;
     // AES-GCM runs the carry-less multiply beside AES's rounds: PMULL on arm64, PCLMULQDQ on
     // x86-64.
     const carry_less = if (arm64) features.pmull else features.pclmul;
@@ -77,11 +80,24 @@ fn cpu_of(comptime Cpu: type, features: platform.CpuFeatures, stated: bool, arch
         .constant_time_multiply = stated,
         .constant_time_sha256 = hash_stated and features.sha256,
         .constant_time_sha512 = hash_stated and features.sha512,
-        .constant_time_sha3 = hash_stated and features.sha3,
+        .constant_time_sha3 = sha3_stated and !keccak_slow(features.midr),
+        .constant_time_eor3 = sha3_stated,
         .avx2 = x86_64 and features.avx2,
         .vaes = x86_64 and features.vaes,
         .sve2 = arm64 and features.sve2,
     };
+}
+
+/// Arm's code for itself in MIDR_EL1's implementer field, and its Neoverse N2's part.
+const arm_implementer = 0x41;
+const neoverse_n2_part = 0xd49;
+
+/// Whether the core runs Keccak slower on its SHA-3 instructions than in its general registers:
+/// Arm's Neoverse N2, 1.8 times slower, where chapulin's decision 240 asks a caller to leave the
+/// SHA-3 bit clear. A core whose system gives no MIDR_EL1 keeps the bit.
+fn keccak_slow(midr: ?platform.Midr) bool {
+    const core = midr orelse return false;
+    return core.implementer == arm_implementer and core.part == neoverse_n2_part;
 }
 
 // Tests.
@@ -143,6 +159,28 @@ test "a feature the CPU lacks gives no bit" {
     const x86 = described(features, true, .x86_64);
     try testing.expect(!x86.constant_time_aes and !x86.avx2 and !x86.vaes);
     try testing.expect(x86.constant_time_multiply);
+}
+
+test "an N2 keeps EOR3's bit and loses the SHA-3 bit, and every other core keeps both" {
+    var n2 = every_feature;
+    n2.midr = .{ .implementer = 0x41, .variant = 0, .architecture = 0xf, .part = 0xd49, .revision = 0 };
+    const on_n2 = described(n2, true, .aarch64);
+    try testing.expect(on_n2.constant_time_eor3 and !on_n2.constant_time_sha3 and on_n2.constant_time_aes);
+    // Another Arm part, an Apple core and a system that gives no MIDR_EL1 keep both bits.
+    var n1 = n2;
+    n1.midr.?.part = 0xd0c;
+    var apple = n2;
+    apple.midr.?.implementer = 0x61;
+    for ([_]platform.CpuFeatures{ n1, apple, every_feature }) |features| {
+        const cpu = described(features, true, .aarch64);
+        try testing.expect(cpu.constant_time_eor3 and cpu.constant_time_sha3);
+    }
+    // Neither bit without the statement, without FEAT_SHA3, or on x86-64.
+    try testing.expect(!described(n1, false, .aarch64).constant_time_eor3);
+    var no_sha3 = n1;
+    no_sha3.sha3 = false;
+    try testing.expect(!described(no_sha3, true, .aarch64).constant_time_eor3);
+    try testing.expect(!described(n1, true, .x86_64).constant_time_eor3);
 }
 
 test "AES's bit needs the carry-less multiply of its own architecture" {

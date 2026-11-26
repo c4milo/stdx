@@ -11896,6 +11896,29 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     subleaf 1 a bit, as this host's does.
   - CI's arm64 Linux and macOS jobs run `platform-check` there. This x86-64 host ran neither.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 30: `CpuFeatures` holds every answer `probe` gave, and the N2 rule (decisions 40 and 87
+  as amended on 2026-11-26).** The owner asked why step 29 removed features, and ruled that
+  `CpuFeatures` gains them instead. It gains `sse4_1` and `midr`, and `platform.Midr` returns.
+  `stdx.crypto`'s map then applies chapulin's rule for an Arm Neoverse N2: the EOR3 bit beside
+  `sha3`, and no SHA-3 bit on that core.
+  New public names: `CpuFeatures.sse4_1`, `CpuFeatures.midr` and `platform.Midr`, which step 29
+  removed. chapulin's N2 rule reads `midr` through `stdx.crypto`, and a program may read both.
+  **Check:**
+  - `zig build test-platform` holds MIDR_EL1's fields to their bits, its read to HWCAP_CPUID,
+    `intersect` and `with` to their cores, and `sse4_1` to leaf 1's bit 19 and to the target.
+  - `zig build test-crypto` holds the N2 to the EOR3 bit without the SHA-3 bit, and another Arm
+    part, an Apple core and no MIDR to both bits.
+  - `zig build platform-check` on x86-64 Linux held `sse4_1` and a null `midr` to
+    /proc/cpuinfo, without libc and with it. Its tests hold the core's MIDR to a big.LITTLE
+    fixture and to a `Features` line without `cpuid`.
+  - Mutations, 7, each `CAUGHT`: the N2 rule off and EOR3's bit without FEAT_SHA3, against `zig
+    build test-crypto`; `intersect` keeping any core, `with` preferring the other core, and
+    SSE4.1 from SSSE3's bit, against `zig build test-platform`; the MIDR never compared and the
+    first core taken always, against `zig build test-tools`. SSE4.1 from SSSE3's bit passes
+    `zig build platform-check` on this host, which has both.
+  - Detection's own read of MIDR_EL1 runs on aarch64 Linux alone. This x86-64 host compiled it
+    for aarch64-linux and ran none of it, and CI's arm64 Linux job runs `platform-check` there.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

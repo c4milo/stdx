@@ -2915,6 +2915,26 @@ last part lists what still waits on a ruling.
       - `CpuFeatures` read from macOS's sysctl names. It would make the syscall that the M-series
         facts avoid, and only `platform-check` needs the names, as a reference.
 
+    **Amended a fifth time by the owner on 2026-11-26: `CpuFeatures` holds every answer `probe`
+    gave.** The owner asked why the fourth amendment removed features, and ruled that
+    `CpuFeatures` gains them instead (design §8 step 30). `probe`, `Cpu` and `Answer` stay
+    removed.
+    - `CpuFeatures` gains `sse4_1`, CPUID leaf 1's ECX bit 19, which it read before only inside
+      `pclmul` and `sha256`.
+    - `CpuFeatures` gains `midr: ?Midr`, and `platform.Midr` returns as the amendment of
+      2026-11-19 ruled it. The amendment of 2026-11-25 that made `CpuFeatures` the one CPU type
+      kept MIDR with `probe` "because no program reads it". That was wrong: chapulin's decision 240 asks a caller to tell an Arm
+      Neoverse N2 by its MIDR, and `stdx.crypto` now maps for every caller (entry 87 as amended a
+      seventh time).
+    - On aarch64 Linux, detection reads MIDR_EL1 with `mrs` where AT_HWCAP has HWCAP_CPUID. Linux
+      traps the read and emulates it, so detection still makes no syscall. `midr` is null on
+      x86-64, on macOS, on Linux without the bit, and in `target()`.
+    - `intersect` keeps the core both sets name, and null where they name two. `with` keeps the
+      core of `self`, or else that of `other`. A codec's `features.intersect(target())` therefore
+      names no core, which no codec reads.
+    - `platform-check` compares `sse4_1`, and on aarch64 Linux the MIDR of the core whose
+      /proc/cpuinfo lines match detection's, as it did for `probe`.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
@@ -7260,6 +7280,16 @@ last part lists what still waits on a ruling.
           called `init`, and not the thread that runs the call.
         - No statement on x86-64. Every x86-64 session would run ChaCha20 alone, and the slow
           multiply.
+    - Amended a seventh time on 2026-11-26: stdx's map applies chapulin's rule for an Arm Neoverse
+      N2 (design §8 step 30). The owner ruled on 2026-11-19 that the rule applies once a chapulin
+      release splits the SHA-3 bit. chapulin's decision 244 split it, and stdx's pin holds it.
+      - On arm64 under the statement, the EOR3 bit follows `sha3`. It states EOR3 alone, which
+        AES-GCM's passes run.
+      - The SHA-3 bit follows `sha3` too, but not on a core whose `midr` names implementer 0x41
+        and part 0xd49. That core runs Keccak 1.8 times slower on its SHA-3 instructions
+        (chapulin's decision 240), so Keccak runs in general registers there, and AES-GCM keeps
+        EOR3.
+      - A `CpuFeatures` that names no core keeps the SHA-3 bit, as stdx's map did before.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.

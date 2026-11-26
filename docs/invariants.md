@@ -39,7 +39,8 @@ check lands with its step.
 - **Claim.** No code under `src/` opens, reads, writes or polls anything, starts a thread,
   prints, or makes a syscall. `src/platform/`'s detection reads the auxiliary vector, which is
   memory, and runs CPUID, XGETBV, `mrs` and `msr`, which are instructions (decision 40 as amended
-  on 2026-11-26).
+  on 2026-11-26). On aarch64 Linux its `mrs` of MIDR_EL1 is an instruction that the kernel traps
+  and emulates, where AT_HWCAP says that the kernel does.
 - **Mechanism.** No source names `std.posix`, `std.os`, `std.c`, `std.fs`, `std.net`,
   `std.Thread`, `std.Io`, `std.process`, `std.log` or `std.debug.print` (decision 2), but for
   `getauxval`, which reads memory (decision 21), in `src/platform/` alone (decisions 21 and 40 as

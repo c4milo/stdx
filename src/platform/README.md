@@ -17,9 +17,13 @@ keeps no copy of it, and no codec probes the CPU.
 
 - `CpuFeatures.detect()`: the features that the fast paths of the codecs read
   ([decision 21](../../docs/decisions.md)), and the instructions that `stdx.crypto` runs: `aes`,
-  `sha256`, `sha512`, `sha3`, `sve2`, `dit` and `vaes`, beside `pclmul`, `pmull` and `avx2`. Each
-  field is true where the CPU has the feature and false where it lacks it or nothing says. Detection
-  makes no system call.
+  `sha256`, `sha512`, `sha3`, `sve2`, `dit` and `vaes`, beside `pclmul`, `pmull`, `ssse3`,
+  `sse4_1` and `avx2`. Each of these fields is true where the CPU has the feature and false where
+  it lacks it or nothing says. Detection makes no system call.
+- `CpuFeatures.midr`: a `Midr`, the fields of MIDR_EL1 of the aarch64 core that detection ran
+  on. A program tells one core from another by its implementer and part, as `stdx.crypto` tells an
+  Arm Neoverse N2. It is null on x86-64, on macOS, and on Linux without HWCAP_CPUID. On a system
+  with cores of more than one kind, it names the core where detection ran.
 - `data_independent_timing(features)`: whether the calling thread's timing is data-independent.
   On arm64 it is PSTATE.DIT, and false on a core whose features hold no FEAT_DIT. On x86-64 it is
   false, because only the operating system reads DOITM.
@@ -36,7 +40,8 @@ Detection makes no system call. A program makes it once, when it starts, and no 
 it. It reads:
 
 - x86-64: CPUID and XGETBV.
-- aarch64 Linux: the auxiliary vector, through `getauxval`, which reads memory.
+- aarch64 Linux: the auxiliary vector, through `getauxval`, which reads memory, and MIDR_EL1,
+  through `mrs`, which the kernel traps and emulates where AT_HWCAP has HWCAP_CPUID.
 - aarch64 macOS: the features every Apple M-series part has.
 - Any other system: the build target's features.
 

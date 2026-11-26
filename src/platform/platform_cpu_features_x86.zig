@@ -119,6 +119,7 @@ fn from_x86(registers: X86Registers) CpuFeatures {
     const avx2 = ymm and all(registers.leaf_7_ebx, x86.ebx_avx2);
     return .{
         .ssse3 = all(registers.leaf_1_ecx, x86.ecx_ssse3),
+        .sse4_1 = all(registers.leaf_1_ecx, x86.ecx_sse4_1),
         .pclmul = all(registers.leaf_1_ecx, x86.ecx_pclmulqdq | x86.ecx_sse4_1),
         .avx2 = avx2,
         .bmi2 = all(registers.leaf_1_ecx, x86.ecx_ssse3) and all(registers.leaf_7_ebx, x86.ebx_bmi2),
@@ -149,25 +150,25 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
         .leaf_7_1_eax = 0,
         .xcr0 = 0b1110_0111,
     };
-    const all_x86: CpuFeatures = .{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
+    const all_x86: CpuFeatures = .{ .sse4_1 = true, .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .vpmullq_fast = true };
     try testing.expectEqual(all_x86, from_x86(every));
     // The same features on an Intel CPU, whose VPMULLQ is slow.
     var intel = every;
     intel.vendor_amd = false;
     intel.vendor_intel = true;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
+    try testing.expectEqual(CpuFeatures{ .sse4_1 = true, .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .vnni = true, .lazy_loop_fast = true }, from_x86(intel));
     // VPCLMULQDQ without VNNI, as on the first CPUs with both AVX-512 and VPCLMULQDQ.
     var no_vnni = intel;
     no_vnni.leaf_7_ecx = 0x0000_0400;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
+    try testing.expectEqual(CpuFeatures{ .sse4_1 = true, .pclmul = true, .avx2 = true, .avx512 = true, .vpclmul = true, .lazy_loop_fast = true }, from_x86(no_vnni));
     // No YMM state saved: nothing that uses YMM or ZMM, whatever CPUID says.
     var no_ymm = every;
     no_ymm.xcr0 = 0b011;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true }, from_x86(no_ymm));
+    try testing.expectEqual(CpuFeatures{ .sse4_1 = true, .pclmul = true }, from_x86(no_ymm));
     // YMM saved but not ZMM: AVX2 and VPCLMULQDQ, no AVX-512.
     var no_zmm = every;
     no_zmm.xcr0 = 0b111;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
+    try testing.expectEqual(CpuFeatures{ .sse4_1 = true, .pclmul = true, .avx2 = true, .vpclmul = true }, from_x86(no_zmm));
     // PCLMULQDQ without SSE4.1, and AVX-512 F without BW. VNNI is reported as the CPU reports it;
     // each path that uses it requires AVX-512 as well.
     var partial = every;
@@ -177,7 +178,7 @@ test "the x86-64 registers map each feature, and XCR0 gates the vector registers
     // AVX-512 F, BW and VL without DQ, whose VPMULLQ the XXH64 path runs: no AVX-512.
     var no_dq = every;
     no_dq.leaf_7_ebx = 0x0000_0020 | 0x0001_0000 | 0x4000_0000 | 0x8000_0000;
-    try testing.expectEqual(CpuFeatures{ .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
+    try testing.expectEqual(CpuFeatures{ .sse4_1 = true, .pclmul = true, .avx2 = true, .vpclmul = true, .vnni = true }, from_x86(no_dq));
 }
 
 test "SSSE3 counts alone, BMI2 only with SSSE3, and neither needs a register saved" {
@@ -191,7 +192,7 @@ test "SSSE3 counts alone, BMI2 only with SSSE3, and neither needs a register sav
     try testing.expectEqual(CpuFeatures{ .ssse3 = true }, from_x86(no_bmi2));
 }
 
-test "AES alone, SHA-256 with SSSE3 and SSE4.1, SHA-512 with YMM, and VAES with AVX2 and VPCLMULQDQ" {
+test "AES and SSE4.1 alone, SHA-256 with SSSE3 and SSE4.1, SHA-512 with YMM, VAES with AVX2 and VPCLMULQDQ" {
     const every: X86Registers = .{
         .vendor_amd = false,
         .vendor_intel = false,
@@ -204,9 +205,10 @@ test "AES alone, SHA-256 with SSSE3 and SSE4.1, SHA-512 with YMM, and VAES with 
     const found = from_x86(every);
     try testing.expect(found.aes and found.sha256 and found.sha512 and found.vaes);
     try testing.expectEqual(CpuFeatures{ .aes = true }, from_x86(.{ .vendor_amd = false, .vendor_intel = false, .leaf_1_ecx = x86.ecx_aes, .leaf_7_ebx = 0, .leaf_7_ecx = 0, .leaf_7_1_eax = 0, .xcr0 = 0 }));
+    try testing.expect(found.sse4_1);
     var no_sse4_1 = every;
     no_sse4_1.leaf_1_ecx = x86.ecx_aes | x86.ecx_ssse3;
-    try testing.expect(!from_x86(no_sse4_1).sha256);
+    try testing.expect(!from_x86(no_sse4_1).sha256 and !from_x86(no_sse4_1).sse4_1);
     var no_ssse3 = every;
     no_ssse3.leaf_1_ecx = x86.ecx_aes | x86.ecx_sse4_1;
     try testing.expect(!from_x86(no_ssse3).sha256);

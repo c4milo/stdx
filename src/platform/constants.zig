@@ -1,6 +1,6 @@
 //! The bits the `platform` module reads (decision 40): CPUID's as the Intel and AMD manuals
-//! number them, Linux's arm64 hardware capability words' as the kernel numbers them, and the DIT
-//! register's as Arm's A64 reference places it.
+//! number them, Linux's arm64 hardware capability words' as the kernel numbers them, and MIDR_EL1's
+//! fields and the DIT register's as Arm's references place them.
 
 /// CPUID leaf 1, ECX bit 25: AES-NI, the AES round instructions.
 pub const ecx_aes: u32 = 1 << 25;
@@ -28,6 +28,21 @@ pub const hwcap_sha512: usize = 1 << 21;
 
 /// AT_HWCAP bit 24: HWCAP_DIT, Arm's FEAT_DIT.
 pub const hwcap_dit: usize = 1 << 24;
+
+/// AT_HWCAP bit 11: HWCAP_CPUID. Linux emulates a read of MIDR_EL1 by user code, and returns the
+/// value of the core the read ran on, as sections 2 and 4 of the kernel's
+/// Documentation/arch/arm64/cpu-feature-registers.rst state. Without the bit, the read raises
+/// SIGILL.
+pub const hwcap_cpuid: usize = 1 << 11;
+
+/// The place of each MIDR_EL1 field, from bit 0: Implementer is bits 31 to 24, Variant 23 to 20,
+/// Architecture 19 to 16, PartNum 15 to 4 and Revision 3 to 0. Each field's width is its type's in
+/// `Midr`.
+pub const midr_implementer_shift: u6 = 24;
+pub const midr_variant_shift: u6 = 20;
+pub const midr_architecture_shift: u6 = 16;
+pub const midr_part_shift: u6 = 4;
+pub const midr_revision_shift: u6 = 0;
 
 /// Linux's arm64 AT_HWCAP2 word, bit 1: HWCAP2_SVE2, Arm's FEAT_SVE2.
 pub const hwcap2_sve2: usize = 1 << 1;
