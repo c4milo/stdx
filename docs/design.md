@@ -11577,6 +11577,40 @@ to 12 are reordered and nothing else changes.
     - The three rows that ran slower on the N2 compile a pattern, at 0.96 to 0.98. The change is
       in `literal_find_count.zig` alone, which no compile calls.
 
+  The branch against main's head (the owner's ruling of 2026-11-26):
+  - The runs 45900256353 and 45900259993 measured the branch at `3737150`, merged with main,
+    against main's head `fdfbb70`. Each ran one job on the N2 and one on x86-64, an EPYC 7763 and
+    an EPYC 9V74. By decision 20's rule, 33 of the 284 rows ran faster in all four jobs and 12
+    slower, so the admission rule does not hold as it stands.
+  - Among the rows faster in all four jobs, `opt/fixed-length/*` ran 2.5 to 4.0 times as fast,
+    `unicode/overlapping-words/english` 11 to 14, `folly/literal-never-match-tricksy` 3.0 to 9.0,
+    `09-aws-keys/full` 2.1 to 2.3, and `huge-ascii-nosuffixlit` 1.6 to 1.8.
+  - The filter, built ReleaseSafe for the baseline CPU from both trees, counted these
+    instructions a pass with AVX2 for the rows slower in all four jobs. A compile row counts one
+    compile and the searcher's start.
+
+    | Row | Ratio in the four jobs | `fdfbb70` | `3737150` | Change |
+    | --- | --- | ---: | ---: | ---: |
+    | compile `(?:[A-Z][a-z]+\s*){10,100}` | 0.84 to 0.87 | 235,184 | 256,631 | +9.1% |
+    | compile the date pattern | 0.85 to 0.90 | 7,688,000 | 8,273,345 | +7.6% |
+    | compile `[A-Za-z]{10}\s+[\s\S]{0,100}Result…` | 0.87 to 0.95 | 299,390 | 314,122 | +4.9% |
+    | compile an IPv4 address | 0.91 to 0.97 | 40,799 | 41,878 | +2.6% |
+    | `unicode/codepoints/any-one` | 0.83 to 0.96 | 279,329,294 | 308,242,794 | +10.3% |
+    | `folly/literal-never-match-rare` | 0.92 to 0.94 | 2,135,102 | 2,192,626 | +2.7% |
+    | `sherlock/no-match-common`, a count and a walk | 0.90 to 0.97 | 173,533 | 175,426 | +1.1% |
+    | `sherlock/quotes`, a count and a walk | 0.93 to 0.98 | 4,094,454 | 4,100,358 | +0.1% |
+    | `rsc/easy0-32`, a count and a walk | 0.87 to 0.92 | 570 | 499 | −12.5% |
+
+  - `sherlock/quotes` is placement by the rule: its count moves by under 1%. `rsc/easy0-32`
+    takes fewer instructions and more time, which no count explains. The other rows of the table
+    take more instructions, so their losses stand.
+  - Three rows are not counted: `03-date/ascii` and `class: two capitalized words`, at 0.98 to
+    0.99, and `opt/prefilter/literal-english`, at 0.92 to 0.95, whose text is not in the container.
+  - These pass on the merged tree in the container: `zig build test`, the format check, the
+    self-hosted and AVX-512 builds, `checkfree-check`, `zig build lean`,
+    `tools/matcher_model_check.sh`, `tools/fuzz.sh 20K` over `regex`, and `zig build
+    differential-regex -Doracles`, which ran 12,437,544 cases with 0 failed.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
