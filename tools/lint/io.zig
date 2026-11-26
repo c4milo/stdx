@@ -14,14 +14,14 @@
 //! caller's buffers through the caller's vtables, and reach no host on their own. A chain past them,
 //! such as `std.Io.Reader.fixed`, stays forbidden, and so do `std.Io.File` and `std.Io.net`.
 //!
-//! `src/platform/` is the one exception (decision 40). A program calls its probe once, when it
-//! starts, and no codec path runs it, so it may make the one syscall it needs: macOS's
-//! `sysctlbyname`. The rule reads that directory under a configuration of its own, which allows
-//! that call and `getauxval` and refuses every other chain the list names, so the probe still
-//! opens no file, starts no thread and prints nothing. Every other directory refuses both calls:
-//! the CPU's reads all sit in `platform` (decisions 21 and 40 as amended on 2026-11-24). The codecs
-//! import `platform` for the type `CpuFeatures`, and the `cpu-probe` rule refuses a call of its
-//! probe or its detection outside it (invariant 14).
+//! `src/platform/` is the one exception (decision 40). Its detection reads the auxiliary vector
+//! on aarch64 Linux with `getauxval`, which reads memory and makes no syscall. The rule reads that
+//! directory under a configuration of its own, which allows that call and refuses every other
+//! chain the list names, so detection opens no file, makes no syscall, starts no thread and
+//! prints nothing. Every other directory refuses `getauxval` too: the CPU's reads all sit in
+//! `platform` (decisions 21 and 40 as amended on 2026-11-24). The codecs import `platform` for the
+//! type `CpuFeatures`, and the `cpu-probe` rule refuses a call of its detection outside it
+//! (invariant 14).
 //!
 //! The rule reads what a file names, not what it reaches. A module that received another module
 //! from build/modules.zig can call through it, and this rule cannot see where that call ends up.
@@ -62,18 +62,18 @@ const io_interfaces = [_]forbidden_references.Exception{
     .{ .prefix = "std.Io.Limit", .last_segment_prefixes = &.{"Limit"} },
 };
 
-/// The one directory under `src/` that may make a syscall: the `platform` module (decision 40).
+/// The one directory under `src/` that may read the auxiliary vector: the `platform` module
+/// (decision 40).
 const platform_directory = "src/platform";
 
 /// The calls `platform` may make beside the interfaces. `getauxval` reads the auxiliary vector the
 /// kernel wrote into the process's memory at start, with no syscall. Zig's reader,
 /// `std.os.linux.getauxval`, and libc's, `std.c.getauxval`, read the same memory; a program that
-/// links libc has only libc's filled. `CpuFeatures.detect` and `probe` read the CPU's features from
-/// it on aarch64 Linux (decisions 21 and 40). `sysctlbyname`, libc's reader of a macOS sysctl
-/// value, is a syscall.
+/// links libc has only libc's filled. `CpuFeatures.detect` reads the CPU's features from it on
+/// aarch64 Linux (decisions 21 and 40).
 const platform_exceptions = exceptions ++ [_]forbidden_references.Exception{
     .{ .prefix = "std.os.linux", .last_segment_prefixes = &.{"getauxval"} },
-    .{ .prefix = "std.c", .last_segment_prefixes = &.{ "getauxval", "sysctlbyname" } },
+    .{ .prefix = "std.c", .last_segment_prefixes = &.{"getauxval"} },
 };
 
 /// The configuration of every module but `platform`. It reads every other file under `src/`:
@@ -90,7 +90,7 @@ pub const config: forbidden_references.Config = .{
     .reason = "stdx owns no I/O (decision 2, invariant 2)",
 };
 
-/// The configuration of `platform`: the same list, with `getauxval` and `sysctlbyname` allowed.
+/// The configuration of `platform`: the same list, with `getauxval` allowed.
 pub const platform_config: forbidden_references.Config = .{
     .name = config.name,
     .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{platform_directory} },
@@ -272,7 +272,7 @@ test "io reads src/ and nothing outside it" {
 }
 
 /// A syscall, then the reader of the auxiliary vector, then a file, a libc call, a print and a
-/// thread: what the probe of `platform` might be tempted to reach.
+/// thread: what the detection of `platform` might be tempted to reach.
 const syscall_fixture: [:0]const u8 =
     \\const found = std.c.sysctlbyname("hw.optional.arm.FEAT_AES", &value, &value_len, null, 0);
     \\const word = std.os.linux.getauxval(std.elf.AT_HWCAP);
@@ -282,7 +282,7 @@ const syscall_fixture: [:0]const u8 =
     \\const worker = std.Thread.spawn;
 ;
 
-test "io refuses sysctlbyname and getauxval in every module but platform" {
+test "io refuses sysctlbyname everywhere, and getauxval in every module but platform" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -307,12 +307,13 @@ test "io refuses sysctlbyname and getauxval in every module but platform" {
     try testing.expectEqualStrings("reference to std.c.sysctlbyname: " ++ reason, outside[0].message);
 }
 
-test "io allows platform sysctlbyname and getauxval, and refuses everything else there" {
+test "io allows platform getauxval, and refuses everything else there, sysctlbyname included" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     for ([_][]const u8{ "src/platform/platform.zig", "./src/platform/deep/cpu.zig" }) |path| {
         try harness.expect_messages(try findings_of(arena, path, syscall_fixture), &.{
+            "reference to std.c.sysctlbyname: " ++ platform_reason,
             "reference to std.fs.cwd: " ++ platform_reason,
             "reference to std.c.open: " ++ platform_reason,
             "reference to std.debug.print: " ++ platform_reason,

@@ -179,7 +179,7 @@ const hwcap = struct {
     const pmull = 0x10;
     const crc32 = 0x80;
     const dotprod = 0x10_0000;
-    // Bits 3, 6, 21, 17 and 24 of AT_HWCAP, and bit 1 of AT_HWCAP2, which `probe` reads too.
+    // Bits 3, 6, 21, 17 and 24 of AT_HWCAP, and bit 1 of AT_HWCAP2.
     const aes = constants.hwcap_aes;
     const sha2 = constants.hwcap_sha2;
     const sha512 = constants.hwcap_sha512;

@@ -2896,6 +2896,25 @@ last part lists what still waits on a ruling.
     - A read is one `mrs`, which changes nothing, and it runs only where `dit` holds.
     - The set stays the program's: a library call runs on a thread it did not start.
 
+    **Amended a fourth time by the owner on 2026-11-26: `probe`, `Cpu`, `Answer` and `Midr` are
+    gone.** The owner ruled `CpuFeatures` and `CpuFeatures.detect()` the only CPU API a program
+    names, in every library (design §8 step 29).
+    - `platform` exports `CpuFeatures`, the read and the set of a thread's timing, `memset` and
+      `memset_applies`. platform_answer.zig, platform_linux.zig and platform_x86.zig are gone, and
+      so are their constants: macOS's sysctl names, MIDR_EL1's fields and HWCAP_CPUID.
+    - `platform` makes no syscall. Detection on a Mac states the M-series facts, so the probe's
+      `sysctlbyname` was its one syscall. The io rule now refuses `sysctlbyname` in `platform` too.
+    - `zig build platform-check` holds `CpuFeatures.detect()` to the host's report. A report covers
+      the fields its source names, and the fields of the other architecture as absent. On a Mac it
+      leaves out `avx512` and `vnni`, whose registers macOS saves only after a thread's first use.
+    - x86-64's test of detection reads CPUID itself, in place of the probe's reader, and holds leaf
+      1, leaf 7 and leaf 7's subleaf 1 to it.
+    - The alternatives refused:
+      - `probe` kept beside `CpuFeatures`. A program would name two CPU types, and the owner named
+        one.
+      - `CpuFeatures` read from macOS's sysctl names. It would make the syscall that the M-series
+        facts avoid, and only `platform-check` needs the names, as a reference.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves

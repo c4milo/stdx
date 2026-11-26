@@ -15,8 +15,8 @@
 //! compile clean. A run in which a control fails is reported as a broken check, not as a pass.
 //!
 //! `deflate` imports `platform` for the type `CpuFeatures` alone (decisions 21 and 40 as amended
-//! on 2026-11-24). The graph cannot keep `platform.probe` out of a codec's reach, so the
-//! `cpu-probe` rule of tools/lint does (invariant 14).
+//! on 2026-11-24). The graph cannot keep `platform.CpuFeatures.detect` out of a codec's reach, so
+//! the `cpu-probe` rule of tools/lint does (invariant 14).
 //!
 //! Usage: `graph_check <zig-exe> <src-root> <fixtures-dir>`
 const std = @import("std");

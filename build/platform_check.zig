@@ -1,10 +1,11 @@
 //! `zig build platform-check`: decision 40's check. tools/platform_check.zig requires
-//! `platform.probe()` to give the answers the host reports through /proc/cpuinfo on Linux and
-//! `sysctl` on macOS. `zig build test` runs it, so it runs on every CI runner (decision 19).
+//! `platform.CpuFeatures.detect()` to give the features the host reports through /proc/cpuinfo on
+//! Linux and `sysctl` on macOS. `zig build test` runs it, so it runs on every CI runner (decision
+//! 19).
 //!
-//! The check builds `platform` for the generic CPU of the host's architecture, so every answer it
+//! The check builds `platform` for the generic CPU of the host's architecture, so every feature it
 //! compares comes from the host's source and none from what the build target guarantees. On Linux
-//! it builds the check twice, without libc and with it: the probe reads the auxiliary vector
+//! it builds the check twice, without libc and with it: detection reads the auxiliary vector
 //! through Zig's `getauxval` in one and libc's in the other.
 const std = @import("std");
 const modules = @import("modules.zig");

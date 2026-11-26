@@ -222,17 +222,17 @@ test "AES alone, SHA-256 with SSSE3 and SSE4.1, SHA-512 with YMM, and VAES with 
     try testing.expect(!from_x86(no_avx2).vaes);
 }
 
-test "detection reads the leaves and the subleaf that the probe reads" {
-    // The probe's reader checks the last leaf and the last subleaf the CPU gives, so a register
-    // that detection skips reads differently here. XCR0 is not compared: detection reads it only
-    // beside AVX.
+test "detection reads leaf 1, leaf 7 and leaf 7's subleaf 1 as CPUID gives them" {
+    // XCR0 is not compared: detection reads it only beside AVX.
     if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     const by_detection = read();
-    const by_probe = @import("platform_x86.zig").read_x86();
-    try testing.expectEqual(by_probe.leaf_1_ecx, by_detection.leaf_1_ecx);
-    try testing.expectEqual(by_probe.leaf_7_ebx, by_detection.leaf_7_ebx);
-    try testing.expectEqual(by_probe.leaf_7_ecx, by_detection.leaf_7_ecx);
-    try testing.expectEqual(by_probe.leaf_7_1_eax, by_detection.leaf_7_1_eax);
+    const extended = cpuid(x86.leaf_extended_features, 0);
+    try testing.expectEqual(cpuid(x86.leaf_features, 0).ecx, by_detection.leaf_1_ecx);
+    try testing.expectEqual(extended.ebx, by_detection.leaf_7_ebx);
+    try testing.expectEqual(extended.ecx, by_detection.leaf_7_ecx);
+    // Leaf 7's subleaf 0 EAX is the last subleaf the CPU gives, and 0 means it gives no subleaf 1.
+    const subleaf_1_eax = if (extended.eax >= 1) cpuid(x86.leaf_extended_features, 1).eax else 0;
+    try testing.expectEqual(subleaf_1_eax, by_detection.leaf_7_1_eax);
 }
 
 test "detection takes level 6's assembly loop on a CPU whose leaf 0 names Intel, and on no other" {

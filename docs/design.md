@@ -11874,6 +11874,28 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     source, against `zig build test-crypto`; the read refused again and the set let through,
     against `zig build test-tools`.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 29: `CpuFeatures`, the one CPU API (decision 40 as amended a fourth time).** The owner
+  ruled that a program names `CpuFeatures` and `CpuFeatures.detect()` alone. `probe`, `Cpu`,
+  `Answer` and `Midr` go, with platform_answer.zig, platform_linux.zig, platform_x86.zig and the
+  constants only they read. `platform` makes no syscall, and the io rule refuses `sysctlbyname`
+  there. `platform-check` holds the detection to the host's report.
+  Removed public names: `stdx.platform.probe`, `Cpu`, `Answer` and `Midr`. No program of the
+  owner's calls `probe` once colibri, cocuyo, stompy and connect-zig read `CpuFeatures`.
+  **Check:**
+  - `zig build platform-check` on x86-64 Linux, without libc and with it, held each field of
+    `CpuFeatures.detect()` to /proc/cpuinfo's `vendor_id` and `flags` lines, and every aarch64
+    field to false. Its tests hold the reports of x86-64's and aarch64's cpuinfo, of macOS's
+    `sysctl hw.optional` and of `machdep.cpu` to fixtures shaped as each host prints them.
+  - `zig build test-platform` holds x86-64's reads of leaf 1, leaf 7 and its subleaf 1 to CPUID.
+  - `zig build test-tools` holds the io rule to `sysctlbyname` in `platform`, and the `cpu-probe`
+    rule to the detection, as written and through names.
+  - Mutations, 5, each `CAUGHT`: leaf 7's subleaf 1 skipped, against `zig build test-platform`;
+    leaf 7's ECX left unread, against `zig build platform-check`; the report's `vaes` without
+    VPCLMULQDQ, the compare of the fields no report covers, and `sysctlbyname` allowed in
+    `platform`, against `zig build test-tools`. The subleaf is caught on a CPU whose leaf 7 gives
+    subleaf 1 a bit, as this host's does.
+  - CI's arm64 Linux and macOS jobs run `platform-check` there. This x86-64 host ran neither.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

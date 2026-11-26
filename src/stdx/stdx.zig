@@ -44,10 +44,10 @@ pub const encoding = struct {
 /// (decision 86).
 pub const regex = @import("regex");
 
-/// What the CPU a program runs on offers, read once when the program starts: `probe`'s answers,
-/// and `CpuFeatures`, which a program passes to each codec's `init`. It also holds the `memset` a
-/// program exports (decisions 21, 40 and 41). The codecs name `CpuFeatures`. Outside `platform`,
-/// only a test of stdx calls `probe` or `CpuFeatures.detect` (invariant 14).
+/// What the CPU a program runs on offers, read once when the program starts: `CpuFeatures`, which
+/// a program passes to each codec's `init` and to `crypto.init`, and the read and the set of a
+/// thread's data-independent timing. It also holds the `memset` a program exports (decisions 21,
+/// 40 and 41). Outside `platform`, only a test of stdx calls `CpuFeatures.detect` (invariant 14).
 pub const platform = @import("platform");
 
 /// What every codec shares: the checked reader and writer, and a streaming call's statuses

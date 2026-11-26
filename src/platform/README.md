@@ -20,9 +20,6 @@ keeps no copy of it, and no codec probes the CPU.
   `sha256`, `sha512`, `sha3`, `sve2`, `dit` and `vaes`, beside `pclmul`, `pmull` and `avx2`. Each
   field is true where the CPU has the feature and false where it lacks it or nothing says. Detection
   makes no system call.
-- `probe()`: a `Cpu`, the same instructions as `yes`, `no` or `not_known` answers. `CpuFeatures`
-  holds each of them, and `probe` stays until the programs that read a `Cpu` read `CpuFeatures`
-  instead.
 - `data_independent_timing(features)`: whether the calling thread's timing is data-independent.
   On arm64 it is PSTATE.DIT, and false on a core whose features hold no FEAT_DIT. On x86-64 it is
   false, because only the operating system reads DOITM.
@@ -33,17 +30,18 @@ keeps no copy of it, and no codec probes the CPU.
 - `memset`: a vector `memset` that a program may export from its root on Linux under Zig 0.16,
   where `memset_applies` holds ([decision 41](../../docs/decisions.md)).
 
-## The one system call
+## No system call
 
-`probe` is the one call in stdx that may make a system call, because a program makes it once and
-no codec path runs it:
+Detection makes no system call. A program makes it once, when it starts, and no codec path runs
+it. It reads:
 
-- x86-64: CPUID and XGETBV. No system call.
-- aarch64 Linux: the auxiliary vector, through `getauxval`. No system call.
-- aarch64 macOS: `sysctlbyname`, a system call for each feature.
+- x86-64: CPUID and XGETBV.
+- aarch64 Linux: the auxiliary vector, through `getauxval`, which reads memory.
+- aarch64 macOS: the features every Apple M-series part has.
+- Any other system: the build target's features.
 
-`probe` only reads. It changes no CPU state. `data_independent_timing` and
-`set_data_independent_timing` make no system call: each runs one instruction on arm64, `mrs` or
-`msr` of the register DIT, and acts on the calling thread alone. Each takes the program's
+Detection only reads. It changes no CPU state. `data_independent_timing` and
+`set_data_independent_timing` make no system call either: each runs one instruction on arm64,
+`mrs` or `msr` of the register DIT, and acts on the calling thread alone. Each takes the program's
 `CpuFeatures`, because that instruction faults on a core without FEAT_DIT. Library code may read
 the mode, as `stdx.crypto` does at each call. No library code sets it.

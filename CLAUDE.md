@@ -47,13 +47,12 @@ The architecture depends on every rule in this section.
 
 1. **No I/O.** A codec reads bytes the caller already has and writes into storage the caller
    owns. It opens no file or socket, starts no thread, and makes no syscall. `tools/lint/io.zig`
-   enforces it over `src/`. The one exception is `platform` (decision 40): its probe, which a
-   program calls once when it starts, may make the one syscall it needs, macOS's `sysctlbyname`.
-   A codec imports `platform` for the type `CpuFeatures` alone. Outside `platform`, only a test
-   under `src/` calls `probe` or `CpuFeatures.detect`, and `tools/lint/cpu_probe.zig` enforces
-   it (decisions 21 and 40 as amended). A codec may name `std.Io.Reader`, `std.Io.Writer` and
-   `std.Io.Limit`, the interfaces its adapters implement (decision 56), and nothing else in
-   `std.Io`.
+   enforces it over `src/`. `platform` reads the CPU with instructions and the auxiliary vector,
+   and makes no syscall either (decision 40 as amended on 2026-11-26). A codec imports `platform`
+   for the type `CpuFeatures` alone. Outside `platform`, only a test under `src/` calls
+   `CpuFeatures.detect`, and `tools/lint/cpu_probe.zig` enforces it (decisions 21 and 40 as
+   amended). A codec may name `std.Io.Reader`, `std.Io.Writer` and `std.Io.Limit`, the
+   interfaces its adapters implement (decision 56), and nothing else in `std.Io`.
 2. **No heap.** No `Allocator` anywhere in `src/`, tests included. The caller owns every state,
    window, table and hash chain, and places it where it chooses. Each size is a comptime constant
    the codec exports, per codec and per encoder level. `tools/lint/heap.zig` enforces it.
@@ -275,7 +274,7 @@ Change this section when a step adds or renames a command.
   with `KEYLOG=on`, for tests that read a capture (`build/crypto.zig`, decision 87).
 - Lint: `zig build lint`: cognitive complexity over `build.zig`, `bench`, `build`, `src` and `tools`, then
   the `tools/lint` rules: heap, io, cpu-probe (outside `platform`, only a test under `src/` calls
-  `platform.probe` or `CpuFeatures.detect`), determinism, unbounded-loop, relative-import,
+  `CpuFeatures.detect` or sets a thread's timing), determinism, unbounded-loop, relative-import,
   global-state, denied-words (no consumer's name in any `.zig` file; chapulin, the library's
   dependency, is not one), module-graph, markdown,
   file-length, magic-numbers, rfc-citation and input-index (no slice or index bound read from the
@@ -343,9 +342,10 @@ Change this section when a step adds or renames a command.
   `platform`, the two modules `deflate` has, and requires each to compile. A module that
   `deflate` must not reach has a fixture in `tools/fixtures/`, and the check fails when one is
   missing.
-- Platform: `zig build platform-check` requires `platform.probe()` to give the answers the host
-  reports: /proc/cpuinfo on Linux and `sysctl` on macOS. It builds `platform` for the generic CPU
-  of the host's architecture, and on Linux runs without libc and with it (decision 40).
+- Platform: `zig build platform-check` requires `platform.CpuFeatures.detect()` to give the
+  features the host reports: /proc/cpuinfo on Linux and `sysctl` on macOS. It builds `platform`
+  for the generic CPU of the host's architecture, and on Linux runs without libc and with it
+  (decision 40).
 - Oracles: `zig build oracle-selftest -Doracles` requires zlib and Wuffs to decode every stream
   zlib encodes from the corpora, at every level and strategy in all three containers, to the same
   bytes. `zig build test-oracle -Doracles` runs the tests of the bindings and the self-test. The

@@ -6,8 +6,8 @@
 //!
 //! `platform` imports nothing, and every module whose calls take the CPU features a caller detected
 //! imports it for the type `platform.CpuFeatures` (decisions 21 and 40 as amended on 2026-11-24).
-//! No library code calls its `probe` or `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint
-//! holds that, since the graph no longer can (invariant 14).
+//! No library code calls its `CpuFeatures.detect`; the `cpu-probe` rule of tools/lint holds that,
+//! since the graph no longer can (invariant 14).
 //!
 //! Every module here is library code. The package exports one of them, `stdx`, which names the
 //! others under their categories, so a dependent imports `dependency.module("stdx")` and reaches

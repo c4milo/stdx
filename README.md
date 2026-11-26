@@ -28,7 +28,7 @@ Each module's folder holds a README with its examples, its options, its limits a
 | [`stdx.regex`](src/regex/README.md) | Regular expressions in [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485)'s grammar with RE2's syntax, matched in time linear in the text |
 | [`stdx.unicode`](src/unicode/README.md) | Unicode 17.0.0's categories, scripts and case folding |
 | [`stdx.unicode.utf8`](src/unicode/utf8/README.md) | UTF-8 ([RFC 3629](https://www.rfc-editor.org/rfc/rfc3629)), with a validator proved in Lean |
-| [`stdx.platform`](src/platform/README.md) | What the CPU offers, which a program probes once when it starts |
+| [`stdx.platform`](src/platform/README.md) | What the CPU offers, which a program detects once when it starts |
 | [`stdx.crypto`](src/crypto/README.md) | chapulin's TLS 1.3, JSON Web Signatures, DNSSEC, SCRAM's calls, and its hashes, HMAC and HKDF, for a dependent that passes `.crypto = true` |
 | [`stdx.codec`](src/codec/README.md) | The streaming contract that every codec shares |
 
@@ -37,7 +37,7 @@ Each module's folder holds a README with its examples, its options, its limits a
 | Area | What stdx does |
 | --- | --- |
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns each state and buffer, and each codec's state has a comptime size. |
-| I/O | None. The one exception is the probe of `stdx.platform`, which makes one system call on macOS. |
+| I/O | None. `stdx.platform` reads the CPU with instructions and the auxiliary vector, and makes no system call. |
 | Streaming | A call takes any amount of input, writes what fits, and says whether it needs more input, more room, or is done. Each decoder is also a `std.Io.Reader`, and each encoder a `std.Io.Writer`. |
 | Output | An encoder writes the same bytes on every host, in every build mode, and for every split of its input. |
 | Threads | No global state: run codecs on as many threads as you like. |
