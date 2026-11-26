@@ -11397,6 +11397,23 @@ to 12 are reordered and nothing else changes.
     `has_kernels` first, a constant. `zig build test-regex -Dtarget=aarch64-linux -fqemu` runs
     the tests for aarch64 in the container. Before the fix it failed to link, as the N2 did,
     and after it the tests pass. A mutation that removes the constant fails to link: CAUGHT.
+  - The runs 45871154553 and 45871160154 measured `562b599` against `20361c8`, each in one job
+    on the N2 and one on x86-64, an EPYC 9V45 and a Xeon 6975P-C. By decision 20's rule, no row
+    of the 284 ran faster in all four jobs. `fixed-length/too-big-ascii` ran slower, 0.88 to
+    0.95 times as fast.
+    - On x86-64 alone, 13 rows ran faster in both jobs. `sherlock/the-upper` ran 1.48 and 1.23
+      times as fast, from 0.64 and 0.74 of Rust's crate to 0.95 and 0.90. `sherlock/name-holmes`
+      ran 1.29 and 1.18 times as fast, from 0.88 and 0.81 of Rust's crate to 1.15 and 0.93.
+    - `01-literal/sherlock-zh` ran 0.88 and 0.93 times as fast on x86-64. rebar's `count` model
+      took the batch through `next`, and the filter counts 251,826 instructions a pass before
+      and 267,667 after. The count in one pass, below, replaces that path.
+    - On the Xeon, the four rows of `rsc/anchored-literal-*` ran 0.92 to 0.93 times as fast. On
+      the EPYC they ran 1.02 to 1.06 times as fast.
+    - On the N2, where no batch runs, the rows of `opt/fixed-length` ran 0.93 to 0.94 times as
+      fast in both jobs. Their search refuses the text by its length, in about 5 ns.
+      `leipzig/math-symbols` ran 0.94 times as fast, and its search takes no literal. Built for
+      aarch64, `count`'s refusal takes the same instructions before and after the change.
+      `Matches` sets two fields more there and fills no place. The cause is not found.
 
   The count of a literal's places in one pass (the owner's ruling of 2026-11-26):
   - rebar's `count` model asks `Matches.count` for the matches of a pattern alone. For a pattern
