@@ -21,6 +21,7 @@ const Framing = @import("../framing.zig").Framing;
 const decoder_file = @import("decoder.zig");
 const Decoder = decoder_file.Decoder;
 const TextReader = @import("text_reader.zig").TextReader;
+const wide = @import("../wide.zig");
 const expect_same_state = @import("decoder_fast_test.zig").expect_same_state;
 
 /// The longest text a test reads, and the most octets a token writes.
@@ -234,6 +235,21 @@ test "next_text takes a text's start where it needs no verdict, and leaves every
         try testing.expectEqual(start.taken, reader.decoder.stage == .tokens);
         try testing.expectEqual(start.consumed, reader.consumed_len());
     }
+}
+
+test "each text of a sequence decodes at the vector level the reader's CPU features chose" {
+    const features = platform.CpuFeatures.detect();
+    // Where the features choose the target's level, a level lost between texts looks the same.
+    if (wide.Level.of(features) == wide.Level.of(.{})) return error.SkipZigTest;
+    var storage: [short_room_len_max]u8 = undefined;
+    var reader = TextReader.init("\x1e1\n\x1e2\n", &storage, .sequence, features);
+    for ([_][]const u8{ "1", "2" }) |number| {
+        try testing.expect(reader.next_text());
+        try testing.expectEqual(wide.Level.of(features), reader.decoder.level);
+        try testing.expectEqualStrings(number, (try reader.next()).?.number);
+        try testing.expect(try reader.next() == null);
+    }
+    try testing.expect(!reader.next_text());
 }
 
 /// An octet a test fills a storage with, to show `next` wrote none of it.
