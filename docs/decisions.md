@@ -6052,6 +6052,11 @@ last part lists what still waits on a ruling.
         `literal_places_max` places, 8, none inside another. `Matches` keeps them and gives
         one a call. A call for each place cost the time of a call where memchr's costs a branch:
         `The` over sherlock.txt took 18% less time.
+      - Amended by the owner's ruling of 2026-11-26 (design §8 part 22q): `Matches.count` of such a
+        pattern counts its places in one pass, `literal_find_count.zig`, with no return from the
+        search for each. It takes the search's blocks and compares, and a candidate that holds
+        the literal whole past the last place counted is a place. Every target runs it, in the
+        variant object where the features name AVX2.
       - `Literal.of` reads the literal from the forward program: the instructions from the entry
         that each take one octet, through saves, up to `literal_len_max`, 32 octets.
       - `Literal.find` compares the literal's octets at two offsets, `first_at` and `last_at`,

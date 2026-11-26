@@ -13,7 +13,7 @@ const lane_places = @import("lane_places.zig");
 
 /// The octets of a narrow and of a wide block, whatever the width of a step.
 const block_len = constants.literal_steps * constants.skip_lanes;
-const wide_block_len = constants.literal_wide_steps * constants.skip_lanes;
+pub const wide_block_len = constants.literal_wide_steps * constants.skip_lanes;
 
 /// The first offset at or after `from` where the literal stands whole in `haystack`, or null,
 /// found `width` octets a step. `misses` counts the candidates that held no place: a `*u32` for
@@ -149,7 +149,7 @@ inline fn by_last_step(comptime width: usize, literal: *const Literal, comptime 
 }
 
 /// The octets a step's lanes are compared with, at the literal's two compared places.
-inline fn wanted_of(comptime width: usize, literal: *const Literal) Wanted(width) {
+pub inline fn wanted_of(comptime width: usize, literal: *const Literal) Wanted(width) {
     return .{
         .first = @splat(literal.octets[literal.first_at]),
         .last = @splat(literal.octets[literal.last_at]),
@@ -171,7 +171,7 @@ fn Wanted(comptime width: usize) type {
 
 /// How a loop compares a block: the two octets as they stand, the two folded, or a literal of one
 /// octet, whose first octet is its last and is compared once.
-const Form = enum { plain, folding, single };
+pub const Form = enum { plain, folding, single };
 
 /// The run of blocks for a literal's form, with `third_at`'s octet compared at each candidate
 /// where `third` holds. Inline, as it only picks a loop.
@@ -248,7 +248,7 @@ fn Pair(comptime width: usize) type {
 
 /// All ones in each lane of the step at `at` where the octet at `first_at` stands in `firsts`
 /// and the octet at `last_at` at the same place in `lasts`, and zero in the others.
-inline fn both_lanes(comptime width: usize, comptime form: Form, firsts: anytype, lasts: anytype, comptime at: usize, wanted: *const Wanted(width)) @Vector(width, u8) {
+pub inline fn both_lanes(comptime width: usize, comptime form: Form, firsts: anytype, lasts: anytype, comptime at: usize, wanted: *const Wanted(width)) @Vector(width, u8) {
     const all: @Vector(width, u8) = @splat(constants.octet_max);
     const none: @Vector(width, u8) = @splat(0);
     const pair = step_lanes(width, form, firsts, lasts, at, wanted);
@@ -259,7 +259,7 @@ inline fn both_lanes(comptime width: usize, comptime form: Form, firsts: anytype
 
 /// True when some place of a block holds the octet at `first_at` in `firsts` and the octet at
 /// `last_at` at the same place in `lasts`.
-inline fn any_candidate(comptime width: usize, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width)) bool {
+pub inline fn any_candidate(comptime width: usize, comptime form: Form, comptime steps: usize, firsts: *const [steps * width]u8, lasts: *const [steps * width]u8, wanted: *const Wanted(width)) bool {
     var any: @Vector(width, u8) = @splat(0);
     inline for (0..steps) |step| any |= both_lanes(width, form, firsts, lasts, step * width, wanted);
     return lane_places.Places(width).any(any);

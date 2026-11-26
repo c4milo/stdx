@@ -58,6 +58,8 @@ pub const Matches = struct {
             matches.position = matches.haystack.len + 1;
             return 0;
         }
+        // A pattern that is its literal counts its places in one pass (literal_find_count.zig).
+        if (matches.searcher.exact) |*literal| return matches.count_exact(literal);
         const by_ends = counts_ends(matches.searcher);
         // Each turn counts a match that ends past the last one, or the first match: at most the
         // haystack's offsets and one. No match is left after that many.
@@ -69,6 +71,15 @@ pub const Matches = struct {
             total += 1;
             if (holds_none(matches.searcher, matches.haystack.len, matches.position)) break;
         }
+        matches.position = matches.haystack.len + 1;
+        return total;
+    }
+
+    /// `count` for a pattern that is its literal (claim R2): its places, none inside another.
+    fn count_exact(matches: *Matches, literal: *const Literal) u64 {
+        var last_end: usize = 0;
+        const total = if (matches.position > matches.haystack.len) 0 else literal.count_places(matches.haystack, matches.position, &last_end);
+        if (total != 0) matches.last_end = last_end;
         matches.position = matches.haystack.len + 1;
         return total;
     }

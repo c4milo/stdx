@@ -276,6 +276,28 @@ test "find_places in the variant object gives the places a loop of find gives" {
     }
 }
 
+test "count_places in the variant object gives the count of the library's own count" {
+    // A constant first: with no variant object, no call of it is compiled.
+    if (comptime !has_kernels) return error.SkipZigTest;
+    if (!test_has_avx2(platform.CpuFeatures.detect())) return;
+    var generator = Generator.init(0xC0E8);
+    var literal: Literal = .{ .octets = undefined, .len = 3, .exact = true };
+    @memcpy(literal.octets[0..3], "aba");
+    literal.prepare();
+    var haystack: [test_haystack_len]u8 = undefined;
+    for (0..64) |_| {
+        for (&haystack) |*octet| octet.* = "abx"[generator.below("abx".len)];
+        const from = generator.below(haystack.len + 1);
+        var narrow_end: usize = 0;
+        literal.wide = false;
+        const narrow = literal.count_places(&haystack, from, &narrow_end);
+        var wide_end: usize = 0;
+        literal.wide = true;
+        try testing.expectEqual(narrow, literal.count_places(&haystack, from, &wide_end));
+        if (narrow != 0) try testing.expectEqual(narrow_end, wide_end);
+    }
+}
+
 /// The parts of the text of the test below: one near copy of the literal or none in each part, or
 /// the literal in the last.
 const count_parts = 4;

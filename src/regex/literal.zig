@@ -29,6 +29,7 @@ const constants = @import("constants.zig");
 const program_file = @import("program.zig");
 const Program = program_file.Program;
 const literal_find = @import("literal_find.zig");
+const literal_find_count = @import("literal_find_count.zig");
 const literal_rank = @import("literal_rank.zig");
 const literal_compare = @import("literal_compare.zig");
 const literal_common = @import("literal_common.zig");
@@ -45,6 +46,7 @@ pub const no_place = std.math.maxInt(usize);
 pub const near_len = constants.literal_steps * constants.skip_lanes;
 
 extern fn stdx_regex_literal_find_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize) callconv(.c) usize;
+extern fn stdx_regex_literal_count_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, last_end: *usize) callconv(.c) usize;
 extern fn stdx_regex_literal_find_places_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, places: [*]usize, places_len: usize) callconv(.c) usize;
 extern fn stdx_regex_literal_find_counting_x86_64_avx2(literal: *const Literal, haystack: [*]const u8, haystack_len: usize, from: usize, misses: *usize) callconv(.c) usize;
 
@@ -193,6 +195,22 @@ pub const Literal = extern struct {
             return find_far(literal, haystack, near);
         }
         return literal_find.find(constants.skip_lanes, literal, haystack, from, {});
+    }
+
+    /// The count of the literal's places from `from` on, none inside another, in one pass over
+    /// the text, as `Matches.count` asks of a pattern that is its literal. Writes the end of the
+    /// last place to `last_end` where there is one.
+    pub fn count_places(literal: *const Literal, haystack: []const u8, from: usize, last_end: *usize) usize {
+        assert(from <= haystack.len);
+        // `has_kernels` first, a constant: with no variant object, no call of it is compiled.
+        if (has_kernels and literal.wide) return count_far(literal, haystack, from, last_end);
+        return literal_find_count.count_places(constants.skip_lanes, literal, haystack, from, last_end);
+    }
+
+    /// `count_places` in the variant object, out of line as `find_far` is.
+    noinline fn count_far(literal: *const Literal, haystack: []const u8, from: usize, last_end: *usize) usize {
+        if (haystack.len - from < literal.len) return 0;
+        return stdx_regex_literal_count_x86_64_avx2(literal, haystack.ptr, haystack.len, from, last_end);
     }
 
     /// True where `find_places` serves a search from `from` in a text of `haystack_len` octets:

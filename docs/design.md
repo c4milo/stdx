@@ -11398,6 +11398,52 @@ to 12 are reordered and nothing else changes.
     the tests for aarch64 in the container. Before the fix it failed to link, as the N2 did,
     and after it the tests pass. A mutation that removes the constant fails to link: CAUGHT.
 
+  The count of a literal's places in one pass (the owner's ruling of 2026-11-26):
+  - rebar's `count` model asks `Matches.count` for the matches of a pattern alone. For a pattern
+    that is its literal, `count` called `next` for each place, and each call began a search: its
+    setup, and on x86-64 with AVX2 a call of the variant object or a batch of places.
+  - `Literal.count_places` now counts the places in one pass, `literal_find_count.zig`. It takes
+    the blocks of `wide_block_len` octets and the compares of `literal_find.zig`, and counts each
+    candidate that holds the literal whole at or past the end of the last place counted. So no
+    place counted stands inside another. It runs in the variant object where the features name
+    AVX2, and in the library's own build of 16 lanes on every other target, the N2 included.
+  **Check:** the count against a loop of `find` at each width, for a literal that overlaps
+  itself, one of one octet and one that folds, over texts of every length up to blocks and a
+  part; the variant object against the library's own count; `Matches.count` against `next`
+  with the host's features and with none, from a moved position and over a text with no place;
+  the tests for aarch64 under qemu; the filter under callgrind and its time; mutations; the
+  paired runs.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, `tools/matcher_model_check.sh` passes seeds 7, 11 and 13, and
+    `zig build test-regex -Dtarget=aarch64-linux -fqemu` passes.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions a pass of
+    rebar's `count` model under callgrind, with the features `platform.CpuFeatures.detect()`
+    found, AVX2 among them, and with none, the path the N2 takes.
+
+    | Pattern and text | AVX2, before | AVX2, after | None, before | None, after |
+    | --- | ---: | ---: | ---: | ---: |
+    | `The`, sherlock.txt, 741 places | 382,412 | 288,130 | 571,005 | 474,858 |
+    | `the`, sherlock.txt, 7,218 places | 2,359,376 | 960,174 | 2,776,442 | 1,318,531 |
+    | `Sherlock Holmes`, en-sampled.txt, 513 places | 402,179 | 354,600 | 670,477 | 598,171 |
+    | `e`, sherlock.txt, 54,581 places | 8,278,487 | 1,266,632 | 8,278,492 | 1,509,266 |
+    | `The` twice in 51 octets | 1,093 | 438 | 1,100 | 523 |
+    | `y` in 51 octets | 334 | 310 | 334 | 353 |
+
+  - With no features, `y` in 51 octets takes 6% more: the search of one octet compared one
+    vector a step, and the count takes the two compares' setup. rebar's `rsc/literal` asks
+    `next` for each match, which does not count.
+  - In five passes of 1,000 runs on one core of the container, which is no judge, the count took
+    a median of 21.6 µs for `The` in place of 34.6, 123.4 for `the` in place of 249.4, and
+    212.6 for `e` in place of 571.4.
+  - Mutations: 10, each CAUGHT, against `zig build test-regex`. A place inside the last is
+    counted; the next place may start one octet on; a candidate counts with no compare; no last
+    step; a text under a step counts none; a fold at an end compares as it stands; the end of the
+    last place one octet short; a count with no place writes `last_end`; the variant object
+    counts from one octet on; `count` takes the walk of `next`, which a test of `places_at`
+    catches. A check that skipped a candidate before the last step's start was removed: the end
+    of the last place counted skips each such candidate already.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

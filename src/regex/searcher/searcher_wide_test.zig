@@ -103,3 +103,42 @@ test "the matches of a literal over a long text are its places, with the host's 
     try expect_places(.{});
     try expect_places(platform.CpuFeatures.detect());
 }
+
+/// The octets before the text's end where the count below starts a second time.
+const places_moved_back = 700;
+
+/// Requires the count of `Pha` over a long text, with `features`, to be the number of matches
+/// `next` gives, from the text's start and from a position the caller moved.
+fn expect_count(features: platform.CpuFeatures) !void {
+    var fixture: Fixture = .{ .features = features };
+    try fixture.init("Pha", searcher_test.cache_words_max);
+    var generator = codec.testing.split.Generator.init(places_seed);
+    var text: [places_text_len]u8 = undefined;
+    for (&text) |*octet| octet.* = "Phax"[generator.below("Phax".len)];
+    for ([_]usize{ 0, places_text_len - places_moved_back }) |from| {
+        var walk: Matches = .{ .searcher = &fixture.searcher, .haystack = &text, .position = from };
+        var nexts: u64 = 0;
+        var last: ?Span = null;
+        // Each turn gives one match, at most one for each octet.
+        for (0..text.len + 1) |_| {
+            last = walk.next() orelse break;
+            nexts += 1;
+        }
+        var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = &text, .position = from };
+        try testing.expectEqual(nexts, matches.count());
+        try testing.expectEqual(@as(?usize, @intCast(last.?.end)), matches.last_end);
+        // The count takes no walk of `next`, which would leave `places_at` past the last place.
+        try testing.expectEqual(@as(usize, 0), matches.places_at);
+        try testing.expectEqual(@as(?Span, null), matches.next());
+    }
+    // A text with no place counts none, and leaves `last_end` as it was.
+    const none = "x" ** places_moved_back;
+    var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = none };
+    try testing.expectEqual(@as(u64, 0), matches.count());
+    try testing.expectEqual(@as(?usize, null), matches.last_end);
+}
+
+test "the count of a literal's matches is the matches next gives, with the host's features and none" {
+    try expect_count(.{});
+    try expect_count(platform.CpuFeatures.detect());
+}
