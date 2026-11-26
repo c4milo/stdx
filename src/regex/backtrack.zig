@@ -1,15 +1,18 @@
 //! Claim R8 (decision 86 as amended): the capture groups of a match whose span the DFAs found, by
-//! a backtracker that visits each instruction at each offset of the span once.
+//! a backtracker that visits each node at each offset of the span once.
 //!
 //! The matcher keeps a thread for each instruction that waits for an octet, and each thread copies
 //! the slots of every group as it moves. A backtracker follows one path at a time, in the order of
 //! preference, and writes a slot only where its path passes a save. Where the path fails, its
 //! saves are undone. The first path that reaches `match` is the match the matcher finds first.
 //!
-//! A bit for each pair of an instruction and an offset says the pair was visited. A path that
-//! comes to a visited pair would fail as the first path there did, since a path that reached
-//! `match` from there would have ended the search. So each pair costs one visit, and a search
-//! costs at most the program's instructions times the span's octets and one. RE2's BitState and
+//! A bit for each pair of a node and an offset says the pair was visited. A path that comes to a
+//! visited pair would fail as the first path there did, since a path that reached `match` from
+//! there would have ended the search. So each pair costs one visit, and a search costs at most
+//! the program's nodes times the span's octets and one. A path steps from node to node: a
+//! `ranges` node goes past its ranges, so no range of one is a pair. The bit of a node is found
+//! by its number, `Instruction.node` (decision 86 as amended on 2026-11-26). Found by the
+//! instruction, a span of `overlapping-words` took 127,815 bits an offset in place of 28,540. RE2's BitState and
 //! Rust's regex crate's `BoundedBacktracker` search the same way, in a bitmap of a bounded size
 //! (Cox, "Regular Expression Matching in the Wild", 2010).
 //!
@@ -48,7 +51,7 @@ pub fn find(matcher: *Matcher, haystack: []const u8, start: usize, end: usize) ?
     assert(start <= end and end <= haystack.len);
     assert(matcher.slots_len == matcher.program.slot_count());
     const positions = end - start + 1;
-    const bits = @as(usize, matcher.program.forward_len) * positions;
+    const bits = @as(usize, matcher.program.forward_nodes) * positions;
     const words = (bits + bits_per_word - 1) / bits_per_word;
     if (words > matcher.seed_slots.len) return null;
     // Past the bound, a clear of the bits costs more than the matcher's search of the span.
@@ -91,7 +94,7 @@ const Search = struct {
     haystack: []const u8,
     start: usize,
     end: usize,
-    /// The span's offsets and one, which a pair's bit multiplies by its instruction: a u32, so
+    /// The span's offsets and one, which a pair's bit multiplies by its node's number: a u32, so
     /// the product of two u32 values and an offset fit a u64 with no check.
     positions: u32,
     visited: []u64,
@@ -191,13 +194,13 @@ const Search = struct {
         return .{ .next = .{ .index = instruction.out, .at = at } };
     }
 
-    /// Marks a pair as visited. False where it was.
+    /// Marks the pair of the node at `index` and `at` as visited. False where it was.
     inline fn visit(search: *Search, index: u32, at: usize) bool {
-        // The offset is under `positions`: both it and the index are u32 values, so on a 64-bit
-        // target the product and the sum cannot overflow, and the compiler checks neither. The
-        // read's bounds check holds the bit.
+        // The offset is under `positions`: both it and the node's number are u32 values, so on a
+        // 64-bit target the product and the sum cannot overflow, and the compiler checks neither.
+        // The read's bounds check holds the bit.
         const offset: u32 = @truncate(at -% search.start);
-        const bit = @as(usize, index) * search.positions + offset;
+        const bit = @as(usize, search.instructions[index].node) * search.positions + offset;
         const word = &search.visited[bit / bits_per_word];
         const mask = @as(u64, 1) << @intCast(bit % bits_per_word);
         if (word.* & mask != 0) return false;

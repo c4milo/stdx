@@ -196,8 +196,14 @@ const Bound = struct {
 
 threadlocal var bound: Bound = .{};
 
-/// The words of the bits of a span, and of the matcher's first table.
-const Words = struct { bits: usize, table: usize };
+/// The words of the bits of a span, keyed by node and by instruction, and of the matcher's first
+/// table.
+const Words = struct { bits: usize, by_instruction: usize, table: usize };
+
+/// The words of `count` bits.
+fn words_of(count: usize) usize {
+    return (count + @bitSizeOf(u64) - 1) / @bitSizeOf(u64);
+}
 
 /// The words of the bits of a span of `text` under `pattern`, and of the matcher's first table.
 fn bound_words(pattern: []const u8, text: []const u8) !Words {
@@ -205,20 +211,41 @@ fn bound_words(pattern: []const u8, text: []const u8) !Words {
     try testing.expectEqual(@as(u32, bound_slots), bound.program.slot_count());
     const len = Matcher.memory_len(bound.program.forward_len, bound.program.slot_count());
     bound.matcher.init(&bound.program, .{ .captures = .groups, .anchored = true }, bound.memory[0..len]);
-    const bits = @as(usize, bound.program.forward_len) * (text.len + 1);
-    return .{ .bits = (bits + @bitSizeOf(u64) - 1) / @bitSizeOf(u64), .table = bound.matcher.seed_slots.len };
+    return .{
+        .bits = words_of(@as(usize, bound.program.forward_nodes) * (text.len + 1)),
+        .by_instruction = words_of(@as(usize, bound.program.forward_len) * (text.len + 1)),
+        .table = bound.matcher.seed_slots.len,
+    };
+}
+
+/// A pattern of six groups, then two ways: 3,000 nodes of `x`, `y` and `z`, which no octet of the
+/// text takes, and a group of `b`, which takes the text after the groups.
+fn two_ways(comptime b_len: usize) []const u8 {
+    return std.fmt.comptimePrint("(a)(a)(a)(a)(a)(a)(?:x{{1000}}y{{1000}}z{{1000}}|(b{{{d}}}))", .{b_len});
 }
 
 test "find gives way where the span's bits pass their bound, though the tables would hold them" {
     const constants = @import("constants.zig");
-    const long = "aaaaaa" ++ "b" ** 800;
-    const words = try bound_words("(a)(a)(a)(a)(a)(a)(\\w{800})", long);
+    const text = "aaaaaa" ++ "b" ** 700;
+    const words = try bound_words(two_ways(700), text);
     try testing.expect(words.bits > constants.backtrack_bits_words_max and words.bits <= words.table);
-    try testing.expectEqual(null, backtrack.find(&bound.matcher, long, 0, long.len));
+    try testing.expectEqual(null, backtrack.find(&bound.matcher, text, 0, text.len));
     // A shorter span of the same shape keeps the backtracker.
     const short = "aaaaaa" ++ "b" ** 300;
-    const fits = try bound_words("(a)(a)(a)(a)(a)(a)(\\w{300})", short);
+    const fits = try bound_words(two_ways(300), short);
     try testing.expect(fits.bits <= constants.backtrack_bits_words_max and fits.bits <= fits.table);
     const span = backtrack.find(&bound.matcher, short, 0, short.len) orelse return error.TestExpectedMatch;
     try testing.expectEqual(@as(u64, short.len), span.end);
+}
+
+test "find counts a bit for each node, and none for the ranges of a node" {
+    const constants = @import("constants.zig");
+    const long = "aaaaaa" ++ "b" ** 800;
+    // Each `\w` is one node of four ranges: its bits by instruction pass the bound, and by node not.
+    const words = try bound_words("(a)(a)(a)(a)(a)(a)(\\w{800})", long);
+    try testing.expect(words.by_instruction > constants.backtrack_bits_words_max);
+    try testing.expect(words.bits <= constants.backtrack_bits_words_max and words.bits <= words.table);
+    const span = backtrack.find(&bound.matcher, long, 0, long.len) orelse return error.TestExpectedMatch;
+    try testing.expectEqual(@as(u64, long.len), span.end);
+    try testing.expectEqual(@as(u64, long.len - 800), bound.matcher.best()[2 * 7]);
 }

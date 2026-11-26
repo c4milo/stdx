@@ -6337,6 +6337,11 @@ last part lists what still waits on a ruling.
         instructions, a span of up to about 13 octets fits under it, and the row runs as before.
         4,096 words, RE2's BitState bitmap as recalled, lost the ruling: a probe found that row's
         groups at 6.6 to 7.1 MB/s with every span sent to the matcher.
+      - Amended on 2026-11-26 (design §8 part 22q): a bit is kept for each pair of a node and an
+        offset, and found by the node's number, `Instruction.node`. A path steps from node to
+        node, and no range of a `ranges` node is a step. The forward program of
+        `overlapping-words` holds 127,815 instructions and 28,540 nodes, so a span of up to 72
+        octets now fits under the bound, where 15 did.
       - A wider form, built and refused on 2026-11-25 (design §8 part 22q): where the reverse
         DFA did not start, the forward DFA's end and the backtracker from the search's start, each
         start in order with the bits kept. On rebar's `overlapping-words/english` it ran at 1.05
