@@ -7304,6 +7304,25 @@ last part lists what still waits on a ruling.
           its seed from `randomSecure` fails.
         - `init` that takes the program's `std.Io` and draws itself. Non-negotiable 1 and the io
           rule forbid `std.Io` in `src/`.
+    - Amended a ninth time on 2026-11-26: stdx owns the options of chapulin's sessions, and the
+      sessions too (design §8 step 31). chapulin's options carry `cpu` and `random`, so a program
+      could set chapulin's description of the CPU by hand. The owner ruled that stdx owns the
+      options, and then that stdx wraps the sessions, because a session's own `init` takes
+      chapulin's options, and an anonymous literal reaches its `cpu` field.
+      - `tls.ClientOptions`, `tls.ServerOptions` and `quic`'s two are stdx's. Each holds every
+        field of chapulin's but `cpu` and `random`, with chapulin's type and default. A test fails
+        when chapulin adds a field, changes one, or stdx drifts.
+      - `tls.Client`, `tls.Server` and `quic`'s two are stdx's types over chapulin's sessions. Each
+        `init` takes the `Context` and stdx's options, and fills chapulin's two fields from the
+        `Context`. Every other call forwards to chapulin's, and a test fails when chapulin's
+        session has a call stdx's lacks.
+      - `ServerOptions.check(context)` replaces chapulin's `check`. `tls.client_options` and
+        `tls.server_options`, and `quic`'s, are gone.
+      - The alternatives refused:
+        - stdx's options with stdx's own `init` calls beside chapulin's sessions. A program could
+          still call the session's own `init` with chapulin's options.
+        - stdx's options made with Zig's reflection, field by field. No field would carry a doc
+          comment, and `ServerOptions` would carry no `check`.
     - **owner** Still open (https://github.com/c4milo/stdx/issues/42): AEGIS, which stompy's
       checksum runs on through `std.crypto`, and which chapulin does not hold: chapulin adds it, or
       stompy keeps Zig's.

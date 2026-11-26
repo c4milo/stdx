@@ -19,11 +19,16 @@ const chapulin = @import("chapulin");
 
 /// TLS 1.3 over TCP: record sessions over the bytes the caller reads and writes, as `tls.Client`
 /// and `tls.Server`, and the options, keys and values of chapulin's TCP object. chapulin's
-/// docs/zig.md names this object `tcp`, and its sessions `tcp.tcp`.
+/// docs/zig.md names this object `tcp`, and its sessions `tcp.tcp`. The sessions and their options
+/// are stdx's: a session's `init` takes the program's `Context` (decision 87 as amended on
+/// 2026-11-26).
 pub const tls = struct {
+    // The sessions and options stdx owns, over chapulin's.
+    pub const Client = tls_session.Client;
+    pub const Server = tls_session.Server;
+    pub const ClientOptions = tls_session.ClientOptions;
+    pub const ServerOptions = tls_session.ServerOptions;
     // The session module's names.
-    pub const Client = chapulin.tcp.tcp.Client;
-    pub const Server = chapulin.tcp.tcp.Server;
     pub const Progress = chapulin.tcp.tcp.Progress;
     pub const Read = chapulin.tcp.tcp.Read;
     pub const alert_record_len = chapulin.tcp.tcp.alert_record_len;
@@ -46,7 +51,6 @@ pub const tls = struct {
     pub const Limits = chapulin.tcp.Limits;
     pub const SpkiPin = chapulin.tcp.SpkiPin;
     pub const Trust = chapulin.tcp.Trust;
-    pub const ClientOptions = chapulin.tcp.ClientOptions;
     pub const Clock = chapulin.tcp.Clock;
     pub const Ticket = chapulin.tcp.Ticket;
     pub const Chain = chapulin.tcp.Chain;
@@ -57,7 +61,6 @@ pub const tls = struct {
     pub const EcdsaP256Identity = chapulin.tcp.EcdsaP256Identity;
     pub const RsaPssIdentity = chapulin.tcp.RsaPssIdentity;
     pub const MlDsa87Identity = chapulin.tcp.MlDsa87Identity;
-    pub const ServerOptions = chapulin.tcp.ServerOptions;
     pub const Group = chapulin.tcp.Group;
     pub const Suite = chapulin.tcp.Suite;
     pub const State = chapulin.tcp.State;
@@ -69,20 +72,6 @@ pub const tls = struct {
     pub const RandomSource = chapulin.tcp.RandomSource;
     pub const hook_context = chapulin.tcp.hook_context;
 
-    // stdx's calls, which take the program's `Context` where chapulin takes its description of
-    // the CPU and its random source.
-
-    /// `options` with chapulin's description of the CPU and the random source of `context`, for
-    /// `Client.init`. A program leaves both fields unset.
-    pub fn client_options(context: Context, options: ClientOptions) ClientOptions {
-        return options_file.filled(options, init_file.tcp_cpu(context), context.random);
-    }
-
-    /// `options` with the same two fields set, for `Server.init`.
-    pub fn server_options(context: Context, options: ServerOptions) ServerOptions {
-        return options_file.filled(options, init_file.tcp_cpu(context), context.random);
-    }
-
     /// Reads a PEM key into `key`, an `*EcdsaP256Key`, `*RsaKey` or `*MlDsa87Key`, checked
     /// against the leaf certificate's key, on the instructions the context's features hold.
     pub fn init_from_pem(context: Context, key: anytype, pem: []const u8, leaf: []const u8) error{Invalid}!void {
@@ -93,8 +82,14 @@ pub const tls = struct {
 /// TLS 1.3 under QUIC: the handshake and packet protection a QUIC stack drives, as `quic.Client`
 /// and `quic.Server`, and the options, keys and values of chapulin's QUIC object. chapulin's
 /// docs/zig.md names this object `quic`, and its sessions `quic.quic`. Its types are its own: a
-/// QUIC session takes `quic.ClientOptions`, never `tls.ClientOptions`.
+/// QUIC session takes `quic.ClientOptions`, never `tls.ClientOptions`. The sessions and their
+/// options are stdx's, as `tls`'s are.
 pub const quic = struct {
+    // The sessions and options stdx owns, over chapulin's.
+    pub const Client = quic_session.Client;
+    pub const Server = quic_session.Server;
+    pub const ClientOptions = quic_session.ClientOptions;
+    pub const ServerOptions = quic_session.ServerOptions;
     // The session module's names.
     pub const Level = chapulin.quic.quic.Level;
     pub const level_count = chapulin.quic.quic.level_count;
@@ -110,8 +105,6 @@ pub const quic = struct {
     pub const retry_tag = chapulin.quic.quic.retry_tag;
     pub const token_mint = chapulin.quic.quic.token_mint;
     pub const token_check = chapulin.quic.quic.token_check;
-    pub const Client = chapulin.quic.quic.Client;
-    pub const Server = chapulin.quic.quic.Server;
     pub const InitError = chapulin.quic.quic.InitError;
     pub const CryptoInError = chapulin.quic.quic.CryptoInError;
     pub const ServerCryptoInError = chapulin.quic.quic.ServerCryptoInError;
@@ -126,7 +119,6 @@ pub const quic = struct {
     pub const Limits = chapulin.quic.Limits;
     pub const SpkiPin = chapulin.quic.SpkiPin;
     pub const Trust = chapulin.quic.Trust;
-    pub const ClientOptions = chapulin.quic.ClientOptions;
     pub const Clock = chapulin.quic.Clock;
     pub const Ticket = chapulin.quic.Ticket;
     pub const Chain = chapulin.quic.Chain;
@@ -137,7 +129,6 @@ pub const quic = struct {
     pub const EcdsaP256Identity = chapulin.quic.EcdsaP256Identity;
     pub const RsaPssIdentity = chapulin.quic.RsaPssIdentity;
     pub const MlDsa87Identity = chapulin.quic.MlDsa87Identity;
-    pub const ServerOptions = chapulin.quic.ServerOptions;
     pub const Group = chapulin.quic.Group;
     pub const Suite = chapulin.quic.Suite;
     pub const State = chapulin.quic.State;
@@ -148,19 +139,6 @@ pub const quic = struct {
     pub const Hook = chapulin.quic.Hook;
     pub const RandomSource = chapulin.quic.RandomSource;
     pub const hook_context = chapulin.quic.hook_context;
-
-    // stdx's calls, as `tls` has them, over the QUIC object's types.
-
-    /// `options` with chapulin's description of the CPU and the random source of `context`, for
-    /// `Client.init`. A program leaves both fields unset.
-    pub fn client_options(context: Context, options: ClientOptions) ClientOptions {
-        return options_file.filled(options, init_file.quic_cpu(context), context.random);
-    }
-
-    /// `options` with the same two fields set, for `Server.init`.
-    pub fn server_options(context: Context, options: ServerOptions) ServerOptions {
-        return options_file.filled(options, init_file.quic_cpu(context), context.random);
-    }
 
     /// Reads a PEM key into `key`, the QUIC object's `*EcdsaP256Key`, `*RsaKey` or `*MlDsa87Key`.
     pub fn init_from_pem(context: Context, key: anytype, pem: []const u8, leaf: []const u8) error{Invalid}!void {
@@ -204,6 +182,8 @@ pub const Context = init_file.Context;
 const init_file = @import("crypto_init.zig");
 const options_file = @import("crypto_options.zig");
 const jws_file = @import("crypto_jws.zig");
+const tls_session = @import("crypto_tls_session.zig");
+const quic_session = @import("crypto_quic_session.zig");
 
 comptime {
     // chapulin's module exports `ch_assert_fail` from a comptime block, which Zig runs only when
@@ -258,6 +238,18 @@ test {
     _ = init_file;
     _ = options_file;
     _ = jws_file;
+    _ = tls_session;
+    _ = quic_session;
+    _ = @import("crypto_session_test.zig");
+}
+
+test "each session names every call of chapulin's session" {
+    // A call chapulin adds fails this test, which prints it, until stdx's session forwards it.
+    const receive_len = 4096;
+    try std.testing.expectEqualStrings("", first_missing(tls.Client(receive_len, .{}), chapulin.tcp.tcp.Client(receive_len, .{})));
+    try std.testing.expectEqualStrings("", first_missing(tls.Server(receive_len, .{}), chapulin.tcp.tcp.Server(receive_len, .{})));
+    try std.testing.expectEqualStrings("", first_missing(quic.Client(receive_len, .{}), chapulin.quic.quic.Client(receive_len, .{})));
+    try std.testing.expectEqualStrings("", first_missing(quic.Server(receive_len, .{}), chapulin.quic.quic.Server(receive_len, .{})));
 }
 
 test "the module names each part of chapulin's API" {
@@ -298,18 +290,6 @@ test "chapulin takes the description stdx maps from this host's features" {
     stream.update("bc");
     stream.final(&digest);
     try std.testing.expectEqualSlices(u8, &(try abc_sha256()), &digest);
-}
-
-test "the options a session takes carry the context's description and random source" {
-    var source_state: u8 = 0;
-    const random: tls.RandomSource = .{ .ptr = &source_state, .fillFn = zeros };
-    const context = init(platform.CpuFeatures.detect(), random);
-    const options = tls.client_options(context, .{ .trust = undefined });
-    try std.testing.expectEqual(init_file.tcp_cpu(context), options.cpu.?);
-    try std.testing.expectEqual(random.ptr, options.random.?.ptr);
-    const cookie_key = [_]u8{0} ** chapulin.quic.c.CH_SRV_COOKIE_KEY_LEN;
-    const quic_options = quic.server_options(context, .{ .cookie_key = &cookie_key });
-    try std.testing.expectEqual(init_file.quic_cpu(context), quic_options.cpu.?);
 }
 
 test "SHA-256 of abc is RFC 6234's" {

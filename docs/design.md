@@ -11919,6 +11919,30 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
   - Detection's own read of MIDR_EL1 runs on aarch64 Linux alone. This x86-64 host compiled it
     for aarch64-linux and ran none of it, and CI's arm64 Linux job runs `platform-check` there.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
+- **Step 31: stdx's sessions and options over chapulin's (decision 87 as amended a ninth time).**
+  The owner ruled that stdx owns the options structs, and then that it wraps the sessions, so no
+  program can set chapulin's `cpu` or `random`. `crypto_options.zig` holds the options of both
+  objects. `crypto_tls_session.zig` and `crypto_quic_session.zig` hold the sessions, whose `init`
+  fills the two fields from the `Context` and whose other calls forward to chapulin's.
+  New public names: `tls.Client`, `tls.Server`, `tls.ClientOptions` and `tls.ServerOptions` as
+  stdx's types, and `quic`'s four, and `ServerOptions.check(context)`. Removed: `tls.client_options`,
+  `tls.server_options`, `quic.client_options` and `quic.server_options`. colibri's TLS endpoints
+  and connect-zig's call them.
+  **Check:**
+  - `zig build test-crypto` holds each of stdx's options to chapulin's fields but the two, with
+    chapulin's types and defaults, and each session to every call of chapulin's.
+  - `zig build test-crypto` runs a TCP handshake and a QUIC handshake through stdx's sessions on
+    a self-signed P-256 identity in `src/crypto/testdata/`, which the client trusts by its SPKI's
+    SHA-256 alone. Over TCP it moves data both ways, in one write and in parts, exports a secret
+    on both ends, and ends the session. Under QUIC it seals a packet each way, updates the keys
+    and discards the Initial keys.
+  - Mutations, 10, each `CAUGHT`: chapulin's `cpu` given an empty description, `random` left
+    null, a default of stdx's own, `read`'s two buffers swapped, `write_parts` writing one part,
+    the server's `init` dropping `sni_buf`, the export writing zeros, QUIC's `key_update` and
+    `discard` doing nothing, and `reply_len` not forwarded, against `zig build test-crypto`. The
+    first run of the export mutation was `NOT CAUGHT`, since both ends then wrote zeros. A
+    second label must now export another secret.
+  - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
 ## 9. Performance
 

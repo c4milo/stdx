@@ -63,10 +63,18 @@ var digest: [stdx.crypto.hash.sha256_len]u8 = undefined;
 try stdx.crypto.hash.sha256(crypto, &digest, "abc");
 ```
 
-A session takes its options through `tls.client_options(crypto, .{ ... })` or
-`tls.server_options`, and `quic`'s calls of the same names. Each sets chapulin's `cpu` and
-`random` fields, which a program leaves unset. `tls.init_from_pem` reads a PEM key, and
-`jws.sign` draws its noise from the value's random source.
+The sessions and their options are stdx's. `tls.ClientOptions` and `tls.ServerOptions` hold every
+field of chapulin's options but `cpu` and `random`, which stdx fills from the value. A session
+starts with that value and stdx's options, and no program names chapulin's description of the CPU:
+
+- `client.init(crypto, &options)` for a `tls.Client(receive_len, limits)`, and
+  `server.init(crypto, &options, sni_buf)` for a `tls.Server`.
+- `client.init(crypto, &options, transport_params, peer_params)` for a `quic.Client`, and the
+  server's with `sni_buf` last.
+- `options.check(crypto)` checks a server's keys before a session takes them.
+
+Every other call of a session is chapulin's, which stdx's session forwards. `tls.init_from_pem`
+reads a PEM key, and `jws.sign` draws its noise from the value's random source.
 
 stdx maps the features to chapulin's description of the CPU at each call, so a program names no
 type of chapulin's. Each call states whether the calling thread runs AES, the carry-less multiply
@@ -99,8 +107,8 @@ the object it comes from.
 
 | Name | What it is | chapulin's name |
 | --- | --- | --- |
-| `tls` | TLS 1.3 over TCP: `tls.Client` and `tls.Server`, their options, the readers of PEM keys, chains and anchors, and the values a session negotiates. `client_options`, `server_options` and `init_from_pem` take the `Context` | `tcp`, with its sessions in `tcp.tcp` |
-| `quic` | TLS 1.3 under QUIC: `quic.Client` and `quic.Server`, the handshake and packet protection a QUIC stack drives, and the QUIC object's own options and keys | `quic`, with its sessions in `quic.quic` |
+| `tls` | TLS 1.3 over TCP: `tls.Client` and `tls.Server`, stdx's sessions over chapulin's, and stdx's options, the readers of PEM keys, chains and anchors, and the values a session negotiates. Each session's `init`, `ServerOptions.check` and `init_from_pem` take the `Context` | `tcp`, with its sessions in `tcp.tcp` |
+| `quic` | TLS 1.3 under QUIC: `quic.Client` and `quic.Server`, stdx's sessions over chapulin's, the handshake and packet protection a QUIC stack drives, and the QUIC object's own options and keys, which take the `Context` as `tls`'s do | `quic`, with its sessions in `quic.quic` |
 | `jws` | JSON Web Signatures: RS256, ES256 and EdDSA, and base64url ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)). `sign` takes the `Context` | `tcp.jws` |
 | `dnssec` | The check of an RRSIG, and the digests of NSEC3 and DS records ([RFC 4034](https://www.rfc-editor.org/rfc/rfc4034)) | `tcp.dnssec` |
 | `scram` | SHA-256, HMAC-SHA-256, PBKDF2, a compare in constant time, and RFC 5929's tls-server-end-point ([RFC 7677](https://www.rfc-editor.org/rfc/rfc7677)) | `tcp.scram` |
