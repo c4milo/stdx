@@ -67,6 +67,9 @@ pub const Literal = extern struct {
     /// The two offsets below `len` whose octets the search compares, as `prepare` writes them.
     first_at: u8 = 0,
     last_at: u8 = 0,
+    /// The offset whose octet a search compares too once its candidates missed
+    /// `literal_third_misses` times, or `first_at` where the literal holds no third.
+    third_at: u8 = 0,
 
     /// The literal every match of `program` starts with, or null where it has none that pays: a
     /// literal shorter than `literal_prefix_len_min` that more of the pattern follows. With
@@ -95,6 +98,7 @@ pub const Literal = extern struct {
         if (literal.len == 1) {
             literal.first_at = 0;
             literal.last_at = 0;
+            literal.third_at = 0;
             return;
         }
         var past: usize = 0;
@@ -105,6 +109,7 @@ pub const Literal = extern struct {
         const pair = literal_rank.rarest_pair(ranks[0..literal.len]);
         literal.first_at = pair.first;
         literal.last_at = pair.last;
+        literal.third_at = literal_rank.third(literal.len, pair);
     }
 
     /// Claim R4: the literal every match ends with, read from the reverse program, and the

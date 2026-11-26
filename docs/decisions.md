@@ -6054,6 +6054,14 @@ last part lists what still waits on a ruling.
         `Literal.prepare` takes the two offsets whose octets rank rarest by their kind, as claim
         R5's sets do (`literal_rank.zig`, below). So `Шерлок Холмс` compares the continuation
         octets of `Ш` and `с`, where the first octet, 0xD0, starts half of Cyrillic's letters.
+      - A third offset, added 2026-11-26 (design §8 part 22q): once `literal_third_misses`
+        blocks of one search held candidates and no place, the search compares the octet at
+        `third_at` too, on each block with a candidate. `third_at` is the literal's last octet,
+        else its first, else the one after `first_at`. rebar's `literal-never-match-tricksy`
+        searches `fooYbarZquux` in copies of `fooYbarZquuf`, and its last octet cuts the
+        search's instructions by 86%. `aeaeaeaeae` takes the octets `ae`, which its text holds
+        181 times where it holds `a` and the `e` nine octets on 13,509 times. A search that
+        finds the literal soon keeps two offsets, and pays a test at each miss alone.
       - A place of the literal may fold: `(?i)` compiles an ASCII letter as a split between two
         instructions that take one octet each, the two octets differing in `case_bit`, 0x20, and
         leading to one instruction. The literal keeps the lower case and a bit in

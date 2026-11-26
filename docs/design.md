@@ -11068,6 +11068,44 @@ to 12 are reordered and nothing else changes.
       each division and size the filter tried, 29 to 116 times, and ran fastest under 8 MiB
       and two parts to one, at 76.8 MB/s against 58.1 to 65.1.
 
+  Claim R2's third octet (decision 86 as amended on 2026-11-26):
+  - `folly/literal-never-match-frequent` searches `aeaeaeaeae` in Rust's source, at 0.63 of
+    Rust's crate on the N2, and `literal-never-match-tricksy` `fooYbarZquux` in copies of
+    `fooYbarZquuf`, at 0.73. Under callgrind, the scan of a block took as many instructions as
+    memchr's, about 0.27 an octet. A candidate that held no place took about 60, where memchr
+    took about 15: `frequent` has 13,509 of them, and `tricksy` one each 12 octets.
+  - Once 4 blocks of one search held candidates and no place, the search compares a third
+    octet, at `third_at`, on each block with a candidate, and tests all its steps at once.
+  **Check:** the third offset of each shape of literal; the block at which a run turns to the
+  third octet, and none before; texts of near copies of a literal, folded and not, at both
+  widths, against a plain search; callgrind over the literal rows; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe for x86-64-v3, under callgrind: four scans of each text took
+    these instructions before the change and after it.
+
+    | Literal | Text | Before | After | After / before |
+    | --- | --- | ---: | ---: | ---: |
+    | `aeaeaeaeae` | `rust-src-tools-3b0d4813.txt` | 12,363,290 | 11,098,031 | 0.898 |
+    | `fooYbarZquux` | `fooYbarZquuf` 10,000 times, then it | 2,651,663 | 365,360 | 0.138 |
+    | `Sherlock Holmes` | `en-sampled.txt` | 1,716,458 | 1,728,640 | 1.007 |
+    | `(?i)Sherlock Holmes` | `en-sampled.txt` | 2,447,104 | 2,395,264 | 0.979 |
+    | `the` | `sherlock.txt` | 10,798,938 | 10,957,191 | 1.015 |
+    | `Holmes` | `sherlock.txt` | 1,460,000 | 1,476,839 | 1.012 |
+    | `Huck` | `sherlock.txt` | 690,966 | 691,640 | 1.001 |
+    | `Watson` | `sherlock.txt` | 832,418 | 835,688 | 1.004 |
+
+  - A first form tested whether the literal holds a third offset at the start of each run of
+    blocks. `the`, whose searches end soon, took 3.7% more instructions, and `Holmes` 2.5%, so
+    the test is made at a miss alone. A form whose candidate's outcome was a union took `the`
+    5.9% more: the loop keeps the compare of the block, and a function counts the miss.
+  - Mutations: 8, each CAUGHT, against `zig build test-regex`: no turn to the third octet; the
+    turn one block late; the third compared with the first octet, and at the first offset; the
+    third not folded; the test of the third inverted; the third the last offset; the run after
+    the turn with two offsets. The fold was NOT CAUGHT until the test's texts held the literal
+    in either case.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

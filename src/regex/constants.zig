@@ -4,10 +4,8 @@
 const std = @import("std");
 const utf8 = @import("utf8");
 
-/// The values one octet takes.
+/// The values one octet takes, and the largest octet.
 pub const octet_values = 256;
-
-/// The largest octet.
 pub const octet_max = 0xFF;
 
 /// The largest Unicode scalar value (RFC 3629 §3). The `utf8` module names it `code_point_max`,
@@ -126,7 +124,7 @@ pub const targets_per_instruction = 2;
 
 /// The most instructions `compile_comptime` gives a pattern, and the branches it lets the compiler
 /// take to compile one. A pattern past either is a compile error, and its caller compiles it at
-/// run time.
+/// run time. Claim R2's search takes the branches too, for the steps of its four runs of blocks.
 pub const comptime_instructions_max = 4096;
 pub const comptime_branch_quota = 4_000_000;
 
@@ -288,25 +286,26 @@ pub const cache_words_default = 1 << 19;
 /// every x86-64 and aarch64 CPU has (claims R1 and R9).
 pub const skip_lanes = 16;
 
-/// The octets one step of claim R2's and R5's searches compares in the variant object of x86-64's
-/// AVX2: the width of its registers. A caller whose `platform.CpuFeatures` name AVX2 gets it.
+/// The octets one step of claims R2 and R5 compares in x86-64's AVX2 variant object, the width of
+/// its registers, for a caller whose `platform.CpuFeatures` name AVX2.
 pub const avx2_lanes = 32;
 
-/// The octets of the literal every match starts with that claim R2 keeps at most. A place where
-/// the literal's first and last octets stand costs a comparison of this many octets at most, so a
-/// search stays linear in the text. A longer literal keeps its first octets, which every match
-/// still starts with.
+/// The octets of the literal every match starts with that claim R2 keeps at most: a candidate
+/// costs a compare of this many octets at most, so a search stays linear in the text. A longer
+/// literal keeps its first octets, which every match still starts with.
 pub const literal_len_max = 32;
 
 /// The steps of `skip_lanes` octets that claim R2's search tests before it looks for a candidate
-/// in one: 64 octets, whose mask fits one word. A text with few candidates then costs one
-/// branch for each 64 octets, not one for each 16.
+/// in one: 64 octets, whose mask fits one word, so one branch for each 64 octets, not each 16.
 pub const literal_steps = 4;
 
-/// The steps of a block of claim R2's search where the text has room for one: 128 octets, so a
-/// block's bounds checks and branch cost half as much an octet as in a block of `literal_steps`.
-/// A block of `literal_steps` then takes what is left before the octets one at a time.
+/// The steps of a block of claim R2's search where the text has room: 128 octets, whose bounds
+/// checks and branch cost half of a block of `literal_steps`, which then takes what is left.
 pub const literal_wide_steps = 8;
+
+/// The blocks whose candidates held no place before claim R2's search compares a third octet:
+/// on rebar's `literal-never-match-tricksy` it took 86% of the instructions away.
+pub const literal_third_misses = 4;
 
 /// The literals claim R5 searches for at most, one of which every match starts with: 64, as many
 /// as Rust's regex crate gives Teddy. The owner ruled it on 2026-11-22 (decision 86 as amended):

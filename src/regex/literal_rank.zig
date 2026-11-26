@@ -52,6 +52,20 @@ pub fn rarest_pair(ranks: []const u8) Offsets {
     return best;
 }
 
+/// A third offset of a literal of `len` octets, beside the two of `pair`: its last, else its
+/// first, else the one after `pair.first`, or `pair.first` where the literal holds no third. A
+/// near copy of a literal differs from it at one place, and rebar's `fooYbarZquuf` at its last.
+/// After `pair.first`, `aeaeaeaeae` takes the pair of octets `ae`, which its text holds 181 times
+/// where it holds `a` and the `e` nine octets on 13,509 times.
+pub fn third(len: usize, pair: Offsets) u8 {
+    assert(pair.first < pair.last and pair.last < len and len <= constants.literal_len_max);
+    const last: u8 = @intCast(len - 1);
+    if (pair.last != last) return last;
+    if (pair.first != 0) return 0;
+    if (pair.first + 1 < pair.last) return pair.first + 1;
+    return pair.first;
+}
+
 fn better(ranks: []const u8, pair: Offsets, best: Offsets) bool {
     const sum = ranks[pair.first] + ranks[pair.last];
     const best_sum = ranks[best.first] + ranks[best.last];
@@ -100,4 +114,16 @@ test "rarest_pair takes the least sum, the widest apart where sums tie" {
         try testing.expectEqual(case.first, pair.first);
         try testing.expectEqual(case.last, pair.last);
     }
+}
+
+test "third takes the last octet, else the first, else the one after the first compared one" {
+    const cases = [_]struct { len: usize, first: u8, last: u8, third: u8 }{
+        .{ .len = 12, .first = 3, .last = 7, .third = 11 },
+        .{ .len = 15, .first = 0, .last = 9, .third = 14 },
+        .{ .len = 5, .first = 1, .last = 4, .third = 0 },
+        .{ .len = 10, .first = 0, .last = 9, .third = 1 },
+        .{ .len = 3, .first = 0, .last = 2, .third = 1 },
+        .{ .len = 2, .first = 0, .last = 1, .third = 0 },
+    };
+    for (cases) |case| try testing.expectEqual(case.third, third(case.len, .{ .first = case.first, .last = case.last }));
 }

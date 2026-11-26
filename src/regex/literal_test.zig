@@ -221,6 +221,61 @@ test "find gives the first place of the literal from every offset, as a plain se
     }
 }
 
+/// A text of near copies of the literal: each copy has one octet changed, and in either case
+/// where its place folds. A search of it takes a third octet after its first misses.
+const near_text_len = 4096;
+
+/// The octets between two near copies, at most.
+const near_gap_max = 1;
+
+fn near_copies(generator: *Generator, literal: *const Literal, text: []u8) void {
+    var at: usize = 0;
+    // Each turn writes one copy, or one octet where a copy does not fit.
+    while (at < text.len) {
+        if (text.len - at < literal.len) {
+            text[at] = 'x';
+            at += 1;
+            continue;
+        }
+        const copy = text[at..][0..literal.len];
+        in_either_case(generator, literal, copy);
+        copy[generator.below(literal.len)] ^= 1;
+        at += literal.len + generator.below(near_gap_max + 1);
+    }
+}
+
+/// Writes the literal to `out`, each place that folds in the case a draw picks.
+fn in_either_case(generator: *Generator, literal: *const Literal, out: []u8) void {
+    for (out[0..literal.len], literal.slice(), 0..) |*octet, wanted, place| {
+        octet.* = wanted ^ (literal.fold_at(place) & @as(u8, @truncate(generator.next())));
+    }
+}
+
+test "find gives the first place of a literal in a text of its near copies, as a plain search does" {
+    var generator = Generator.init(0x7E1D);
+    var haystack: [near_text_len]u8 = undefined;
+    const avx2 = test_has_avx2(platform.CpuFeatures.detect());
+    const needles = [_][]const u8{ "aeaeaeaeae", "fooYbarZquux", "abXcdYe", "sherlock" };
+    for (needles) |needle| {
+        var literal: Literal = .{ .octets = undefined, .len = @intCast(needle.len), .exact = true };
+        for (0..16) |_| {
+            literal.folds = @truncate(generator.next() & generator.next());
+            for (literal.octets[0..needle.len], 0..) |*octet, place| octet.* = needle[place] | literal.fold_at(place);
+            literal.prepare();
+            near_copies(&generator, &literal, &haystack);
+            // The literal whole at one place, or at none.
+            if (generator.next() & 1 == 0) {
+                const place = generator.below(haystack.len - needle.len + 1);
+                in_either_case(&generator, &literal, haystack[place..][0..needle.len]);
+            }
+            for (0..8) |_| {
+                const from = generator.below(haystack.len + 1);
+                try expect_find(&literal, avx2, &haystack, from, find_folded_plain(&literal, &haystack, from));
+            }
+        }
+    }
+}
+
 test "of and suffix_of write the offsets of the rarest octets" {
     const prefix = (try literal_of("abXcdYe\\w")) orelse return error.TestExpectedLiteral;
     try testing.expectEqual(@as(u8, 2), prefix.first_at);
