@@ -11562,6 +11562,17 @@ to 12 are reordered and nothing else changes.
 
   - `ZQZQZQZQZQ` takes 4.2% more instructions than in `b83efe9`, and 1.4% more than the search
     of `edb9a72`, 4,211,898.
+  - The runs 45886370341 and 45886373370 measured `5d6006b` against `b83efe9`, each in one job
+    on the N2 and one on x86-64, a Xeon 6973P-C and an EPYC 7763. By decision 20's rule, no row
+    of the 284 ran faster or slower in all four jobs. On x86-64, where the variant object's
+    count takes the same instructions, no row of the count moved past its spread in both jobs.
+    - On the N2, 13 rows ran faster in both jobs and 3 slower. `01-literal/sherlock-en` and
+      `sherlock-ru` ran 1.08 times as fast, from 0.97 and 0.96 of Rust's crate to 1.06 and 1.04.
+      `folly/literal-never-match-rare` ran 1.07 times as fast, from 0.92 to 0.98, where the
+      filter counts 4% more instructions. `01-literal/sherlock-zh` ran 1.02 and 1.04 times as
+      fast, at 0.97 and 0.98 of Rust's crate.
+    - The three rows that ran slower on the N2 compile a pattern, at 0.96 to 0.98. The change is
+      in `literal_find_count.zig` alone, which no compile calls.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
