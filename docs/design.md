@@ -10999,6 +10999,17 @@ to 12 are reordered and nothing else changes.
     half's nodes; the spare less one least; the reverse DFA with lists of its own; no check of
     a DFA's lists, and none of its cache; the fit of one least; the whole spare to the forward
     DFA; and a DFA's own lists one word short.
+  - The runs 45729062737 and 45729066828 measured `a6a40a3`, the lists and claim R8's bits by
+    node, against `e28e767`, each in one job on the N2 and one on the EPYC 7763. By decision
+    20's rule, 4 of the 284 rows ran faster in all four jobs, and 11 slower.
+    - Two rows count spans, which runs no backtracker, so the lists made them faster.
+      `wild/url/search` ran 3.94 to 4.29 times as fast, now at 6.98 of Rust's crate on the N2
+      and 7.93 on x86-64. `dictionary/search/english-10` ran 1.92 to 2.01 times as fast, now at
+      2.55 and 2.85.
+    - Eleven compile rows ran 1.2% to 5.8% slower. Under callgrind, built for x86-64-v3, a
+      compile and ready took 25,599 instructions at `e28e767` and 25,613 at `90c3b6b` for
+      `Pharaoh`, and 35,694 and 35,706 for the IPv4 pattern. Its cache simulation counted no
+      miss at either. No count shows the cause.
 
   Claim R8's bits by node (decision 86 as amended on 2026-11-26):
   - The backtracker kept a bit for each instruction at each offset of a span. A path steps from
@@ -11019,6 +11030,10 @@ to 12 are reordered and nothing else changes.
     18,739,667 for `ascii`.
   - Mutations: 3, each CAUGHT, against `zig build test-regex`: the bits sized by instructions;
     a bit found by the instruction; the bits one node short.
+  - The runs of the DFAs' one set of lists, above, measured this change with it. Two rows find
+    groups, so the bits made them faster. `overlapping-words/english` ran 2.00 to 3.33 times as
+    fast, now at 4.22 of Rust's crate on the N2, 12.67 against 3.00 MB/s, and 4.65 on x86-64.
+    `wild/bibleref/short` ran 1.08 to 1.23 times as fast, now at 0.93 and 0.71.
 
   The cache in two halves (decision 86 as amended on 2026-11-26):
   - With one set of lists, the reverse DFA of `overlapping-words/russian` still held about 370
@@ -11039,6 +11054,19 @@ to 12 are reordered and nothing else changes.
     and two parts to one. In two halves the reverse DFA built its 475 states and never cleared.
     `english` ran at 13.62 in two halves, and 13.74 before.
   - Mutations: 1, CAUGHT, against `zig build test-regex`: two parts to one.
+  - The runs 45730806346 and 45730809947 measured `b6961f8` against `a6a40a3`, each in one job
+    on the N2 and one on x86-64, the EPYC 7763 and the EPYC 9V74. By decision 20's rule, 1 of
+    the 284 rows ran faster in all four jobs, and 2 slower.
+    - `overlapping-words/russian` ran 4.91 to 5.57 times as fast, now at 2.01 and 2.16 of
+      Rust's crate on the N2 and 2.01 and 2.45 on x86-64.
+    - `wild/url/search` ran at 0.20 to 0.23 of its speed. Under `(?i)`, as the benchmark runs
+      it, its forward DFA builds 4,257 states. In two halves of 4 MiB it cleared 9 times and
+      gave up, and the filter counted its spans at 88.3 MB/s, where two parts to one counted
+      at 369.0. Under 8 MiB either division holds them all: 384.8 and 388.0. The filter's 80
+      rows held neither its pattern nor its text.
+    - `10-bounded-repeat/context` ran at 0.87 to 0.92. Its forward DFA cleared its cache under
+      each division and size the filter tried, 29 to 116 times, and ran fastest under 8 MiB
+      and two parts to one, at 76.8 MB/s against 58.1 to 65.1.
 
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
