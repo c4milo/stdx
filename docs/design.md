@@ -11643,6 +11643,36 @@ to 12 are reordered and nothing else changes.
     held range given a number; each node numbered one on; no assertion noted; `reads_ahead`
     ignored; an assertion noted only past the half's end.
 
+  The count's refusal by length, taken once (the owner's ruling of 2026-11-26):
+  - `unicode/codepoints/any-one` counts `(?s:.)` over every code point, 1,112,064 matches, at
+    0.83 to 0.96 of main's head. The filter counted 308,242,797 instructions a pass in `3737150`
+    and 279,329,294 in `fdfbb70`: `Matches.count` asked `holds_none` after each match whether
+    claim R13 refuses the rest of the text, about 15 instructions a match.
+  - Of that test, only `len - position < len_min` moves during a count. `last_search_from` takes
+    the rest once, and the count stops when a match ends past `len - len_min`. A claim that
+    waits is decided later, and that only lets a search refuse less, so taking it once loses no
+    match. The refusal saves at most one search of fewer than `len_min` bytes.
+  **Check:** a count builds no DFA state for a rest of the text shorter than the least match; a
+  count after `next` passed the end gives none; the filter under callgrind; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` exits 0.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions a pass of
+    `Matches.count`.
+
+    | Pattern and text | `fdfbb70` | `3737150` | Now |
+    | --- | ---: | ---: | ---: |
+    | `(?s:.)`, allcodepoints.txt | 279,329,294 | 308,242,797 | 279,329,155 |
+    | `.*[^A-Z]\|[A-Z]`, `A` 100 times | 79,220 | 81,660 | 79,089 |
+    | `^a{2,5}$`, `a` 10,000 times | 231 | 125 | 127 |
+    | `ZQZQZQZQZQ`, rust-src-tools.txt | 2,135,102 | 2,192,628 | 2,192,627 |
+
+  - `folly/literal-never-match-rare`, the last row, does not move: its count is a literal's, in
+    `literal_find_count.zig`.
+  - Mutations: 5, each CAUGHT, against `zig build test-regex`. No refusal after a match; the last
+    start one octet short; a match from the last start refused; no return past the end; a claim
+    that waits refused by length. The first and the fourth passed every test before the two tests
+    above.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

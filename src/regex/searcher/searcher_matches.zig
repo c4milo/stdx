@@ -50,26 +50,28 @@ pub const Matches = struct {
     /// The count of the matches `next` would give from here, which leaves none for `next` to
     /// give. A count needs each match's end alone (claim R10).
     pub fn count(matches: *Matches) u64 {
-        var total: u64 = 0;
+        // No match is left past the haystack's end.
+        if (matches.position > matches.haystack.len) return 0;
         // Claim R13 refuses the text by its length before the first search, and the rest of it
         // after each match: here, and not in `find_end`, where the check changed how the compiler
         // built the DFA's loop below it. The refusal before the loop returns before any other work.
-        if (matches.position <= matches.haystack.len and holds_none(matches.searcher, matches.haystack.len, matches.position)) {
+        if (holds_none(matches.searcher, matches.haystack.len, matches.position)) {
             matches.position = matches.haystack.len + 1;
             return 0;
         }
         // A pattern that is its literal counts its places in one pass (literal_find_count.zig).
         if (matches.searcher.exact) |*literal| return matches.count_exact(literal);
         const by_ends = counts_ends(matches.searcher);
+        const last_from = last_search_from(matches.searcher, matches.haystack.len);
+        var total: u64 = 0;
         // Each turn counts a match that ends past the last one, or the first match: at most the
         // haystack's offsets and one. No match is left after that many.
         for (0..matches.haystack.len + 1) |_| {
-            if (matches.position > matches.haystack.len) break;
+            if (matches.position > last_from) break;
             const end = if (by_ends) matches.next_end() else matches.next_span_end();
             matches.position = end orelse break;
             matches.last_end = end;
             total += 1;
-            if (holds_none(matches.searcher, matches.haystack.len, matches.position)) break;
         }
         matches.position = matches.haystack.len + 1;
         return total;
@@ -181,6 +183,18 @@ fn find_end(searcher: *Searcher, haystack: []const u8, from: usize) ?usize {
 /// the least match, or a pattern of the whole text cannot match a text this long. A searcher
 /// whose claims wait counts the text first, and one whose claim keeps an account pays each search
 /// to it, so those two search.
+/// The last position from which `count` searches, for a text of `len` bytes that `holds_none`
+/// does not refuse from where the count starts. Past it, `holds_none` refuses the rest of the text.
+/// Of its test, only `len - position < len_min` moves during a count, so the rest is taken once:
+/// asked after each match, it cost `(?s:.)` 15 instructions a match. A claim that waits is
+/// decided later, and that only lets a search refuse less, so taking it once loses no match.
+fn last_search_from(searcher: *const Searcher, len: usize) usize {
+    if (searcher.deferred.any() or searcher.inner != null or searcher.suffix_wide) return len;
+    // `count` returned before its turns where the text was too short or excluded whole.
+    assert(!searcher.excludes(len) and searcher.len_min <= len);
+    return len - searcher.len_min;
+}
+
 fn holds_none(searcher: *const Searcher, len: usize, position: usize) bool {
     assert(position <= len);
     if (searcher.deferred.any() or searcher.inner != null or searcher.suffix_wide) return false;
@@ -231,4 +245,29 @@ test "Matches gives no empty match inside the UTF-8 of a scalar value" {
     try expect_matches("", "\xC3\xA9\xE6\x97\xA5", &.{ .{ 0, 0 }, .{ 2, 2 }, .{ 5, 5 } });
     try expect_matches("\\B", "a\xF0\x9F\x98\x80", &.{.{ 5, 5 }});
     try expect_matches("x*", "\xC3\xA9x", &.{ .{ 0, 0 }, .{ 2, 3 } });
+}
+
+test "a count searches no rest of the text shorter than the least match" {
+    // No literal claim takes the pattern, so its forward DFA counts it. The text's last two
+    // octets cannot hold a match of three, so the count builds no state for the digits.
+    const pattern = "[a-z]{2}c|[0-9]{3}";
+    var fixture: searcher_test.Fixture = .{};
+    try fixture.init(pattern, searcher_test.cache_words_max);
+    try testing.expect(counts_ends(&fixture.searcher));
+    var whole: Matches = .{ .searcher = &fixture.searcher, .haystack = "abc12" };
+    try testing.expectEqual(@as(u64, 1), whole.count());
+    var alone: searcher_test.Fixture = .{};
+    try alone.init(pattern, searcher_test.cache_words_max);
+    var first: Matches = .{ .searcher = &alone.searcher, .haystack = "abc" };
+    try testing.expectEqual(@as(u64, 1), first.count());
+    try testing.expectEqual(alone.searcher.forward.cache.state_count, fixture.searcher.forward.cache.state_count);
+}
+
+test "a count after the walk of next has passed the end gives none" {
+    var fixture: searcher_test.Fixture = .{};
+    try fixture.init("[a-z]{2}c", searcher_test.cache_words_max);
+    var matches: Matches = .{ .searcher = &fixture.searcher, .haystack = "abc" };
+    try testing.expect(matches.next() != null);
+    try testing.expectEqual(@as(?Span, null), matches.next());
+    try testing.expectEqual(@as(u64, 0), matches.count());
 }
