@@ -68,9 +68,10 @@ charts_branch() {
 }
 
 # Replaces the section of the release's notes that starts at the heading with the text of the
-# file $1, for the tag $2, and adds the text to the run's summary.
+# file $1, for the tag $2, and adds the text to the run's summary. Notes written on GitHub's page
+# end each line with a carriage return, which the heading's match leaves out.
 release_notes() {
-    gh release view "$2" --json body --jq .body | awk -v heading="${notes_heading}" '$0 == heading { exit } { print }' >"$1.notes"
+    gh release view "$2" --json body --jq .body | awk -v heading="${notes_heading}" '{ line = $0; sub(/\r$/, "", line) } line == heading { exit } { print }' >"$1.notes"
     cat "$1" >>"$1.notes"
     gh release edit "$2" --notes-file "$1.notes"
     rm -f "$1.notes"
