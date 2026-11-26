@@ -11301,6 +11301,32 @@ to 12 are reordered and nothing else changes.
     charged. Claim R14 and claim R4 each count no miss. Claim R4 pays for its start. A search
     at rest takes the claim's calls, and counts nothing toward the rest.
 
+  The checks of `find_by_claim` written out again:
+  - The first job of each of the runs below on `7e49395` ran rows of claim R12 1% to 9% slower,
+    such as `rsc/easy1-1k`, `rsc/hard-1k` and `rsc/one-pass-short-not`. The layers' cut had put
+    `find_by_claim`'s three checks in `answered`, which gives an optional outcome. Through it, a
+    search took 5 to 7 instructions more. `find_by_claim` now writes the checks out, and
+    `is_match` alone calls `answered`.
+  **Check:** the filter's count under callgrind; a search of claim R13's lengths with no reverse
+  DFA; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - The filter, built ReleaseSafe for x86-64-v3, counted these instructions a round under
+    callgrind, the rounds of rebar's `count_spans` model on its texts.
+
+    | Row | `1c6ce67` | `1a615c2` | Checks written out |
+    | --- | ---: | ---: | ---: |
+    | `rsc/one-pass-short-not` | 1,222 | 1,232 | 1,222 |
+    | `rsc/easy1-1k` | 1,252 | 1,264 | 1,252 |
+    | `rsc/hard-1k` | 1,544 | 1,556 | 1,544 |
+
+  - Mutations: 3 against `zig build test-regex`. Two are CAUGHT: no check of the lengths, and
+    no check of the DFAs' give-ups. One is NOT CAUGHT, no check that both DFAs are ready, and no
+    state tells it apart. A claim with a DFA that is not ready has given the DFAs up, which the
+    next check reads, or is claim R13 with no reverse DFA, which reads with the forward DFA
+    alone. A new test holds that last case to the matcher.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

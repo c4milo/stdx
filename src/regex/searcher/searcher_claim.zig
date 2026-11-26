@@ -168,7 +168,11 @@ inline fn find(searcher: *Searcher, haystack: []const u8, from: usize, span: *Sp
 }
 
 inline fn find_by_claim(searcher: *Searcher, haystack: []const u8, from: usize, span: *Span) Outcome {
-    if (answered(searcher, haystack.len)) |outcome| return outcome;
+    // The checks of `answered`, written out: through its optional, a search of claim R12 took
+    // 5 to 7 instructions more (design §8 part 22q).
+    if (searcher.excludes(haystack.len)) return .none;
+    if (!searcher.forward_ready or !searcher.reverse_ready) return .unknown;
+    if (searcher.give_ups >= constants.dfa_give_ups_max) return .unknown;
     if (searcher.at_end) return find_from_end(searcher, haystack, from, span);
     if (searcher.inner != null or searcher.suffix_wide) return find_by_account(searcher, haystack, from, span);
     // Claim R13's least length. The search of a claim with an account pays it as before.

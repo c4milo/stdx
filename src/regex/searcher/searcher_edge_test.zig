@@ -267,6 +267,15 @@ test "a text of a length that no match has is read by no DFA, and each length of
     try testing.expect(fixture.searcher.forward.cache.state_count > 0);
 }
 
+test "with no reverse DFA, a search of claim R13's lengths takes the matcher's answer" {
+    var fixture: Fixture = .{};
+    try fixture.init("^[ab]{2,5}x$", 0);
+    try fixture.init("^[ab]{2,5}x$", searcher_test.cache_sizes(&fixture.program).least - 1);
+    try testing.expect(fixture.searcher.forward_ready and !fixture.searcher.reverse_ready);
+    try testing.expect(fixture.searcher.len_span != std.math.maxInt(usize));
+    for ([_][]const u8{ "abx", "ababax", "abab", "aaaaaax", "aax" }) |text| try fixture.expect_agree(text, 0);
+}
+
 test "a pattern of scalar values refuses a text by its count of bytes, at each edge" {
     var fixture: Fixture = .{};
     try fixture.init("^.{3}$", searcher_test.cache_words_max);
