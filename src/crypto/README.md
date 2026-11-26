@@ -70,7 +70,7 @@ passes an allocator.
 
 `init` computes chapulin's descriptions of the CPU once, so a call does no mapping: a hash of
 "abc" spends 22 instructions outside chapulin's own code, where stdx spent 57 when it mapped the
-features at each call (design §8 step 32).
+features at each call (design §8 step 33).
 
 The sessions and their options are stdx's. `tls.ClientOptions` and `tls.ServerOptions` hold every
 field of chapulin's options but `cpu` and `random`, which stdx fills from the value. A session

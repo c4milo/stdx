@@ -2935,6 +2935,29 @@ last part lists what still waits on a ruling.
     - `platform-check` compares `sse4_1`, and on aarch64 Linux the MIDR of the core whose
       /proc/cpuinfo lines match detection's, as it did for `probe`.
 
+    **Amended a sixth time by the owner on 2026-11-26: FEAT_DIT from the core's MIDR, where a
+    hypervisor hides it.** GitHub's arm64 Linux runners are Neoverse N2 virtual machines whose
+    AT_HWCAP and /proc/cpuinfo lack FEAT_DIT. So `stdx.crypto` stated no timing there, and
+    chapulin ran ChaCha20 and its portable code. colibri asked for a ruling, since its benchmark
+    judge is such a runner. The owner ruled that detection reports FEAT_DIT by the MIDR only where
+    a probe shows that the mode works.
+    - The probe, stdx CI run 551 on ubuntu-24.04-arm and ubuntu-26.04-arm: MIDR_EL1 0x410fd490,
+      HWCAP_DIT clear, and PSTATE.DIT set, read back and cleared on the main thread and on a new
+      one, with no fault.
+    - platform_midr.zig lists the cores that implement FEAT_DIT, `dit_cores`: Arm's Neoverse N2
+      alone, by implementer and part. On aarch64 Linux, `dit` holds where AT_HWCAP has HWCAP_DIT
+      or the MIDR names a listed core. A core joins the list only with a probe of its own.
+    - `stdx.crypto`'s statement is unchanged: on arm64 it still needs the thread's PSTATE.DIT,
+      which the program sets. Arm's timing guarantee stays the one it rests on.
+    - `platform-check` cannot confirm the field from /proc/cpuinfo there. Where the report lacks
+      FEAT_DIT and detection has it, the check sets PSTATE.DIT on two threads, yields the core 1,000
+      times, reads the bit back and clears it, and passes the field only if each step holds.
+    - The alternatives refused:
+      - The rule as it was. Every Arm machine that hides FEAT_DIT would run ChaCha20 and the
+        portable code, and colibri's judge would measure a path no deployment on such a core takes.
+      - A statement by the MIDR with no PSTATE.DIT. It would rest on a part number, and Arm
+        guarantees the timing only under the mode.
+
 41. **Fills go through `@memset`, and the program that links stdx owns `memset`.** Ruled by the
     owner on 2026-09-30, after 97e42ca gave every benchmark program a vector `memset` of its own.
     Zig 0.16's compiler runtime defines `memset` one octet at a time, and on Linux that copy serves
@@ -7323,7 +7346,7 @@ last part lists what still waits on a ruling.
           still call the session's own `init` with chapulin's options.
         - stdx's options made with Zig's reflection, field by field. No field would carry a doc
           comment, and `ServerOptions` would carry no `check`.
-    - Amended a tenth time on 2026-11-26: a program calls through the value (design §8 step 32).
+    - Amended a tenth time on 2026-11-26: a program calls through the value (design §8 step 33).
       The owner found it odd to call `stdx.crypto` functions that take the value `crypto.init`
       returned, chose methods grouped as the namespaces are, and asked that no call regress.
       - `stdx.crypto.hash` and `stdx.crypto.jws` are struct types, and each is a field of the
