@@ -49,7 +49,7 @@ Each module's folder holds a README with its examples, its options, its limits a
 Run `zig fetch` to add stdx to your `build.zig.zon`:
 
 ```bash
-zig fetch --save git+https://github.com/c4milo/stdx#v0.3.0
+zig fetch --save git+https://github.com/c4milo/stdx#v0.4.0
 ```
 
 Then import it in `build.zig`:
@@ -107,7 +107,7 @@ chart, lists the counts of each, the losses included, and says how to run each b
 ## Status
 
 stdx is before 1.0, and its releases follow SemVer 2.0.0 ([decision 65](docs/decisions.md)). The
-latest release is [0.3.0](https://github.com/c4milo/stdx/releases/tag/v0.3.0). Open work is in
+latest release is [0.4.0](https://github.com/c4milo/stdx/releases/tag/v0.4.0). Open work is in
 [the issues](https://github.com/c4milo/stdx/issues).
 
 ## Development
