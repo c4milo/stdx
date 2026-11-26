@@ -6068,6 +6068,11 @@ last part lists what still waits on a ruling.
         search's instructions by 86%. `aeaeaeaeae` takes the octets `ae`, which its text holds
         181 times where it holds `a` and the `e` nine octets on 13,509 times. A search that
         finds the literal soon keeps two offsets, and pays a test at each miss alone.
+      - A literal of one octet that folds at no place, added 2026-11-26 (design §8 part 22q):
+        `Literal.find` compares one vector of the octet a step over the first `near_len` octets
+        from where it starts, and its last step ends where they end, and then goes on as before.
+        The two offsets' search set up its vectors and both of its kernels for each call: on
+        lines of 29 octets, claim R14's search from `@` took about 175 instructions in it.
       - A place of the literal may fold: `(?i)` compiles an ASCII letter as a split between two
         instructions that take one octet each, the two octets differing in `case_bit`, 0x20, and
         leading to one instruction. The literal keeps the lower case and a bit in

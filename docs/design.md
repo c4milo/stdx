@@ -11145,6 +11145,37 @@ to 12 are reordered and nothing else changes.
       both commits. Its search takes claim R6's one thread and reads no DFA. No count shows
       the cause.
 
+  The search of a literal of one octet (decision 86 as amended on 2026-11-26):
+  - `imported/lh3lh3-reb/email` greps `([^ @]+)@([^ @]+)` at 0.59 of Rust's crate on the N2. Its
+    lines hold 29 octets on the average, and few of them hold `@`. Under callgrind, a search of
+    claim R14 from `@` took about 175 instructions in `Literal.find`, which set up the search
+    of two offsets for one octet. Its account charges each search `account_place_bytes` for its
+    start, so the claim rests and is then dropped, and the plain search takes each line.
+  - A literal of one octet that folds at no place now takes `literal_find.find_octet` over the
+    first `near_len` octets, a vector of the octet and one compare a step, and the kernels
+    after them as before.
+  **Check:** each offset to each end of texts of few places at both widths, against a scan
+  one octet at a time; the searcher's tests over literals of one octet, folded and not; the
+  probe of `email` and `date` under callgrind; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 and Lean 4.34.0 on x86-64 Linux 6.18, in a cloud
+  container.
+  - `zig build test` exits 0, and `tools/matcher_model_check.sh` passes seeds 7, 11 and 13.
+  - A probe of rebar's `grep` model over the first 4,000,000 octets of
+    `lh3lh3-reb-howto.txt`, built ReleaseSafe for x86-64-v3, under callgrind, counted these
+    instructions a line, with about 76 of the probe's own. With no charge for the start, so
+    that the claim searches each line, a search from the literal took 60 to 65 fewer.
+
+    | Row | Plain search | Claim, before | Claim, after |
+    | --- | ---: | ---: | ---: |
+    | `email` | 529 | 457 | 397 |
+    | `date` | 389 | 496 | 431 |
+
+  - Under the charge both rows drop the claim, so this change alone moves neither. `date`'s
+    plain search goes to its digits by claim R1, and the claim still costs it 11% more there.
+  - Mutations: 4, each CAUGHT, against `zig build test-regex`: the last step leaves out the
+    place where the steps stopped; a step's place one late; a folded octet takes the search of
+    one octet; a short text's last octet left out.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

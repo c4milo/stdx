@@ -36,6 +36,43 @@ pub inline fn find_before(comptime width: usize, literal: *const Literal, haysta
     return search(width, literal, haystack, from, end);
 }
 
+/// The first offset at or after `from` and before `end` where `octet` stands, `width` octets a
+/// step: the search of a literal of one octet that folds at no place, with no setup past a vector
+/// of the octet. The last step ends at `end`, where the text holds a whole step.
+pub inline fn find_octet(comptime width: usize, haystack: []const u8, from: usize, end: usize, octet: u8) ?usize {
+    assert(from <= end and end <= haystack.len);
+    const Step = lane_places.Places(width);
+    const wanted: @Vector(width, u8) = @splat(octet);
+    const all: @Vector(width, u8) = @splat(constants.octet_max);
+    const none: @Vector(width, u8) = @splat(0);
+    var index = from;
+    // Each turn takes one step of `width` octets before `end`.
+    while (end - index >= width) : (index += width) {
+        const step: @Vector(width, u8) = haystack[index..][0..width].*;
+        const mask = Step.of(@select(u8, step == wanted, all, none));
+        if (mask != 0) return index + Step.first(mask);
+    }
+    if (index == end) return null;
+    // Fewer than `width` octets are left. Where the text from `from` holds a step, one step that
+    // ends at `end` takes them, and its places before `index` were taken already.
+    if (end - from >= width) {
+        const start = end - width;
+        const step: @Vector(width, u8) = haystack[start..][0..width].*;
+        var mask = Step.of(@select(u8, step == wanted, all, none));
+        // Each set bit is one place, at most `width` of them.
+        while (mask != 0) : (mask &= mask - 1) {
+            const place = start + Step.first(mask);
+            if (place >= index) return place;
+        }
+        return null;
+    }
+    // A text under one step: its octets one at a time.
+    for (index..end) |at| {
+        if (haystack[at] == octet) return at;
+    }
+    return null;
+}
+
 /// The first place of the literal that starts at or after `from` and before `end`, where the
 /// haystack holds the literal's octets from each such place.
 inline fn search(comptime width: usize, literal: *const Literal, haystack: []const u8, from: usize, end: usize) ?usize {
@@ -292,4 +329,34 @@ test "a run compares a third octet once literal_third_misses blocks held candida
     const sooner = lanes(constants.skip_lanes, &literal, false, wide_block_len / constants.skip_lanes, false, &text, 0, end);
     try testing.expectEqual(@as(?usize, early), sooner.found);
     try testing.expectEqual(@as(?usize, null), sooner.third_from);
+}
+
+/// The texts of the test of `find_octet`: up to `octet_text_steps` steps of the widest search
+/// and a part of one, so that each width takes whole steps and a last step that ends where the
+/// text does.
+const octet_text_steps = 3;
+const octet_text_len = octet_text_steps * constants.avx2_lanes + constants.skip_lanes + 1;
+
+/// The first place of `octet` from `from` to `end`, one octet at a time: what `find_octet` must give.
+fn find_octet_plain(haystack: []const u8, from: usize, end: usize, octet: u8) ?usize {
+    for (from..end) |at| {
+        if (haystack[at] == octet) return at;
+    }
+    return null;
+}
+
+test "find_octet gives the first place of an octet from every offset to every end, at each width" {
+    var generator = @import("codec").testing.split.Generator.init(0x0C7E);
+    var text: [octet_text_len]u8 = undefined;
+    for (0..64) |_| {
+        // Few places of the octet, so that most steps hold none and some hold several.
+        for (&text) |*octet| octet.* = if (generator.below(8) == 0) 'x' else 'y';
+        for (0..text.len + 1) |end| {
+            for (0..end + 1) |from| {
+                const expected = find_octet_plain(&text, from, end, 'x');
+                try testing.expectEqual(expected, find_octet(constants.skip_lanes, &text, from, end, 'x'));
+                try testing.expectEqual(expected, find_octet(constants.avx2_lanes, &text, from, end, 'x'));
+            }
+        }
+    }
 }
