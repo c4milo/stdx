@@ -53,19 +53,19 @@ Each call follows the [streaming contract](../../codec/README.md).
 
 ## Performance
 
-On GitHub's Arm Neoverse N2 runner, stdx decodes Zstandard slower than libzstd on 25 of the 39
-corpus files. libzstd's level 3 is both faster and smaller than stdx's levels 1 and 3.
+The chart is the latest release's: one job on each of GitHub's runners, which the `bench` workflow
+runs on each release tag. A blue bar is ahead, a gray bar is level inside the noise, and an orange
+bar is behind. An encoder's panel plots speed against compression ratio. A green ▲ or a red ▼ after a row's name marks a row 5% or more faster or
+slower than at the previous release, measured in the same job.
+[The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists the counts of each panel, and
+[`docs/benchmarks.md`](../../../docs/benchmarks.md#zstandard) says how to read the chart and run the
+benchmark again.
 
-One job, from the first runs on Ubuntu 26.04, at commit 0dd2e97. A blue bar is ahead, a gray bar is
-level inside the noise, and an orange bar is behind. An encoder's panel plots speed against
-compression ratio. [`docs/benchmarks.md`](../../../docs/benchmarks.md#zstandard) lists the counts of each panel, and
-says how to run the benchmark again.
-
-![stdx's Zstandard against its baselines, on Neoverse-N2](../../../docs/images/zstd-aarch64.svg)
+![stdx's Zstandard against its baselines, at the latest release, on GitHub's Arm Neoverse N2 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/zstd-aarch64.svg)
 
 <details>
-<summary>x86-64: Intel Xeon Platinum 8370C</summary>
+<summary>x86-64: the CPU model of the release's job</summary>
 
-![stdx's Zstandard against its baselines, on Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz](../../../docs/images/zstd-x86_64.svg)
+![stdx's Zstandard against its baselines, at the latest release, on GitHub's x86-64 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/zstd-x86_64.svg)
 
 </details>

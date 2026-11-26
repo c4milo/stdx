@@ -26,6 +26,8 @@ states the rules that differ from charts.py's (decision 85 as amended on 2026-11
   it many times.
 - The jobs of the other CPU models stand as small diamonds at their median, and the notes name the
   rows that fall on the other side of 1 there.
+- A release's chart marks each row's change since the previous release, measured again in the
+  drawn jobs, by chart_change.py's rules.
 
 `python3 tools/charts_wide_test.py` runs the tests of these rules.
 """
@@ -33,6 +35,8 @@ import math
 import re
 import statistics
 from collections import Counter
+
+import chart_change
 
 # The equivalence margin: a difference under 5% is one this chart calls too small to matter.
 MARGIN = 0.05
@@ -172,6 +176,8 @@ class Row:
     def __init__(self, name, base, libs, others, drift):
         self.name, self.label, self.pattern = name, GROUP.sub("", name), pattern(GROUP.sub("", name))
         self.base, self.libs, self.others, self.drift = base, libs, others, drift
+        # The row's change since the previous release, which draw sets where it has one.
+        self.change = None
 
 
 def ratio_text(ratio):
@@ -226,11 +232,25 @@ def row_of(kit, panel, drawn, others, name):
     return row
 
 
-def rows_of(kit, panel, drawn, others):
+def ratio_in(kit, report, panel, name):
+    """stdx's speed over Rust's crate's in one report's row, or None."""
+    if report is None or panel.section not in report:
+        return None
+    head, cells = cells_of(kit, report, panel, name)
+    stdx = kit.pick(head, cells, "stdx")[0] if cells else None
+    rust = kit.pick(head, cells, BASE)[0] if cells else None
+    return stdx / rust if stdx and rust else None
+
+
+def rows_of(kit, panel, drawn, others, before=None):
     """The panel's rows, and the names of those where stdx gave no speed in any job, which a count
-    must still name."""
+    must still name. `before` holds the previous release's report of each drawn job, or None."""
     names = [r[0] for r in drawn[0][panel.section][1] if panel.rows.search(r[0])]
     pairs = [(name, row_of(kit, panel, drawn, others, name)) for name in names]
+    for name, row in pairs:
+        if row and before:
+            row.change = chart_change.Change([ratio_in(kit, r, panel, name) for r in drawn],
+                                             [ratio_in(kit, r, panel, name) for r in before])
     return [row for _, row in pairs if row], [GROUP.sub("", name) for name, row in pairs if not row]
 
 
@@ -371,8 +391,10 @@ def columns(kit, row, cy, marks):
 
 
 def row_svg(kit, row, cy, sx, height, marks):
-    out = [f'<text class="row" x="{LEFT - 8}" y="{cy + 4:.1f}" text-anchor="end">{kit.esc(row.label)}</text>']
-    return out + bar(kit, row, cy, sx, height) + whisker(row, cy, sx) + columns(kit, row, cy, marks)
+    mark = row.change.mark() if row.change else ""
+    out = [f'<text class="row" x="{LEFT - 8}" y="{cy + 4:.1f}" text-anchor="end">{kit.esc(row.label)}{mark}</text>']
+    was = [row.change.line(sx, cy, height / 2)] if row.change else []
+    return out + bar(kit, row, cy, sx, height) + was + whisker(row, cy, sx) + columns(kit, row, cy, marks)
 
 
 class Scale:
@@ -456,7 +478,7 @@ def flipped(data):
     return out
 
 
-def notes_svg(kit, y, data, drift, has_others):
+def notes_svg(kit, y, data, drift, has_others, previous_tag=None):
     notes = [f"A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside {MARGIN:.0%} of 1. "
              f"A row whose interval holds 1 and reaches past {MARGIN:.0%} is unclear: its jobs do not settle it. "
              f"A difference inside {MARGIN:.0%} is one this chart calls too small to matter, and the counts still name its direction. "
@@ -467,6 +489,8 @@ def notes_svg(kit, y, data, drift, has_others):
     if has_others:
         moved = flipped(data)
         notes.append("On another CPU model, these rows fall on the other side of 1: " + ("; ".join(moved) if moved else "none") + ".")
+    if previous_tag:
+        notes.append(chart_change.note(previous_tag))
     out = []
     for note in notes:
         for line in wrap(note):
@@ -490,13 +514,16 @@ def models_of(kit, paths, jobs_min=JOBS_MIN):
     return drawn, [p for p, m in zip(paths, models) if m == drawn], others
 
 
-def draw(kit, benchmark, paths):
+def draw(kit, benchmark, paths, previous=None, previous_tag=None):
+    """The chart of `benchmark`. `previous` maps a report's path to the previous release's report of
+    the same job, which `previous_tag` names."""
     name, against, panels = PANELS[benchmark]
     model, drawn_paths, other_paths = models_of(kit, paths)
     drawn = [kit.tables(p) for p in drawn_paths]
+    before = [kit.tables(previous[p]) if previous and previous.get(p) else None for p in drawn_paths] if previous_tag else None
     others = {m: [kit.tables(p) for p in ps] for m, ps in other_paths.items()}
     panels = [p for p in panels if all(p.section in r for r in drawn)]
-    data = [(p,) + rows_of(kit, p, drawn, others) for p in panels]
+    data = [(p,) + rows_of(kit, p, drawn, others, before) for p in panels]
     data = [(p, rows, missing) for p, rows, missing in data if rows]
     sx = Scale(kit, span_of([rows for _, rows, _ in data]))
     runs = ", ".join(kit.field(p, "Run URL").rsplit("/", 1)[-1] for p in drawn_paths)
@@ -513,7 +540,7 @@ def draw(kit, benchmark, paths):
         body += part
         drift = max([drift] + [r.drift for r in rows])
         descs.append(f"{panel.title}, in multiples of {BASE}'s speed: {claim(panel, rows, missing)}; {versus(rows, panel.marks)}")
-    notes, y = notes_svg(kit, y - 14, data, drift, bool(other_paths))
+    notes, y = notes_svg(kit, y - 14, data, drift, bool(other_paths), previous_tag)
     height = y + 16
     title = f"stdx's {name} against {against}, on {model}"
     head = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {kit.WIDTH} {height}" width="{kit.WIDTH}" height="{height}" role="img" aria-labelledby="t d">',
@@ -521,4 +548,5 @@ def draw(kit, benchmark, paths):
             f'<rect width="{kit.WIDTH}" height="{height}" fill="var(--surface)"/>',
             f'<text class="title" x="16" y="26">{kit.esc(title)}</text>']
     head += [f'<text class="sub" x="16" y="{46 + 16 * k}">{kit.esc(sub)}</text>' for k, sub in enumerate(subs)]
-    return kit.Chart("\n".join(head + legend + body + notes + ["</svg>", ""]), title, descs)
+    listed = [(panel.title, row.label, row.change) for panel, rows, _ in data for row in rows]
+    return kit.Chart("\n".join(head + legend + body + notes + ["</svg>", ""]), title, descs, listed if before else ())

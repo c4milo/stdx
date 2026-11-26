@@ -92,15 +92,12 @@ that the program does not trust can cost (RFC 9485 §8).
 
 ## Performance
 
-stdx was tuned on each set that measures it. On GitHub's Arm Neoverse N2 runner, on rebar's
-benchmarks outside its curated set, stdx runs 125 of 181 searches faster than Rust's regex crate
-and 55 slower. The slowest is about 140 times slower. Before the tuning it ran 88 faster and 90
-slower, the slowest about 24,000 times slower. It compiles all 15 patterns faster. On the patterns
-written for its benchmark it runs 17 of 18 searches faster, and on rebar's curated set 24 of 31.
-
-The chart shows the median of 18 runs at commit b49e0f9, against Rust's regex crate 1.13.2 and
-Go's regexp. The rows are the 197 of rebar's benchmarks outside its curated set and its tests
-whose engines name Go's regexp or RE2, each under rebar's own model, pattern and haystack.
+stdx was tuned on each set that measures it. The chart is the latest release's: the median of 18
+jobs on each of GitHub's runners, against Rust's regex crate and Go's regexp. The rows are rebar's
+benchmarks outside its curated set and its tests whose engines name Go's regexp or RE2, each under
+rebar's own model, pattern and haystack. A green ▲ or a red ▼ after a row's name marks a row 5% or
+more faster or slower than at the previous release, measured in the same jobs.
+[The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists the counts of each panel.
 
 stdx was tuned on these rows ([decision 86](../../docs/decisions.md)), so this chart can favor stdx. The runs
 at commit 1df5f9f are the last that came before that work, and the README at commit
@@ -108,15 +105,15 @@ at commit 1df5f9f are the last that came before that work, and the README at com
 One change came before those runs, for the answer of one row and on no speed: stdx runs each
 benchmark that leaves `unicode` off in bytes, as Rust's crate runs it.
 
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on Neoverse-N2](../../docs/images/regex-rebar-others-aarch64.svg)
+![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, at the latest release, on GitHub's Arm Neoverse N2 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/regex-rebar-others-aarch64.svg)
 
 <details>
-<summary>x86-64: AMD EPYC 9V74 80-Core Processor</summary>
+<summary>x86-64: the CPU model that most of the release's jobs drew</summary>
 
-![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor](../../docs/images/regex-rebar-others-x86_64.svg)
+![stdx's regular expressions on rebar's other benchmarks against Rust's regex and Go's regexp, at the latest release, on GitHub's x86-64 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/regex-rebar-others-x86_64.svg)
 
 </details>
 
 [`docs/benchmarks.md`](../../docs/benchmarks.md#regular-expressions) holds two more charts from the same runs: the
 patterns written for this benchmark, and rebar's curated set. stdx was tuned on both too. That
-page lists the counts of each panel, and says how to run the benchmark again.
+page says how to read each chart and run the benchmark again.
