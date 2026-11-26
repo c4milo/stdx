@@ -4,7 +4,7 @@
     python3 tools/charts.py <chart> <out.svg> <report>...   draws one chart from a run's reports
 
 The bench workflow draws every chart of a release through charts_release.py, which bench/charts.txt
-lists, and which compares each chart with the previous release (chart_change.py). A chart drawn
+lists, and which compares each chart with the previous release's reports (chart_change.py). A chart drawn
 here, from reports alone, marks no change.
 
 A bar is stdx's speed in multiples of the baseline the panel's title names, in the same row of the
@@ -40,9 +40,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import chart_change  # noqa: E402
 
-# A drawn chart: its SVG, its title, the claim of each panel, and each row's change since the
-# previous release as (panel, row, Change), which the release's page and notes list.
-Chart = collections.namedtuple("Chart", "svg title claims changes", defaults=((),))
+# A drawn chart: its SVG, its title, the claim of each panel, each row's change since the previous
+# release as (panel, row, Change), and how it compares with that release (chart_change.py), which
+# the release's page and notes list.
+Chart = collections.namedtuple("Chart", "svg title claims changes comparison", defaults=((), None))
 NUM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
 LOW, HIGH = 0.25, 4.0
 
@@ -154,28 +155,6 @@ class Files:
         self.section, self.stdx, self.base, self.marks, self.title = section, stdx, base, marks, title
         self.unit = "sizes" if "octets a call" in title else "files"
 
-    def ratio_of(self, report, name):
-        """stdx's ratio over the baseline in one report's row, and the two cells' spreads, or None."""
-        if report is None or self.section not in report:
-            return None
-        head, rows = report[self.section]
-        row = next((x for x in rows if x[0] == name), None)
-        base, base_spread = pick(head, row, self.base) if row else (None, 0.0)
-        stdx, stdx_spread = pick(head, row, self.stdx) if row else (None, 0.0)
-        return (stdx / base, stdx_spread, base_spread) if base and stdx else None
-
-    def changes(self, reports, previous):
-        """Each row's change since the previous release, by row name: `previous` holds the previous
-        release's report of each job, or None."""
-        out = {}
-        for name in [r[0] for r in reports[0][self.section][1]]:
-            now = [self.ratio_of(report, name) for report in reports]
-            was = [self.ratio_of(report, name) for report in previous]
-            spreads = [chart_change.noise(n[1], n[2], w[1], w[2]) for n, w in zip(now, was) if n and w]
-            out[name] = chart_change.Change([n[0] if n else None for n in now], [w[0] if w else None for w in was],
-                                            statistics.median(spreads) if spreads else 0.0)
-        return out
-
     def data(self, reports, learned):
         out = []
         for name in [r[0] for r in reports[0][self.section][1]]:
@@ -219,19 +198,6 @@ class Grouped(Files):
         return [summary(f"{x} ({len(members[x])})", members[x], any(r.learned for r in members[x]))
                 if isinstance(x, str) else x for x in out]
 
-    def changes(self, reports, previous):
-        """Files' changes, with a group's members merged into the change of its summary row."""
-        out, members = {}, {}
-        for name, change in super().changes(reports, previous).items():
-            group = next((g for g, pattern in self.groups if re.match(pattern, name)), None)
-            if group is None:
-                out[name] = change
-            else:
-                members.setdefault(group, []).append(change)
-        for group, changes in members.items():
-            out[f"{group} ({len(changes)})"] = chart_change.merged(changes)
-        return out
-
 
 JSON_GROUPS = [("corpus texts as strings", r"string: [a-z-]+/"), ("hex strings", r"hex: ")]
 
@@ -257,26 +223,6 @@ class Frontier:
         if not rows or any(c is None or c <= 0 for c in cells):
             return None
         return sum(octets) / sum(o / c for o, c in zip(octets, cells))
-
-    def speeds(self, report):
-        """Each point's speed in multiples of the reference's in one report, or None."""
-        if report is None:
-            return None
-        job = {}
-        for lib, level, speed_section, speed_col, _, _, filt in self.points:
-            speed = self.totals(report, speed_section, speed_col, filt)
-            if speed:
-                job[(lib, level)] = speed
-        unit = job.get(self.reference)
-        return {key: speed / unit for key, speed in job.items()} if unit else None
-
-    def changes(self, reports, previous):
-        """Each of stdx's levels' change in speed since the previous release, by (library, level)."""
-        now = [self.speeds(report) for report in reports]
-        was = [self.speeds(report) for report in previous]
-        keys = [(lib, level) for lib, level, *_ in self.points if lib == "stdx"]
-        return {key: chart_change.Change([n.get(key) if n else None for n in now], [w.get(key) if w else None for w in was])
-                for key in keys}
 
     def data(self, reports, learned):
         found = {}
@@ -552,25 +498,37 @@ def versions(paths, lib):
     return [" / ".join(found)] if found else []
 
 
-def changes_of(present, reports, previous, data):
-    """Sets each row's change since the previous release, and gives each panel's changes as
-    (panel, row, Change), with the frontier panels' changes by point."""
+def changes_of(present, data, before):
+    """Sets each row's change since the previous release, from the same chart drawn from that
+    release's reports, and gives each panel's changes as (panel, row, Change), with the frontier
+    panels' changes by point."""
     listed, by_point = [], {}
-    for spec, rows in zip(present, data):
-        found = spec.changes(reports, previous)
+    for spec, rows, then in zip(present, data, before):
         if spec.kind == "frontier":
+            found = {key: chart_change.Change(now[0], then[key][0]) for key, now in rows.items()
+                     if key[0] == "stdx" and then and key in then}
             by_point[spec.title] = found
             listed += [(spec.title, f"stdx level {level}", change) for (_, level), change in found.items()]
             continue
+        was = {row.name: row for row in then or []}
         for row in rows:
-            row.change = found.get(row.name)
+            other = was.get(row.name)
+            if other and row.values[0] and other.values[0]:
+                row.change = chart_change.Change(row.values[0], other.values[0], chart_change.noise(row.noise, other.noise))
             listed.append((spec.title, row.name, row.change))
     return listed, by_point
 
 
+def before_data(present, previous, learned):
+    """Each panel's data drawn from the previous release's reports, or None for a panel they lack."""
+    reports = [tables(p) for p in previous]
+    return [s.data(reports, learned) if s.kind == "frontier" or all(s.section in r for r in reports) else None
+            for s in present]
+
+
 def draw(benchmark, paths, previous=None, previous_tag=None):
-    """The chart of `benchmark` from the reports at `paths`. `previous` maps a report's path to
-    the previous release's report of the same job, which `previous_tag` names."""
+    """The chart of `benchmark` from the reports at `paths`. `previous` lists the previous
+    release's reports of the same chart, which `previous_tag` names."""
     if benchmark not in SPECS:
         import charts_wide
         return charts_wide.draw(sys.modules[__name__], benchmark, paths, previous, previous_tag)
@@ -583,10 +541,11 @@ def draw(benchmark, paths, previous=None, previous_tag=None):
     learned = [f.strip() for f in m.group(1).split(",")] if m else []
     present = [s for s in specs if s.kind == "frontier" or all(s.section in r for r in reports)]
     data = [s.data(reports, learned) for s in present]
-    listed, by_point = [], {}
+    listed, by_point, comparison = [], {}, None
     if previous_tag:
-        before = [tables(previous[p]) if previous and previous.get(p) else None for p in paths]
-        listed, by_point = changes_of(present, reports, before, data)
+        comparison = chart_change.comparison_of(cpus, {field(p, "CPU model") for p in previous or []})
+    if comparison == chart_change.COMPARED:
+        listed, by_point = changes_of(present, data, before_data(present, previous, learned))
     low, high = axis([d for s, d in zip(present, data) if s.kind == "bars"])
     figure = figures(present)
     names = {lib: " ".join([lib] + versions(paths, lib)) for lib in figure}
@@ -611,9 +570,9 @@ def draw(benchmark, paths, previous=None, previous_tag=None):
     if any_learned:
         y += 18
         legend.append(f'<text class="legend" x="16" y="{y + 9}">† the benchmark repeats this file of 256 KiB or less, so the branch predictor learns it (decision 45)</text>')
-    if previous_tag:
+    if comparison:
         y += 18
-        legend.append(f'<text class="legend" x="16" y="{y + 9}">{esc(chart_change.note(previous_tag))}</text>')
+        legend.append(f'<text class="legend" x="16" y="{y + 9}">{esc(chart_change.note(previous_tag, comparison))}</text>')
     height = y + 26
     cpu = cpus.pop()
     runs = ", ".join(field(p, "Run URL").rsplit("/", 1)[-1] for p in paths)
@@ -625,7 +584,7 @@ def draw(benchmark, paths, previous=None, previous_tag=None):
             f'<title id="t">{esc(title)}</title>', f'<desc id="d">{esc(". ".join(descs))}.</desc>', STYLE,
             f'<rect width="{WIDTH}" height="{height}" fill="var(--surface)"/>',
             f'<text class="title" x="16" y="26">{esc(title)}</text>', f'<text class="sub" x="16" y="46">{esc(sub)}</text>']
-    return Chart("\n".join(head + body + legend + ["</svg>", ""]), title, descs, listed)
+    return Chart("\n".join(head + body + legend + ["</svg>", ""]), title, descs, listed, comparison)
 
 
 def main():

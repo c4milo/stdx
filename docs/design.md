@@ -11992,24 +11992,29 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
   tag alone, a branch `charts` as connect-zig keeps, and marks that show whether stdx became
   faster or slower. The `bench` workflow runs on a tag `v*`, and when a person names a tag in its
   `release` input. Its `plan` job lists 48 jobs from `bench/charts.txt`: one for each codec on
-  each runner, and 18 regex jobs on each. Each job measures the previous release first. Its
-  `charts` job draws the charts and publishes them (`tools/charts_release.py` and
-  `tools/charts_release.sh`).
+  each runner, and 18 regex jobs on each. Its `charts` job draws the charts, compares each with
+  the previous release's archive of reports where both ran on one CPU model, as connect-zig
+  does, and publishes them (`tools/charts_release.py` and `tools/charts_release.sh`).
   **Check:**
   - `tools/chart_change_test.py`, `tools/bench_release_test.py`, `tools/charts_release_test.py`
     and `tools/chart_docs_test.py` pass, and `tools/ci.sh` runs them and `tools/chart_docs.py
     --check`. The release test draws all 18 charts from the committed reports of
-    `bench/results/`, each standing in for a job. A previous report with two gzip rows, gzip's
-    level 6 and a regex row of all 18 N2 jobs changed by 20% to 30% gives each of them its mark
-    and its row in the notes. The shell steps run against a bare repository and a stand-in `gh`.
-  - Mutations, 22, each `CAUGHT`: the threshold off; one job past no noise; 18 jobs past no
-    sign test; a missing job kept in the pairs; the arrows swapped; a summary by the mean; no
-    dashed line; the previous release by text order; the fewest jobs a benchmark asks for; a
-    missing job let through; codec rows, regex rows and encoder levels each compared with the
-    release itself; no mark on an encoder's level; no note under a chart; `notes.md` written to
-    the branch; the notes appended and not replaced; no notes file read; an open release created
-    again; images of `docs/images/` let through; an old image left as it was; a module's README
-    asked for every chart.
+    `bench/results/`, each standing in for a job and for the previous release's archived report.
+    A previous archive with two gzip rows, gzip's level 6 and a regex row of all 18 N2 jobs
+    changed by 20% to 30% gives each of them its mark and its row in the notes. An archive whose
+    x86-64 jobs name another CPU model marks nothing on those charts. The shell steps run against
+    a bare repository and a stand-in `gh`.
+  - Mutations, 28, each `CAUGHT`: the threshold off; the noise ignored, in the change and in the
+    codec and regex charts, which a test of a row inside its noise added; the arrows swapped; no
+    dashed line; every CPU model compared; codec rows, regex rows and encoder levels each
+    compared with the release itself; the regex chart's model ignored; no mark on an encoder's
+    level; no note under a chart; the previous release by text order; the fewest jobs a benchmark
+    asks for; a missing job let through; an earlier run's previous reports kept; the archived
+    reports read by name; a chart of another model counted in the notes; `notes.md` written to
+    the branch; the notes appended and not replaced; a carriage return kept in the heading's
+    match; no notes file read; an open release created again; the archive not extracted; images
+    of `docs/images/` let through; an old image left as it was; a module's README asked for every
+    chart.
 
 ## 9. Performance
 

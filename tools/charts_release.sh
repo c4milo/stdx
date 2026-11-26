@@ -3,11 +3,16 @@
 # 85 as amended on 2026-11-26). The bench workflow runs it on each release tag.
 #
 #   tools/charts_release.sh open <tag>
+#   tools/charts_release.sh previous <tag> <folder>
 #   tools/charts_release.sh publish <out> <tag>
 #
 # `open` creates the tag's release when it has none, titled "stdx MAJOR.MINOR.PATCH", with the
 # notes of docs/releases/<tag>.md, or with notes GitHub writes when that file is missing. A release
 # that exists keeps its notes.
+#
+# `previous` extracts the archive of reports that the release of <tag> holds into <folder>, as
+# `reports/`, which tools/charts_release.py compares each chart with. A release that holds no
+# archive leaves the folder empty, and the charts then mark nothing.
 #
 # `publish` takes the folder tools/charts_release.py wrote. It attaches each chart, the page
 # benchmarks.md and an archive of the reports to the release, and a file replaces the asset of its
@@ -37,6 +42,17 @@ release_open() {
     else
         gh release create "$1" --verify-tag --title "stdx ${1#v}" --generate-notes
     fi
+}
+
+# Extracts the archive of reports of the release of the tag $1 into the folder $2.
+release_previous() {
+    mkdir -p "$2"
+    if ! gh release download "$1" --pattern "bench-reports-$1.tar.gz" --dir "$2" --clobber >/dev/null 2>&1; then
+        echo "charts_release.sh: the release of $1 holds no archive of reports" >&2
+        return 0
+    fi
+    tar -xzf "$2/bench-reports-$1.tar.gz" -C "$2"
+    rm -f "$2/bench-reports-$1.tar.gz"
 }
 
 # Attaches the charts, the page and the reports of the folder $1 to the release of the tag $2.
@@ -84,12 +100,19 @@ main() {
     if [ "${1:-}" = publish ] && [ "$#" -eq 3 ]; then
         # The folder as a path from the root, which the next line makes the working directory.
         set -- publish "$(cd "$2" && pwd)" "$3"
+    elif [ "${1:-}" = previous ] && [ "$#" -eq 3 ]; then
+        mkdir -p "$3"
+        set -- previous "$2" "$(cd "$3" && pwd)"
     fi
     cd "$(dirname "$0")/.."
     case "${1:-}" in
         open)
             [ "$#" -eq 2 ] || { echo "usage: tools/charts_release.sh open <tag>" >&2; exit 2; }
             release_open "$2"
+            ;;
+        previous)
+            [ "$#" -eq 3 ] || { echo "usage: tools/charts_release.sh previous <tag> <folder>" >&2; exit 2; }
+            release_previous "$2" "$3"
             ;;
         publish)
             [ "$#" -eq 3 ] || { echo "usage: tools/charts_release.sh publish <out> <tag>" >&2; exit 2; }
@@ -99,7 +122,7 @@ main() {
             release_notes "$2/notes.md" "$3"
             ;;
         *)
-            echo "usage: tools/charts_release.sh open <tag> | publish <out> <tag>" >&2
+            echo "usage: tools/charts_release.sh open <tag> | previous <tag> <folder> | publish <out> <tag>" >&2
             exit 2
             ;;
     esac

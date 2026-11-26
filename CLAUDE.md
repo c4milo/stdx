@@ -525,12 +525,14 @@ Change this section when a step adds or renames a command.
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
 - Charts: each release draws them (decision 85 as amended on 2026-11-26). On each release tag,
   and when a person names a tag in its `release` input, the `bench` workflow runs every job that
-  `bench/charts.txt` names: each benchmark on both runners, regex 18 times, and each job measures
-  the previous release first (`tools/bench_release.py`). `tools/charts_release.py` then draws each
-  chart with `tools/charts.py` and `tools/charts_wide.py`, and marks each row 5% or more faster
-  or slower than at the previous release (`tools/chart_change.py`). `tools/charts_release.sh`
-  attaches the charts, a page of verdicts and the reports to the release, writes them to the
-  branch `charts`, and adds the counts to the release's notes. The release opens with the notes
+  `bench/charts.txt` names: each benchmark on both runners, regex 18 times
+  (`tools/bench_release.py`). `tools/charts_release.py` then draws each chart with
+  `tools/charts.py` and `tools/charts_wide.py`, compares it with the previous release's archive of
+  reports, which `tools/charts_release.sh previous` takes from that release, and marks each row 5%
+  or more faster or slower where both ran on one CPU model (`tools/chart_change.py`), as
+  connect-zig does. `tools/charts_release.sh publish` attaches the charts, a page of verdicts and
+  the reports to the release, writes them to the branch `charts`, and adds the counts to the
+  release's notes. The release opens with the notes
   of `docs/releases/<tag>.md`. Each page on main shows each chart from that branch and gives no
   count of it: `python3 tools/chart_docs.py` writes each image and `--check` fails where a page
   differs (decision 88). `python3 tools/charts.py <chart> <out.svg> <report>...` draws one chart

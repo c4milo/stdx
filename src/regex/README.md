@@ -96,7 +96,7 @@ stdx was tuned on each set that measures it. The chart is the latest release's: 
 jobs on each of GitHub's runners, against Rust's regex crate and Go's regexp. The rows are rebar's
 benchmarks outside its curated set and its tests whose engines name Go's regexp or RE2, each under
 rebar's own model, pattern and haystack. A green ▲ or a red ▼ after a row's name marks a row 5% or
-more faster or slower than at the previous release, measured in the same jobs.
+more faster or slower than at the previous release, where both ran on one CPU model.
 [The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists the counts of each panel.
 
 stdx was tuned on these rows ([decision 86](../../docs/decisions.md)), so this chart can favor stdx. The runs

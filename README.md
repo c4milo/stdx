@@ -89,9 +89,9 @@ runs.
 
 The benchmarks compare stdx with other libraries on GitHub's hosted runners. Every library of a
 row runs in the same job ([decision 20](docs/decisions.md)). Each release runs every benchmark
-again, measures the previous release in the same jobs, and draws each chart into the branch
-[`charts`](https://github.com/c4milo/stdx/tree/charts) ([decision 85](docs/decisions.md)). A green
-▲ or a red ▼ in a chart marks a row 5% or more faster or slower than at the previous release.
+again and draws each chart into the branch [`charts`](https://github.com/c4milo/stdx/tree/charts)
+([decision 85](docs/decisions.md)). A green ▲ or a red ▼ in a chart marks a row 5% or more faster or
+slower than at the previous release, where both ran on one CPU model.
 
 Each module's README shows its chart: [brotli](src/compress/brotli/README.md#performance),
 [gzip](src/compress/deflate/README.md#performance), [Zstandard](src/compress/zstd/README.md#performance),

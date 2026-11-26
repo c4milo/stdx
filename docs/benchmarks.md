@@ -7,8 +7,9 @@ row runs in the same job, and a result is stdx's speed over another library's sp
 
 Each release runs every benchmark again ([decision 85](decisions.md)). On each release tag the
 `bench` workflow runs each benchmark on both runners, once for each codec and 18 times for the
-regular expressions. Each job measures the previous release first, and then the release. The
-workflow then draws each chart, attaches it to the release, and writes it to the branch
+regular expressions. It keeps each job's report with the release. The workflow then draws each
+chart, compares it with the previous release's reports, attaches it to the release, and writes it
+to the branch
 [`charts`](https://github.com/c4milo/stdx/tree/charts). Each chart on this page and in each
 module's README comes from that branch, so it is the latest release's chart.
 
@@ -32,11 +33,13 @@ The charts are of two kinds ([decision 85](decisions.md)).
     past 5%.
   - A row ahead or behind inside 5% is lighter, and a shaded band marks 5% of 1.
 - Each chart marks the rows that changed since the previous release.
-  - A row's change is its ratio at the release over its ratio at the previous release, in the
-    same job. The median of the jobs is the row's change.
+  - A row's change is its ratio at the release over its ratio at the previous release. With 18
+    jobs, each ratio is the median of the jobs.
   - A green ▲ after a row's name marks a row 5% or more faster, and a red ▼ one 5% or more
-    slower. With one job the change must also pass the noise. With 18 jobs its 95% interval must
-    lie on that side of 1.
+    slower. The change must also pass the noise of both releases: the spread of a row's cells,
+    or the half width of its interval.
+  - Two releases compare only where both ran on one CPU model. A chart of another model marks
+    nothing, and its foot says so.
   - A dashed line marks the row's ratio at the previous release.
 
 ## Compression

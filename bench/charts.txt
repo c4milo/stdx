@@ -1,10 +1,10 @@
 # The charts that each release draws (decision 85 as amended on 2026-11-26): one line each, a
 # chart, an architecture, the benchmark whose reports the chart draws, and the jobs of that
 # benchmark that the architecture's runner runs. On each release tag the bench workflow runs, on
-# each runner, the most jobs that a chart of a benchmark names, and measures the previous release
-# first in each job (tools/bench_release.py). tools/charts_release.py then draws each chart into
-# the branch `charts`, and tools/charts_wide.py draws the regex charts from the CPU model that
-# most jobs drew.
+# each runner, the most jobs that a chart of a benchmark names (tools/bench_release.py).
+# tools/charts_release.py then draws each chart into the branch `charts` and compares it with the
+# previous release's reports, and tools/charts_wide.py draws the regex charts from the CPU model
+# that most jobs drew.
 deflate aarch64 deflate 1
 deflate x86_64 deflate 1
 zstd aarch64 zstd 1
