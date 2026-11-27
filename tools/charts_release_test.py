@@ -271,6 +271,61 @@ def test_moved_rows():
         "| deflate-x86_64 | a panel | a row \\| with a pipe | ▼ 4.0× slower |"], charts_release.moved_rows(chart, "deflate-x86_64")
 
 
+# The commit a test's base reports name, and the previous release's commit it starts.
+BASE_COMMIT = "1df5f9f"
+PREVIOUS_COMMIT = "1df5f9f2fd51e8ebc1707e2e77c02afc6041f49f"
+
+
+def with_bases(inputs, commit):
+    """Each job's base report: the job's own report, measured at `commit`, with gzip's level 6
+    20% slower on the N2's deflate job, as a job that measured the previous release first holds."""
+    for benchmark, arch, job, report in jobs():
+        folder = os.path.join(inputs, f"bench-{benchmark}-{RUNNERS[arch]}-{job}")
+        text = re.sub(r"^\| Commit \| [0-9a-f]+ \|$", f"| Commit | {commit} |",
+                      open(os.path.join(RESULTS, report)).read(), count=1, flags=re.M)
+        open(os.path.join(folder, "base-report.md"), "w").write(text)
+    deflate = os.path.join(inputs, "bench-deflate-ubuntu-26.04-arm-1", "base-report.md")
+    scale_level(deflate, "Encoding speed, gzip", "6", "stdx, MB/s", 1 / 1.2)
+
+
+def drawn_with_bases(folder, commit, archive=False, previous_commit=PREVIOUS_COMMIT):
+    """The notes of a release whose jobs measured the previous release first at `commit`."""
+    artifacts(os.path.join(folder, "in"))
+    with_bases(os.path.join(folder, "in"), commit)
+    if archive:
+        kept(os.path.join(folder, "kept"))
+    out = os.path.join(folder, "out")
+    charts_release.main([os.path.join(folder, "in"), out, "v0.4.0", "v0.3.0", os.path.join(folder, "kept"),
+                         previous_commit])
+    return open(os.path.join(out, "notes.md")).read(), open(os.path.join(out, "deflate-aarch64.svg")).read()
+
+
+def test_base_reports():
+    """With no archive, the jobs' base reports that name the previous commit stand in for it."""
+    with tempfile.TemporaryDirectory() as folder:
+        notes, chart = drawn_with_bases(folder, BASE_COMMIT)
+        assert "which the same jobs measured first, on the same machines" in notes, notes
+        assert "| deflate-aarch64 | gzip encoding: " in notes and "| stdx level 6 | ▲ 20% faster |" in notes, notes
+        assert '>6 <tspan class="better">▲20%</tspan></text>' in chart
+        page = open(os.path.join(folder, "out", "benchmarks.md")).read()
+        assert "which the same jobs measured first." in page, page
+        # The archive of the release holds its own reports, and no base report.
+        assert len(os.listdir(os.path.join(folder, "out", "reports"))) == 48
+
+
+def test_base_reports_refused():
+    """A base report of another commit, or of too short a name, stands in for nothing, and an
+    archive comes before the base reports."""
+    for commit, previous_commit in (("0dd2e97", PREVIOUS_COMMIT), ("1df5f9", PREVIOUS_COMMIT), (BASE_COMMIT, "")):
+        with tempfile.TemporaryDirectory() as folder:
+            notes, _ = drawn_with_bases(folder, commit, previous_commit=previous_commit)
+            assert "v0.3.0 left no reports of its benchmarks" in notes, (commit, previous_commit, notes)
+    with tempfile.TemporaryDirectory() as folder:
+        notes, chart = drawn_with_bases(folder, BASE_COMMIT, archive=True)
+        assert "where both ran on one CPU model" in notes and "same jobs" not in notes, notes
+        assert "▲20%" not in chart, "the base report took the archive's place"
+
+
 def test_drawing_fault():
     """An error of the drawing keeps its traceback: only a missing job ends with a message."""
     with tempfile.TemporaryDirectory() as folder:
