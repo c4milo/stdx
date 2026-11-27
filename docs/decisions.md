@@ -1361,6 +1361,18 @@ last part lists what still waits on a ruling.
         1.24.13 on `ubuntu-24.04` and 1.26.11 on the others.
       - The alternatives refused: a table of versions in the README, which can differ from the
         runs after a pin changes; and the image's toolchains, which a new image moves.
+    - Ruled by the owner on 2026-11-27, when the regex branch went to main: the branch goes to
+      main with seven rows slower in all four jobs, and the owner accepts the trade. The branch at
+      `d2d9fef` against `fdfbb70` ran 36 rows faster in all four jobs and 7 slower (design §8
+      part 22q, "The branch against main's head, after the fixes").
+      - Five of the seven compile a pattern, with 0.8% to 5.2% more instructions. The 16 bytes of
+        `Instruction` carry part of the cost, for decision 86's DFA lists sized by nodes, and
+        `Fragment.least` carries most of the rest, for claim R13. Each was ruled before.
+      - `class: a number` is placement by the rule. `rsc/easy0-32` takes fewer instructions and
+        more time, which no count explains.
+      - The alternatives refused: an `Instruction` of 12 bytes that packs `lo`, `hi` and `look`
+        into `arg`, which changes the program's layout; and main held until `rsc/easy0-32` is
+        explained.
 
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
