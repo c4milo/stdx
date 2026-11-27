@@ -11706,6 +11706,35 @@ to 12 are reordered and nothing else changes.
     of `aa`. NOT CAUGHT: no search first, whose counts are the same, and which costs
     `ZQZQZQZQZQ` 57,546 instructions a pass.
 
+  The branch against main's head, after the fixes (the owner's ruling of 2026-11-26):
+  - The runs 45914804185 and 45914807422 measured the branch at `97eab16` against `fdfbb70`, each
+    in one job on the N2 and one on an EPYC 7763. By decision 20's rule, 36 of the 284 rows ran
+    faster in all four jobs and 7 slower, where `3737150` had 33 and 12.
+  - The search rows of the earlier entry no longer lose: `any-one`, `never-match-rare`,
+    `no-match-common`, `quotes`, `literal-english`, `03-date/ascii`, `two capitalized words`, and
+    the compiles of `{10,100}`, `[A-Za-z]{10}…Result…` and an IPv4 address.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions for the rows
+    slower in all four jobs: one compile and the searcher's start, or a pass of a search.
+
+    | Row | Ratio in the four jobs | `fdfbb70` | `97eab16` | Change |
+    | --- | --- | ---: | ---: | ---: |
+    | compile `[a-q][^u-z]{13}x` | 0.91 to 0.94 | 168,252 | 176,193 | +4.7% |
+    | `03-date/compile-ascii` | 0.86 to 0.92 | 7,688,000 | 8,086,391 | +5.2% |
+    | compile a date and time | 0.93 to 0.98 | 51,659 | 52,243 | +1.1% |
+    | compile a heading's start tag | 0.91 to 0.98 | 49,995 | 50,619 | +1.2% |
+    | compile `Sherlock` | 0.91 to 0.99 | 31,112 | 31,352 | +0.8% |
+    | `class: a number`, `[0-9]+`, a walk | 0.93 to 0.98 | 4,595,307 | 4,623,817 | +0.6% |
+    | `rsc/easy0-32`, a count and a walk | 0.79 to 0.92 | 570 | 550 | −3.5% |
+
+  - `class: a number` is placement by the rule: its count moves by under 1%. `rsc/easy0-32`
+    takes fewer instructions and more time, which no count explains.
+  - The compiles take more instructions and more time. An earlier entry measures the cause:
+    about 3% of a compile's time is the 16 bytes of `Instruction`, which `node` makes, and most
+    of the rest is `Fragment.least`, which claim R13 reads. Each was ruled, so neither is cut.
+  - Among the rows faster in all four jobs, `opt/fixed-length/*` ran 2.4 to 4.3 times as fast,
+    `unicode/overlapping-words/english` 10 to 14, `folly/literal-never-match-tricksy` 2.7 to 7.1,
+    `09-aws-keys/full` 2.2, and `01-literal/sherlock-en` 1.11 to 1.64.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A
