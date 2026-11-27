@@ -38,6 +38,21 @@ def test_mark():
     assert chart_change.Change(0.8, 1.0).mark() == ' <tspan class="worse">▼20%</tspan>'
 
 
+def test_amount():
+    # Below MULTIPLE either way, a percentage: 99% faster, and 49% slower.
+    assert chart_change.Change(1.99, 1.0).amount() == "99%"
+    assert chart_change.Change(0.51, 1.0).amount() == "49%"
+    # From MULTIPLE either way, a multiple, with one decimal below WHOLE_MULTIPLE.
+    assert chart_change.Change(2.0, 1.0).amount() == "2.0×"
+    assert chart_change.Change(0.5, 1.0).amount() == "2.0×"
+    assert chart_change.Change(1.0, 4.04).amount() == "4.0×"
+    assert chart_change.Change(9.94, 1.0).amount() == "9.9×"
+    assert chart_change.Change(10.0, 1.0).amount() == "10×"
+    # The v0.4.0 row of rebar's imported/rsc/easy1-1mb on the N2: 1.23 of Rust regex, from 0.0000456.
+    assert chart_change.Change(1.2313, 0.00004556).amount() == "27,026×"
+    assert chart_change.Change(1.2313, 0.00004556).mark() == ' <tspan class="better">▲27,026×</tspan>'
+
+
 def test_line():
     assert chart_change.Change(1.0, None).line(lambda v: v, 0, 1) == ""
     line = chart_change.Change(1.2, 2.0).line(lambda v: v * 100, 50, 5)

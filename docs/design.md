@@ -12027,6 +12027,12 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     as one with reports; the notes' rows without their chart; a chart's own rows with an empty
     first cell, which a test added; each chart's line repeated on the page; the page's opening
     claim of marks; the page's link to the drawing run; an empty `reports` taken as a run.
+  - The archive of `v0.3.0`'s reports, from the same run's 48 jobs, marked rebar's
+    `imported/rsc/easy1-1mb` on the N2 ▲2638874%. The change is right: a993319 reads the last 19
+    bytes of the MiB, where `v0.3.0` read it all. A change of two times or more, either way, now
+    states a multiple, as ▲26,390×. Mutations, 6, each `CAUGHT`: every change a percentage; a
+    slower multiple a percentage; two times a percentage; ten times with a decimal; no thousands
+    separator; the notes in percentages, which a test of the notes' rows added.
 
 ## 9. Performance
 

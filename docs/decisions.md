@@ -5860,7 +5860,10 @@ last part lists what still waits on a ruling.
         or more and passes the noise of both releases: the spread of a row's cells, or the half
         width of its interval (`tools/chart_change.py`).
       - A faster row's name ends with a green ▲ and the change, and a slower row's with a red ▼. A
-        dashed line marks the row's ratio at the previous release.
+        dashed line marks the row's ratio at the previous release. A change of two times or more,
+        either way, is a multiple, as ▲27,000×, and a smaller one a percentage, as ▲20%: a search
+        that reads only a text's end can run thousands of times as fast as one that reads all of
+        it.
       - Each page on main shows each chart from the branch, with an alt text that names the chart
         and the runner, and no page on main gives a count (`tools/chart_docs.py`). The branch's
         `benchmarks.md` lists each panel's verdicts, and the release's notes list the rows that
