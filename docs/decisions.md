@@ -1374,6 +1374,11 @@ last part lists what still waits on a ruling.
         into `arg`, which changes the program's layout; and main held until `rsc/easy0-32` is
         explained.
 
+    - Amended by the owner on 2026-11-26 (entry 85): the bench workflow also runs on each release
+      tag, with no person to start it, and runs every benchmark that `bench/charts.txt` names. A
+      release's reports stay with its GitHub release and on the branch `charts`, and no longer go
+      under `bench/results/`. A person still starts a run of one benchmark by hand.
+
     Cost: no absolute number is stable from run to run, and the noise floor can sit above 5% on a
     busy host, so a small gain may not be provable. Gain: no machine to keep, both architectures,
     and a run anyone can repeat from the workflow file.
@@ -4698,6 +4703,11 @@ last part lists what still waits on a ruling.
       moved.
     - **1.0.0.** The owner rules when the API is stable. This entry does not set a date.
 
+    - Amended by the owner on 2026-11-26 (entry 85): the commit that numbers a release adds
+      `docs/releases/<tag>.md`, the release's notes. The bench workflow opens the tag's GitHub
+      release with those notes as soon as the tag is pushed, and later adds a section that counts
+      the rows of each chart that changed since the previous release.
+
     The alternatives refused:
     - Hashes alone, with no number. A dependent cannot tell from a hash whether a move breaks its
       code or changes its stored output.
@@ -5839,6 +5849,55 @@ last part lists what still waits on a ruling.
         only where its whole interval lies past 5% of 1. It calls level a row of ten jobs each
         3.6% to 4.4% behind, the case that the rules of 2026-11-22 replaced. The owner kept the
         verdicts, and chose the band and the lighter bar.
+
+    - Amended by the owner on 2026-11-26: each release draws the charts again, and marks what
+      changed since the previous release. The owner asked for a branch `charts`, as connect-zig
+      keeps, and for marks that show whether stdx became faster or slower at each release.
+      - The bench workflow runs on each release tag, and when a person names a tag in its
+        `release` input. It runs each benchmark on both runners: one job for each codec, and 18
+        for the regular expressions, as `bench/charts.txt` names (`tools/bench_release.py`).
+      - Once every job passed, `tools/charts_release.py` draws each chart. Then
+        `tools/charts_release.sh` attaches the charts, a page and an archive of the reports to the
+        release. It writes the same files as the one commit of the branch `charts`, and adds a
+        section of counts to the release's notes. With `release`, the `reports` input names an
+        earlier run for that tag. No job measures, and the charts are drawn again from that run's
+        reports with the tools of the workflow's commit: a failure of the drawing costs minutes,
+        and not the 48 jobs again.
+      - A previous release with no archive, as `v0.3.0` is, may still compare. A run made before
+        2026-11-27 measured the previous release first in each job, on the same machine, as
+        `base-report.md`. A base report stands in for the archive when it names the previous
+        release's commit, and the notes and the page say that the same jobs measured it.
+      - Each chart compares with the same chart drawn from the previous release's archive of
+        reports, as connect-zig compares its charts. Two runs on different CPU models do not
+        compare: such a chart marks nothing and says so. The arm64 runner gives a Neoverse N2 to
+        each job, and the x86-64 runner gives one of several models.
+      - A row's change is its ratio at the release over its ratio at the previous release: the
+        median of the jobs for the regex charts. A row is faster or slower when the change is 5%
+        or more and passes the noise of both releases: the spread of a row's cells, or the half
+        width of its interval (`tools/chart_change.py`).
+      - A faster row's name ends with a green ▲ and the change, and a slower row's with a red ▼. A
+        dashed line marks the row's ratio at the previous release. A change of two times or more,
+        either way, is a multiple, as ▲27,000×, and a smaller one a percentage, as ▲20%: a search
+        that reads only a text's end can run thousands of times as fast as one that reads all of
+        it.
+      - Each page on main shows each chart from the branch, with an alt text that names the chart
+        and the runner, and no page on main gives a count (`tools/chart_docs.py`). The branch's
+        `benchmarks.md` lists each panel's verdicts, and the release's notes list the rows that
+        changed. This replaces the rule of 2026-11-23 that each alt text holds the chart's title,
+        and the lists of `docs/benchmarks.md`.
+      - A release's reports stay with the release and on the branch, not under `bench/results/`.
+        `docs/images/` and the committed charts go.
+
+      The alternatives refused:
+      - The previous release measured again in each job, which the owner chose first the same
+        day. It marks every chart, x86-64 included, at twice the runner time. The owner then chose
+        connect-zig's way.
+      - Values of a file of their own, as connect-zig keeps. The archive of reports holds the
+        same numbers, and the next release draws the previous chart from it.
+      - A pull request to main after each release, with the new counts. It keeps the counts on
+        main, and costs a merge for each release.
+      - 6 or 10 regex jobs. The x86-64 chart needs 5 jobs on one model, and the runners split the
+        jobs over models.
 
     The alternatives refused:
     - A Zig program, which the owner judged too large for the task.
@@ -7539,6 +7598,10 @@ last part lists what still waits on a ruling.
       "Move charts out of the root readme and into their respective modules." The README keeps
       one result for each benchmark, the losses among them, and `docs/benchmarks.md` keeps every
       chart. `tools/charts.py` writes each image's alt text in a module's README too.
+
+    - Amended by the owner on 2026-11-26 (entry 85): the README keeps no result of a benchmark,
+      and no module's README gives a count. Each module's README shows its chart from the branch
+      `charts`, which each release draws again, and links the branch's page of verdicts.
 
     Cost: a package holds 13 READMEs, 33 KiB of text, since its `.paths` names `src`. A reader
     of the README follows a link to see a chart.

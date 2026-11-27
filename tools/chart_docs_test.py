@@ -1,6 +1,5 @@
 """Tests of tools/chart_docs.py: python3 -I tools/chart_docs_test.py."""
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -9,110 +8,85 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import chart_docs  # noqa: E402
 
-
-def test_alt_text():
-    page = "a ![old](docs/images/deflate-aarch64.svg) b ![keep](docs/images/other.svg)"
-    got = chart_docs.with_alt_texts(page, "docs/images/", {"deflate-aarch64": "stdx's DEFLATE"})
-    assert got == "a ![stdx's DEFLATE](docs/images/deflate-aarch64.svg) b ![keep](docs/images/other.svg)", got
-    # An alt text that holds an escaped bracket is replaced whole.
-    page = r"![a \] b](images/zstd-x86_64.svg)"
-    got = chart_docs.with_alt_texts(page, "images/", {"zstd-x86_64": "t"})
-    assert got == "![t](images/zstd-x86_64.svg)", got
-    # Another prefix is another page's image, and stays.
-    assert chart_docs.with_alt_texts("![x](images/zstd.svg)", "docs/images/", {"zstd": "t"}) == "![x](images/zstd.svg)"
+CHARTS = chart_docs.CHARTS
 
 
-def test_claims():
-    page = "x\n<!-- claims of zstd-aarch64 -->\nold\n<!-- end of claims -->\ny\n"
-    got = chart_docs.with_claims(page, {"zstd-aarch64": ["one | two", "three"]})
-    assert got == "x\n<!-- claims of zstd-aarch64 -->\n\n- one \\| two\n- three\n\n<!-- end of claims -->\ny\n", got
-    # Written twice, the block is the same.
-    assert chart_docs.with_claims(got, {"zstd-aarch64": ["one | two", "three"]}) == got
+def test_image():
+    got = chart_docs.image("deflate", "aarch64")
+    assert got == ("![stdx's DEFLATE against its baselines, at the latest release, on GitHub's Arm Neoverse N2 runner]"
+                   f"({CHARTS}deflate-aarch64.svg)"), got
+    assert "x86-64 runner" in chart_docs.image("regex-rebar-others", "x86_64")
 
 
-def test_missing_block():
-    for page in ("no block", "<!-- claims of zstd-aarch64 --> no end"):
-        try:
-            chart_docs.with_claims(page, {"zstd-aarch64": ["one"]})
-        except ValueError:
-            continue
-        raise AssertionError(f"no error for {page!r}")
+def test_with_images():
+    page = "a ![old](../../docs/images/zstd-x86_64.svg) b ![keep](images/other.svg) c ![x](images/unknown-aarch64.svg)"
+    got = chart_docs.with_images(page)
+    assert got == f"a {chart_docs.image('zstd', 'x86_64')} b ![keep](images/other.svg) c ![x](images/unknown-aarch64.svg)", got
+    # An alt text that holds an escaped bracket is replaced whole, and a written image stays.
+    assert chart_docs.with_images(r"![a \] b](images/zstd-x86_64.svg)") == chart_docs.image("zstd", "x86_64")
+    assert chart_docs.with_images(chart_docs.image("json", "aarch64")) == chart_docs.image("json", "aarch64")
 
 
-def write_module_pages(root, text):
-    """Writes `text` as the README of each module's folder that shows a chart, with `{images}`
-    replaced by the path from that folder to docs/images/."""
-    for module in chart_docs.CHART_MODULES:
-        os.makedirs(f"{root}/src/{module}", exist_ok=True)
-        open(f"{root}/src/{module}/README.md", "w").write(text.replace("{images}", chart_docs.images_from(module)))
+def test_problems():
+    shown = [("zstd", "aarch64"), ("zstd", "x86_64")]
+    both = chart_docs.image("zstd", "aarch64") + "\n" + chart_docs.image("zstd", "x86_64")
+    assert chart_docs.problems("p", both, shown) == []
+    missing = chart_docs.problems("p", chart_docs.image("zstd", "aarch64"), shown)
+    assert len(missing) == 1 and "zstd-x86_64" in missing[0], missing
+    assert chart_docs.problems("p", both + "\n![a](images/zstd-x86_64.svg)", shown)
+    assert chart_docs.problems("p", both + "\n<!-- claims of zstd-x86_64 -->", shown)
 
 
-def test_stale_and_write():
+def test_expected():
+    pages = chart_docs.expected([("zstd", "aarch64", "zstd", 1), ("regex-rebar-others", "x86_64", "regex", 18),
+                                 ("regex", "x86_64", "regex", 18)])
+    assert pages["README.md"] == []
+    assert pages["docs/benchmarks.md"] == [("zstd", "aarch64"), ("regex-rebar-others", "x86_64"), ("regex", "x86_64")]
+    assert pages["src/compress/zstd/README.md"] == [("zstd", "aarch64")]
+    # A module's README shows its own chart alone.
+    assert pages["src/regex/README.md"] == [("regex-rebar-others", "x86_64")]
+
+
+def run(root, arguments):
+    """chart_docs.py's main over the tree at `root`: None when it passes, or its message."""
+    saved = chart_docs.ROOT
+    chart_docs.ROOT = root
+    try:
+        chart_docs.main(arguments)
+    except SystemExit as stop:
+        return str(stop)
+    finally:
+        chart_docs.ROOT = saved
+    return None
+
+
+def copy_pages(root):
+    for page in chart_docs.expected([]).keys() | {f"src/{m}/README.md" for m in chart_docs.CHART_MODULES}:
+        os.makedirs(os.path.dirname(os.path.join(root, page)) or root, exist_ok=True)
+        shutil.copy(os.path.join(chart_docs.ROOT, page), os.path.join(root, page))
+
+
+def test_committed_pages():
+    # The committed pages pass, and a page that loses an image or holds an old one fails.
+    assert run(chart_docs.ROOT, ["--check"]) is None
     with tempfile.TemporaryDirectory() as root:
-        os.makedirs(f"{root}/docs")
-        readme = "![old](docs/images/zstd-aarch64.svg)\n"
-        module_page = "![old]({images}zstd-aarch64.svg)\n"
-        claims_page = "![old](images/zstd-aarch64.svg)\n<!-- claims of zstd-aarch64 -->\n<!-- end of claims -->\n"
-        open(f"{root}/README.md", "w").write(readme)
-        open(f"{root}/docs/benchmarks.md", "w").write(claims_page)
-        write_module_pages(root, module_page)
-        module_pages = [f"{root}/src/{module}/README.md" for module in chart_docs.CHART_MODULES]
-        titles, claims = {"zstd-aarch64": "t"}, {"zstd-aarch64": ["one"]}
-        assert chart_docs.stale(root, titles, claims) == [f"{root}/README.md", f"{root}/docs/benchmarks.md"] + module_pages
-        chart_docs.write(root, titles, claims)
-        assert chart_docs.stale(root, titles, claims) == []
-        assert open(f"{root}/README.md").read() == "![t](docs/images/zstd-aarch64.svg)\n"
-        first = chart_docs.images_from(chart_docs.CHART_MODULES[0])
-        assert open(module_pages[0]).read() == f"![t]({first}zstd-aarch64.svg)\n"
-        # An alt text written by hand in one module's README makes that page stale, and no other.
-        last = chart_docs.images_from(chart_docs.CHART_MODULES[-1])
-        open(module_pages[-1], "w").write(module_page.replace("{images}", last))
-        assert chart_docs.stale(root, titles, claims) == [module_pages[-1]]
-        chart_docs.write(root, titles, claims)
-        # A line outside a block is the page's own, and leaves it current.
-        open(f"{root}/docs/benchmarks.md", "a").write("- two\n")
-        assert chart_docs.stale(root, titles, claims) == []
-        # An alt text written by hand makes the page stale again.
-        open(f"{root}/README.md", "w").write(readme)
-        assert chart_docs.stale(root, titles, claims) == [f"{root}/README.md"]
-
-
-def test_charts_check_reads_the_pages():
-    """charts.py --check fails on a tree where a module's README holds an alt text written by hand."""
-    import charts
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    page = "src/compress/zstd/README.md"
-    with tempfile.TemporaryDirectory() as copy:
-        for folder in ("bench/results", "docs/images"):
-            shutil.copytree(f"{root}/{folder}", f"{copy}/{folder}")
-        for kept in ("bench/charts.txt",) + tuple(name for name, _ in chart_docs.PAGES):
-            os.makedirs(os.path.dirname(f"{copy}/{kept}"), exist_ok=True)
-            shutil.copy(f"{root}/{kept}", f"{copy}/{kept}")
-        saved_root, saved_argv = charts.ROOT, sys.argv
-        charts.ROOT, sys.argv = copy, ["charts.py", "--check"]
-        try:
-            charts.main()
-            shown = open(f"{copy}/{page}", encoding="utf-8").read()
-            images = chart_docs.images_from("compress/zstd")
-            by_hand = re.sub(r"!\[[^\]]*\]\(" + re.escape(images) + "zstd-aarch64", f"![by hand]({images}zstd-aarch64", shown)
-            assert by_hand != shown, f"{page} shows no chart of zstd"
-            open(f"{copy}/{page}", "w", encoding="utf-8").write(by_hand)
-            try:
-                charts.main()
-            except SystemExit as stop:
-                assert f"{copy}/{page}" in str(stop), stop
-            else:
-                raise AssertionError("charts.py --check passed a README with an alt text written by hand")
-        finally:
-            charts.ROOT, sys.argv = saved_root, saved_argv
-
-
-def test_escaped():
-    assert chart_docs.escaped("a*b_c|d<e`f[g]h\\i") == "a\\*b\\_c\\|d\\<e\\`f\\[g\\]h\\\\i"
+        copy_pages(root)
+        assert run(root, ["--check"]) is None
+        readme = os.path.join(root, "src/compress/zstd/README.md")
+        text = open(readme).read()
+        open(readme, "w").write(text.replace(chart_docs.image("zstd", "x86_64"), ""))
+        assert "zstd-x86_64" in run(root, ["--check"])
+        open(readme, "w").write(text.replace(chart_docs.image("zstd", "x86_64"), "![t](../../../docs/images/zstd-x86_64.svg)"))
+        assert "differs" in run(root, ["--check"])
+        # Written, the page shows the chart from the branch again.
+        assert run(root, []) is None
+        assert run(root, ["--check"]) is None
+        open(readme, "w").write(text + "\n<!-- claims of zstd-aarch64 -->\n")
+        assert "claims" in run(root, ["--check"])
 
 
 if __name__ == "__main__":
-    tests = [value for key, value in sorted(globals().items()) if key.startswith("test_")]
+    tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
         test()
     print(f"chart_docs_test.py: {len(tests)} tests passed")

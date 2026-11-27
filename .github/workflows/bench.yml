@@ -1,11 +1,18 @@
-# Decisions 10 and 20: benchmarks run on the hosted runners when a person asks, pinned to one core,
-# with each run recorded beside its numbers. docs/costs.md and the published results are filled
-# from named runs of this workflow. The `base` input names a commit or branch to benchmark first in
-# the same job, so that an A/B pairs one CPU: the x86-64 runner draws a different CPU from run to
-# run (decision 20).
+# Decisions 10 and 20: benchmarks run on the hosted runners, pinned to one core, with each run
+# recorded beside its numbers. A person starts one benchmark by hand: the `base` input names a
+# commit or branch to benchmark first in the same job, so that an A/B pairs one CPU, since the x86-64
+# runner draws a different CPU from run to run (decision 20). On each release tag, and when a person
+# names a tag in `release`, the workflow runs every job that bench/charts.txt asks for. `charts`
+# then draws each chart, compares it with the previous release's reports, attaches the charts and
+# the reports to the release, writes them to the branch `charts`, and adds the counts to the
+# release's notes (decision 85 as amended on 2026-11-26). With `release`, the `reports` input names
+# an earlier run of this workflow for that tag: no job measures, and `charts` draws that run's
+# reports again with this commit's tools, as when an earlier run's charts job failed.
 name: bench
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       benchmark:
@@ -17,29 +24,104 @@ on:
         description: "A commit, branch or tag to benchmark first, in the same job; empty for none"
         type: string
         default: ""
+      release:
+        description: "A release tag to benchmark as its push does, in place of the two inputs above; empty for none"
+        type: string
+        default: ""
+      reports:
+        description: "With release: the ID of an earlier run for that tag whose reports to draw again, in place of new jobs; empty for none"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  # The jobs to run, the tree each one measures and the tree it measures first. For a release they
+  # come from bench/charts.txt, `previous` is the release before it (tools/bench_release.py), and
+  # the release opens with the notes of docs/releases/<tag>.md (tools/charts_release.sh).
+  plan:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+      ref: ${{ steps.plan.outputs.ref }}
+      base: ${{ steps.plan.outputs.base }}
+      tag: ${{ steps.plan.outputs.tag }}
+      previous: ${{ steps.plan.outputs.previous }}
+      previous_commit: ${{ steps.plan.outputs.previous_commit }}
+      reports: ${{ steps.plan.outputs.reports }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tags, so that the release before the tag can be found.
+          fetch-depth: 0
+      - id: plan
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
+          BENCHMARK: ${{ inputs.benchmark }}
+          BASE: ${{ inputs.base }}
+          REPORTS: ${{ inputs.reports }}
+        run: |
+          if [ -n "$REPORTS" ] && [ -z "$TAG" ]; then
+            echo "::error::the reports input needs a release tag"
+            exit 1
+          fi
+          case "$REPORTS" in
+            *[!0-9]*) echo "::error::the reports input is a run's ID, digits alone"; exit 1 ;;
+          esac
+          echo "reports=$REPORTS" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAG" ]; then
+            previous="$(python3 tools/bench_release.py previous "$TAG")"
+            {
+              echo "jobs=$(python3 tools/bench_release.py matrix)"
+              echo "ref=$TAG"
+              echo "base="
+              echo "tag=$TAG"
+              echo "previous=$previous"
+              echo "previous_commit=$(if [ -n "$previous" ]; then git rev-parse "$previous^{commit}"; fi)"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "jobs=$(python3 tools/bench_release.py matrix "$BENCHMARK")"
+              echo "ref=$GITHUB_SHA"
+              echo "base=$BASE"
+              echo "tag="
+              echo "previous="
+              echo "previous_commit="
+            } >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open the release
+        if: steps.plan.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: tools/charts_release.sh open "${{ steps.plan.outputs.tag }}"
   bench:
+    needs: plan
+    if: needs.plan.outputs.reports == ''
+    name: ${{ matrix.benchmark }} ${{ matrix.job }} (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-26.04, ubuntu-26.04-arm]
+        include: ${{ fromJSON(needs.plan.outputs.jobs) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
       RUNNER_LABEL: ${{ matrix.runner }}
+      BENCHMARK: ${{ matrix.benchmark }}
+      BASE: ${{ needs.plan.outputs.base }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The whole history, so that `base` resolves any commit, branch or tag.
+          ref: ${{ needs.plan.outputs.ref }}
+          # The whole history, so that the base resolves any commit, branch or tag.
           fetch-depth: 0
       - name: Check the base out
-        if: inputs.base != ''
+        if: env.BASE != ''
         run: |
-          git worktree add base "${{ inputs.base }}"
+          git worktree add base "$BASE"
           # Zig 0.16 keeps a project's packages in zig-pkg beside its build.zig.zon and fetches any
           # that are missing there. The base uses the checkout's zig-pkg, which the cache restores,
           # in place of an empty one of its own.
@@ -89,7 +171,7 @@ jobs:
           key: ${{ steps.packages.outputs.cache-primary-key }}
       - name: Name the step
         run: |
-          case "${{ inputs.benchmark }}" in
+          case "$BENCHMARK" in
             costs) step=costs; options="" ;;
             deflate) step=bench-deflate; options=-Doracles ;;
             checksum) step=bench-checksum; options=-Doracles ;;
@@ -106,20 +188,55 @@ jobs:
           echo "step=$step" >> "$GITHUB_ENV"
           echo "options=$options" >> "$GITHUB_ENV"
       - name: Measure the base
-        if: inputs.base != ''
+        if: env.BASE != ''
         run: cd base && bench/run.sh "$GITHUB_WORKSPACE/base-report.md" "$step" $options
       - name: Measure
         run: bench/run.sh bench-report.md "$step" $options
       - name: Summarize
         run: |
           if [ -f base-report.md ]; then
-            { echo "## The base, ${{ inputs.base }}"; echo; cat base-report.md; echo; echo "## The change"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            { echo "## The base, $BASE"; echo; cat base-report.md; echo; echo "## The change"; echo; } >> "$GITHUB_STEP_SUMMARY"
           fi
           cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bench-${{ inputs.benchmark }}-${{ matrix.runner }}
+          name: bench-${{ matrix.benchmark }}-${{ matrix.runner }}-${{ matrix.job }}
           path: |
             bench-report.md
             base-report.md
+  # A release's charts, once every job of the release passed: tools/charts_release.py draws each
+  # chart and compares it with the previous release's archive of reports, and
+  # tools/charts_release.sh attaches the charts and the reports to the release, writes them to the
+  # branch `charts` and adds the counts to the release's notes. The tools come from this workflow's
+  # commit, and the reports from the release's tree: this run's jobs, or the run `reports` names.
+  charts:
+    needs: [plan, bench]
+    if: >-
+      always() && needs.plan.result == 'success' && needs.plan.outputs.tag != '' &&
+      (needs.bench.result == 'success' || (needs.bench.result == 'skipped' && needs.plan.outputs.reports != ''))
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      PREVIOUS: ${{ needs.plan.outputs.previous }}
+      # The previous release's commit, which a job's base report must name to stand in for that
+      # release's archive when it holds none, as a run before 2026-11-27 measured it.
+      PREVIOUS_COMMIT: ${{ needs.plan.outputs.previous_commit }}
+      # The run whose jobs measured the reports, which the page links: empty for this run.
+      BENCH_REPORTS_RUN: ${{ needs.plan.outputs.reports }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Take the run's reports
+        run: gh run download "${BENCH_REPORTS_RUN:-$GITHUB_RUN_ID}" --pattern 'bench-*' --dir bench-artifacts
+      - name: Take the previous release's reports
+        if: env.PREVIOUS != ''
+        run: tools/charts_release.sh previous "$PREVIOUS" previous-reports
+      - name: Draw the charts
+        run: python3 -I tools/charts_release.py bench-artifacts charts-out "$TAG" "$PREVIOUS" previous-reports "$PREVIOUS_COMMIT"
+      - name: Publish the charts
+        run: tools/charts_release.sh publish charts-out "$TAG"

@@ -190,8 +190,9 @@ body or in the step's entry in design §8. A `NOT CAUGHT` means a test is missin
   SHA-256 sums and license.
 - `bench/` holds the benchmarks, their scripts and their committed results. The baselines are
   compiled here and in `tools/`, and nowhere else. `bench/costs/` measures docs/costs.md.
-- `.github/workflows/` runs `tools/ci.sh` on each push (decision 19) and the costs on request
-  (decision 20). A new check joins `tools/ci.sh`, never a workflow file.
+- `.github/workflows/` runs `tools/ci.sh` on each push (decision 19), the costs on request
+  (decision 20), and every benchmark on each release tag (decision 85). A new check joins
+  `tools/ci.sh`, never a workflow file.
 - `README.md` is an index, and the `README.md` of each module's folder holds its details: its
   examples, its options, its limits and its chart (decision 88). A README shows only code that
   is an excerpt of `tools/consumer/`, and a size that it states was measured. A new module brings
@@ -438,8 +439,8 @@ Change this section when a step adds or renames a command.
   for x86-64-v3 (decision 34). `bench/run.sh <report.md> bench-deflate -Doracles`
   pins and records it. The `bench` workflow runs either benchmark on both hosted runners when a
   person asks (decision 20); its `base` input names a commit or branch it benchmarks first in the
-  same job, so that an A/B pairs one CPU. Each published report is committed under
-  `bench/results/`, as the workflow wrote it.
+  same job, so that an A/B pairs one CPU. A report that a design step publishes is committed under
+  `bench/results/`, as the workflow wrote it, and a release's reports stay with the release.
 - Zstandard benchmark: `zig build bench-zstd -Doracles` times libzstd's decoder, with a context
   kept across decodes, and stdx's HTTP decoder over every row, encoded by libzstd at level
   3; then stdx's fast paths against its checked path, and each claim of decision 14 off against
@@ -523,14 +524,23 @@ Change this section when a step adds or renames a command.
   on each push to main, on Linux on x86-64 and aarch64 and on macOS on arm64 (decisions 19 and
   26). `tools/install_zig.sh` installs Zig 0.16.0 there, checked against a pinned SHA-256, and
   `tools/install_lean.sh` Lean 4.34.0 on the x86-64 Linux runner, where the Lean proofs run.
-- Charts: `python3 tools/charts.py` draws the README's charts, `docs/images/<benchmark>-<arch>.svg`,
-  from the committed reports that `bench/charts.txt` names. `tools/charts_wide.py` draws the
-  regex chart, whose libraries differ by orders of magnitude, under rules it states, and
-  `tools/charts_wide_test.py` tests those rules. `tools/chart_docs.py` then gives each chart's
-  image in README.md, in each module's README that shows a chart and in docs/benchmarks.md the
-  chart's title as its alt text, and writes each chart's verdicts into docs/benchmarks.md;
-  `tools/chart_docs_test.py` tests it. `--check` fails when a committed chart or page differs
-  from what its reports draw, and `tools/ci.sh` runs it and both tests (decisions 85 and 88).
+- Charts: each release draws them (decision 85 as amended on 2026-11-26). On each release tag,
+  and when a person names a tag in its `release` input, the `bench` workflow runs every job that
+  `bench/charts.txt` names: each benchmark on both runners, regex 18 times
+  (`tools/bench_release.py`). `tools/charts_release.py` then draws each chart with
+  `tools/charts.py` and `tools/charts_wide.py`, compares it with the previous release's archive of
+  reports, which `tools/charts_release.sh previous` takes from that release, and marks each row 5%
+  or more faster or slower where both ran on one CPU model (`tools/chart_change.py`), as
+  connect-zig does. `tools/charts_release.sh publish` attaches the charts, a page of verdicts and
+  the reports to the release, writes them to the branch `charts`, and adds the counts to the
+  release's notes. The release opens with the notes of `docs/releases/<tag>.md`. With `release`,
+  the `reports` input names an earlier run for that tag: no job measures, and `charts` draws that
+  run's reports again, as when its charts job failed. Where the previous release holds no archive,
+  a job's `base-report.md` that names that release's commit stands in for it. Each page on main
+  shows each chart from that branch and gives no count of it: `python3 tools/chart_docs.py` writes
+  each image and `--check` fails where a page differs (decision 88). `python3 tools/charts.py
+  <chart> <out.svg> <report>...` draws one chart from a run's reports. `tools/ci.sh` runs
+  `--check` and the tests of each of these tools.
 - README examples: `zig build readme-check` builds `tools/consumer/`, a project of its own that
   depends on this tree the way the README says, with a nested `zig build`, and runs its program.
   It then requires every Zig block of README.md, and of each module's README, to be an excerpt

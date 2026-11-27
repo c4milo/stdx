@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Draws the README's charts from committed bench reports, and checks the committed charts.
+"""Draws a chart of stdx's speed from bench reports (decision 85 as amended on 2026-11-26).
 
-    python3 tools/charts.py           draws every chart that bench/charts.txt names
-    python3 tools/charts.py --check   fails when a committed chart or page differs from what it draws
+    python3 tools/charts.py <chart> <out.svg> <report>...   draws one chart from a run's reports
 
-It then writes what README.md and docs/benchmarks.md say of each chart, through chart_docs.py:
-each image's alt text, the chart's title, and each panel's verdict in docs/benchmarks.md.
-
-bench/charts.txt names, one line each, a benchmark, an architecture and the committed reports
-that the chart draws from: one report, or several jobs on one CPU model. A chart is one SVG under
-docs/images/, `<benchmark>-<architecture>.svg`.
+The bench workflow draws every chart of a release through charts_release.py, which bench/charts.txt
+lists, and which compares each chart with the previous release's reports (chart_change.py). A chart drawn
+here, from reports alone, marks no change.
 
 A bar is stdx's speed in multiples of the baseline the panel's title names, in the same row of the
 same job, since decision 20 compares only numbers of one job; with several jobs, the bar is their
@@ -42,11 +38,12 @@ sys.dont_write_bytecode = True
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-import chart_docs  # noqa: E402
+import chart_change  # noqa: E402
 
-# A drawn chart: its SVG, its title, and the claim of each panel, which chart_docs.py writes into
-# the pages that show it.
-Chart = collections.namedtuple("Chart", "svg title claims")
+# A drawn chart: its SVG, its title, the claim of each panel, each row's change since the previous
+# release as (panel, row, Change), and how it compares with that release (chart_change.py), which
+# the release's page and notes list.
+Chart = collections.namedtuple("Chart", "svg title claims changes comparison", defaults=((), None))
 NUM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
 LOW, HIGH = 0.25, 4.0
 
@@ -138,6 +135,8 @@ class Row:
         self.name, self.values, self.noise, self.span, self.jobs, self.learned = name, values, noise, span, jobs, learned
         self.state = state(values[0], noise) if values[0] is not None else None
         self.members = members if members is not None else ([self.state] if self.state else [])
+        # The row's change since the previous release, which draw sets where it has one.
+        self.change = None
 
 
 def summary(name, rows, learned=False):
@@ -342,6 +341,7 @@ text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fil
 .panel { font-size: 13.5px; font-weight: 600; } .row { font-size: 11.5px; fill: var(--ink2); }
 .val { font-size: 10.5px; font-weight: 600; } .tick { font-size: 10.5px; fill: var(--muted); }
 .legend { font-size: 12px; fill: var(--ink2); }
+""" + chart_change.STYLE + """
 </style>"""
 WIDTH, LEFT, RIGHT, ROW = 900, 270, 64, 17
 TICKS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4]
@@ -411,7 +411,9 @@ def bar_panel(spec, rows, y, low, high, figure, names):
     out = [f'<text class="panel" x="16" y="{y + 16}">{esc(spec.title)}</text>',
            f'<text class="sub" x="16" y="{y + 33}">{esc(bars_claim(rows, spec.unit))}</text>']
     top, plot = y + 46, WIDTH - LEFT - RIGHT
-    sx = lambda v: LEFT + plot * (min(max(math.log(v), low), high) - low) / (high - low)
+    # A value at or below zero sits at the axis's left edge, as a value below the axis does: the low
+    # end of a spread of more than 100% is one.
+    sx = lambda v: LEFT + plot * (min(max(math.log(v) if v > 0 else low, low), high) - low) / (high - low)
     height = ROW * len(rows)
     for t in TICKS:
         if low <= math.log(t) <= high:
@@ -421,7 +423,10 @@ def bar_panel(spec, rows, y, low, high, figure, names):
         v, cy = row.values, top + k * ROW + ROW / 2
         name = row.name + (" †" if row.learned else "")
         shown = f"{int(name):,} octets" if name.isdigit() else name
-        out.append(f'<text class="row" x="{LEFT - 8}" y="{cy + 4:.1f}" text-anchor="end">{esc(shown)}</text>')
+        mark = row.change.mark() if row.change else ""
+        out.append(f'<text class="row" x="{LEFT - 8}" y="{cy + 4:.1f}" text-anchor="end">{esc(shown)}{mark}</text>')
+        if row.change:
+            out.append(row.change.line(sx, cy, 5.5))
         if row.span:
             out.append(f'<line x1="{sx(row.span[0]):.1f}" y1="{cy:.1f}" x2="{sx(row.span[1]):.1f}" y2="{cy:.1f}" stroke="var(--ink2)" stroke-width="1.2"/>')
         reach = None
@@ -450,7 +455,7 @@ def bar_panel(spec, rows, y, low, high, figure, names):
     return out + part, ly + 16
 
 
-def frontier_panel(spec, points, y, figure, names):
+def frontier_panel(spec, points, y, figure, names, changes=None):
     out = [f'<text class="panel" x="16" y="{y + 16}">{esc(spec.title)}</text>',
            f'<text class="sub" x="16" y="{y + 33}">{esc(frontier_claim(points))}</text>']
     top, height, plot = y + 54, 230, WIDTH - LEFT - RIGHT
@@ -476,8 +481,10 @@ def frontier_panel(spec, points, y, figure, names):
         pts = sorted((v[0], v[1], k[1]) for k, v in points.items() if k[0] == lib)
         out.append(f'<polyline points="{" ".join(f"{sx(a):.1f},{sy(b):.1f}" for a, b, _ in pts)}" fill="none" stroke="{figure[lib][1]}" stroke-width="1.6"/>')
         for a, b, level in pts:
+            change = (changes or {}).get((lib, level))
+            mark = change.mark() if change else ""
             out.append(shape(figure[lib], sx(a), sy(b), 4.2))
-            out.append(f'<text class="val" x="{sx(a) + 7:.1f}" y="{sy(b) - 6:.1f}">{level}</text>')
+            out.append(f'<text class="val" x="{sx(a) + 7:.1f}" y="{sy(b) - 6:.1f}">{level}{mark}</text>')
     items = [(lambda x, y, f=figure[lib]: shape(f, x, y), names[lib] + (f", level {spec.reference[1]} at 1" if lib == spec.reference[0] else ""))
              for lib in ["stdx"] + others]
     part, ly = legend(items, top + height + 34)
@@ -493,10 +500,40 @@ def versions(paths, lib):
     return [" / ".join(found)] if found else []
 
 
-def draw(benchmark, paths):
+def changes_of(present, data, before):
+    """Sets each row's change since the previous release, from the same chart drawn from that
+    release's reports, and gives each panel's changes as (panel, row, Change), with the frontier
+    panels' changes by point."""
+    listed, by_point = [], {}
+    for spec, rows, then in zip(present, data, before):
+        if spec.kind == "frontier":
+            found = {key: chart_change.Change(now[0], then[key][0]) for key, now in rows.items()
+                     if key[0] == "stdx" and then and key in then}
+            by_point[spec.title] = found
+            listed += [(spec.title, f"stdx level {level}", change) for (_, level), change in found.items()]
+            continue
+        was = {row.name: row for row in then or []}
+        for row in rows:
+            other = was.get(row.name)
+            if other and row.values[0] and other.values[0]:
+                row.change = chart_change.Change(row.values[0], other.values[0], chart_change.noise(row.noise, other.noise))
+            listed.append((spec.title, row.name, row.change))
+    return listed, by_point
+
+
+def before_data(present, previous, learned):
+    """Each panel's data drawn from the previous release's reports, or None for a panel they lack."""
+    reports = [tables(p) for p in previous]
+    return [s.data(reports, learned) if s.kind == "frontier" or all(s.section in r for r in reports) else None
+            for s in present]
+
+
+def draw(benchmark, paths, previous=None, previous_tag=None):
+    """The chart of `benchmark` from the reports at `paths`. `previous` lists the previous
+    release's reports of the same chart, which `previous_tag` names."""
     if benchmark not in SPECS:
         import charts_wide
-        return charts_wide.draw(sys.modules[__name__], benchmark, paths)
+        return charts_wide.draw(sys.modules[__name__], benchmark, paths, previous, previous_tag)
     name, specs = SPECS[benchmark]
     reports = [tables(p) for p in paths]
     cpus = {field(p, "CPU model") for p in paths}
@@ -506,6 +543,11 @@ def draw(benchmark, paths):
     learned = [f.strip() for f in m.group(1).split(",")] if m else []
     present = [s for s in specs if s.kind == "frontier" or all(s.section in r for r in reports)]
     data = [s.data(reports, learned) for s in present]
+    listed, by_point, comparison = [], {}, None
+    if previous_tag:
+        comparison = chart_change.comparison_of(cpus, {field(p, "CPU model") for p in previous or []})
+    if comparison == chart_change.COMPARED:
+        listed, by_point = changes_of(present, data, before_data(present, previous, learned))
     low, high = axis([d for s, d in zip(present, data) if s.kind == "bars"])
     figure = figures(present)
     names = {lib: " ".join([lib] + versions(paths, lib)) for lib in figure}
@@ -518,7 +560,7 @@ def draw(benchmark, paths):
             descs.append(f"{spec.title}: {bars_claim(rows, spec.unit)}")
             any_learned = any_learned or any(r.learned for r in rows)
         else:
-            part, y = frontier_panel(spec, rows, y, figure, names)
+            part, y = frontier_panel(spec, rows, y, figure, names, by_point.get(spec.title))
             descs.append(f"{spec.title}: {frontier_claim(rows)}")
         body += part
     legend = []
@@ -530,6 +572,9 @@ def draw(benchmark, paths):
     if any_learned:
         y += 18
         legend.append(f'<text class="legend" x="16" y="{y + 9}">† the benchmark repeats this file of 256 KiB or less, so the branch predictor learns it (decision 45)</text>')
+    if comparison:
+        y += 18
+        legend.append(f'<text class="legend" x="16" y="{y + 9}">{esc(chart_change.note(previous_tag, comparison))}</text>')
     height = y + 26
     cpu = cpus.pop()
     runs = ", ".join(field(p, "Run URL").rsplit("/", 1)[-1] for p in paths)
@@ -541,39 +586,15 @@ def draw(benchmark, paths):
             f'<title id="t">{esc(title)}</title>', f'<desc id="d">{esc(". ".join(descs))}.</desc>', STYLE,
             f'<rect width="{WIDTH}" height="{height}" fill="var(--surface)"/>',
             f'<text class="title" x="16" y="26">{esc(title)}</text>', f'<text class="sub" x="16" y="46">{esc(sub)}</text>']
-    return Chart("\n".join(head + body + legend + ["</svg>", ""]), title, descs)
-
-
-def manifest():
-    for line in open(os.path.join(ROOT, "bench", "charts.txt"), encoding="utf-8"):
-        words = line.split("#", 1)[0].split()
-        if words:
-            yield words[0], words[1], [os.path.join(ROOT, p) for p in words[2:]]
+    return Chart("\n".join(head + body + legend + ["</svg>", ""]), title, descs, listed, comparison)
 
 
 def main():
-    check = sys.argv[1:] == ["--check"]
-    stale, titles, claims = [], {}, {}
-    for benchmark, arch, reports in manifest():
-        chart = draw(benchmark, reports)
-        name = f"{benchmark}-{arch}"
-        titles[name], claims[name] = chart.title, chart.claims
-        out = os.path.join(ROOT, "docs", "images", f"{name}.svg")
-        if check:
-            if not os.path.exists(out) or open(out, encoding="utf-8").read() != chart.svg:
-                stale.append(out)
-        else:
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-            open(out, "w", encoding="utf-8").write(chart.svg)
-    try:
-        if check:
-            stale += chart_docs.stale(ROOT, titles, claims)
-        else:
-            chart_docs.write(ROOT, titles, claims)
-    except ValueError as error:
-        sys.exit(f"charts.py: {error}")
-    if stale:
-        sys.exit("charts.py: these charts and pages differ from what their reports draw; run python3 tools/charts.py:\n  " + "\n  ".join(stale))
+    if len(sys.argv) < 4:
+        sys.exit("usage: python3 tools/charts.py <chart> <out.svg> <report>...")
+    chart = draw(sys.argv[1], sys.argv[3:])
+    with open(sys.argv[2], "w", encoding="utf-8") as out:
+        out.write(chart.svg)
 
 
 if __name__ == "__main__":

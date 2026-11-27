@@ -63,19 +63,19 @@ A text may hold 1,024 objects and arrays open at once. A deeper text is `error.D
 
 ## Performance
 
-On GitHub's Arm Neoverse N2 runner, `TextWriter` writes JSON at 1.64 to 16.35 times serde_json's
-speed.
+The chart is the latest release's: one job on each of GitHub's runners, which the `bench` workflow
+runs on each release tag. A blue bar is ahead, a gray bar is level inside the noise, and an orange
+bar is behind. A green ▲ or a red ▼ after a row's name marks a row 5% or more faster or
+slower than at the previous release, where both ran on one CPU model.
+[The page of the branch `charts`](https://github.com/c4milo/stdx/blob/charts/benchmarks.md) lists the counts of each panel, and
+[`docs/benchmarks.md`](../../../docs/benchmarks.md#json) says how to read the chart and run the
+benchmark again.
 
-One job, from the first runs on Ubuntu 26.04, at commit 0dd2e97. A blue bar is ahead, a gray bar is
-level inside the noise, and an orange bar is behind. An encoder's panel plots speed against
-compression ratio. [`docs/benchmarks.md`](../../../docs/benchmarks.md#json) lists the counts of each panel, and
-says how to run the benchmark again.
-
-![stdx's JSON against its baselines, on Neoverse-N2](../../../docs/images/json-aarch64.svg)
+![stdx's JSON against its baselines, at the latest release, on GitHub's Arm Neoverse N2 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/json-aarch64.svg)
 
 <details>
-<summary>x86-64: AMD EPYC 9V45</summary>
+<summary>x86-64: the CPU model of the release's job</summary>
 
-![stdx's JSON against its baselines, on AMD EPYC 9V45 96-Core Processor](../../../docs/images/json-x86_64.svg)
+![stdx's JSON against its baselines, at the latest release, on GitHub's x86-64 runner](https://raw.githubusercontent.com/c4milo/stdx/charts/json-x86_64.svg)
 
 </details>

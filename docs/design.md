@@ -12957,6 +12957,60 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     running SHAKE128.
   - `zig build test` passed on x86-64 Linux, with Zig 0.16.0.
 
+- **Step 34: each release draws its charts, and marks what changed since the previous release
+  (decision 85 as amended on 2026-11-26).** The owner asked for the benchmarks on each release
+  tag alone, a branch `charts` as connect-zig keeps, and marks that show whether stdx became
+  faster or slower. The `bench` workflow runs on a tag `v*`, and when a person names a tag in its
+  `release` input. Its `plan` job lists 48 jobs from `bench/charts.txt`: one for each codec on
+  each runner, and 18 regex jobs on each. Its `charts` job draws the charts, compares each with
+  the previous release's archive of reports where both ran on one CPU model, as connect-zig
+  does, and publishes them (`tools/charts_release.py` and `tools/charts_release.sh`).
+  **Check:**
+  - `tools/chart_change_test.py`, `tools/bench_release_test.py`, `tools/charts_release_test.py`
+    and `tools/chart_docs_test.py` pass, and `tools/ci.sh` runs them and `tools/chart_docs.py
+    --check`. The release test draws all 18 charts from the committed reports of
+    `bench/results/`, each standing in for a job and for the previous release's archived report.
+    A previous archive with two gzip rows, gzip's level 6 and a regex row of all 18 N2 jobs
+    changed by 20% to 30% gives each of them its mark and its row in the notes. An archive whose
+    x86-64 jobs name another CPU model marks nothing on those charts. The shell steps run against
+    a bare repository and a stand-in `gh`.
+  - Mutations, 28, each `CAUGHT`: the threshold off; the noise ignored, in the change and in the
+    codec and regex charts, which a test of a row inside its noise added; the arrows swapped; no
+    dashed line; every CPU model compared; codec rows, regex rows and encoder levels each
+    compared with the release itself; the regex chart's model ignored; no mark on an encoder's
+    level; no note under a chart; the previous release by text order; the fewest jobs a benchmark
+    asks for; a missing job let through; an earlier run's previous reports kept; the archived
+    reports read by name; a chart of another model counted in the notes; `notes.md` written to
+    the branch; the notes appended and not replaced; a carriage return kept in the heading's
+    match; no notes file read; an open release created again; the archive not extracted; images
+    of `docs/images/` let through; an old image left as it was; a module's README asked for every
+    chart.
+  - The first run, for `v0.4.0` (run 45895089065), passed its 48 jobs, and its `charts` job
+    failed: one x86-64 JSON row measured 773.1 MB/s ± 148.7%. The low end of that spread is below
+    zero, which a log axis cannot place, and a catch of every `ValueError` reported the error as
+    a missing job. Now a value at or below zero sits at the axis's left edge, and only a missing
+    job ends with a message. The `reports` input draws an earlier run's reports again with no new
+    job. A previous release with no archive, as `v0.3.0` is, gives one line in the notes and on
+    the page, and the notes name each changed row's chart. `tools/charts_release.py` drew all 18
+    charts from that run's 48 reports. Mutations, 10, each `CAUGHT`: the old axis; every
+    `ValueError` caught; a missing job raised as `ValueError`; a release with no archive taken
+    as one with reports; the notes' rows without their chart; a chart's own rows with an empty
+    first cell, which a test added; each chart's line repeated on the page; the page's opening
+    claim of marks; the page's link to the drawing run; an empty `reports` taken as a run.
+  - The base reports of `v0.3.0`, from the same run's 48 jobs, marked rebar's
+    `imported/rsc/easy1-1mb` on the N2 ▲2638874%. The change is right: a993319 reads the last 19
+    bytes of the MiB, where `v0.3.0` read it all. A change of two times or more, either way, now
+    states a multiple, as ▲26,390×. Mutations, 6, each `CAUGHT`: every change a percentage; a
+    slower multiple a percentage; two times a percentage; ten times with a decimal; no thousands
+    separator; the notes in percentages, which a test of the notes' rows added.
+  - `v0.3.0`'s release holds no archive, and run 45895089065's jobs each measured `v0.3.0`
+    (1df5f9f) first, as `base-report.md`. A base report now stands in for a missing archive when
+    it names the previous release's commit, which the `plan` job reads from the tag. Drawn from
+    that run, the notes give the same counts and rows as an archive of those reports. Mutations,
+    7, each `CAUGHT`: no base report taken; a base report of any commit; a commit's name of any
+    length; base reports over the archive; the notes and the page each silent on the same jobs;
+    the release's own reports taken as the base.
+
 ## 9. Performance
 
 Decision 10 fixes the method before the first measurement, so the numbers cannot be shaped

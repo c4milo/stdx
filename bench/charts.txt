@@ -1,22 +1,25 @@
-# The README's charts (decision 85): one line each, a benchmark, an architecture, and the committed
-# reports the chart draws from, all from one CPU model. Regex's line lists every job of its runs,
-# and tools/charts_wide.py draws the model most jobs drew. `python3 tools/charts.py` draws them into
-# docs/images/<benchmark>-<architecture>.svg, and `--check` fails when one differs.
-deflate aarch64 bench/results/2026-11-20-deflate-aarch64.md
-deflate x86_64 bench/results/2026-11-20-deflate-x86_64.md
-zstd aarch64 bench/results/2026-11-20-zstd-aarch64.md
-zstd x86_64 bench/results/2026-11-20-zstd-x86_64.md
-brotli aarch64 bench/results/2026-11-20-brotli-aarch64.md
-brotli x86_64 bench/results/2026-11-20-brotli-x86_64.md
-json aarch64 bench/results/2026-11-20-json-aarch64.md
-json x86_64 bench/results/2026-11-20-json-x86_64.md
-checksum aarch64 bench/results/2026-11-20-checksum-aarch64.md
-checksum x86_64 bench/results/2026-11-20-checksum-x86_64.md
-base64 aarch64 bench/results/2026-11-20-base64-aarch64.md
-base64 x86_64 bench/results/2026-11-20-base64-x86_64.md
-regex aarch64 bench/results/2026-11-24-regex-places-aarch64.md bench/results/2026-11-24-regex-places-second-aarch64.md bench/results/2026-11-24-regex-places-third-aarch64.md bench/results/2026-11-24-regex-places-fourth-aarch64.md bench/results/2026-11-24-regex-places-fifth-aarch64.md bench/results/2026-11-24-regex-places-sixth-aarch64.md bench/results/2026-11-24-regex-places-seventh-aarch64.md bench/results/2026-11-24-regex-places-eighth-aarch64.md bench/results/2026-11-24-regex-places-ninth-aarch64.md bench/results/2026-11-24-regex-places-tenth-aarch64.md bench/results/2026-11-24-regex-places-eleventh-aarch64.md bench/results/2026-11-24-regex-places-twelfth-aarch64.md bench/results/2026-11-24-regex-places-thirteenth-aarch64.md bench/results/2026-11-24-regex-places-fourteenth-aarch64.md bench/results/2026-11-24-regex-places-fifteenth-aarch64.md bench/results/2026-11-24-regex-places-sixteenth-aarch64.md bench/results/2026-11-24-regex-places-seventeenth-aarch64.md bench/results/2026-11-24-regex-places-eighteenth-aarch64.md
-regex x86_64 bench/results/2026-11-24-regex-places-x86_64.md bench/results/2026-11-24-regex-places-second-x86_64.md bench/results/2026-11-24-regex-places-third-x86_64.md bench/results/2026-11-24-regex-places-fourth-x86_64.md bench/results/2026-11-24-regex-places-fifth-x86_64.md bench/results/2026-11-24-regex-places-sixth-x86_64.md bench/results/2026-11-24-regex-places-seventh-x86_64.md bench/results/2026-11-24-regex-places-eighth-x86_64.md bench/results/2026-11-24-regex-places-ninth-x86_64.md bench/results/2026-11-24-regex-places-tenth-x86_64.md bench/results/2026-11-24-regex-places-eleventh-x86_64.md bench/results/2026-11-24-regex-places-twelfth-x86_64.md bench/results/2026-11-24-regex-places-thirteenth-x86_64.md bench/results/2026-11-24-regex-places-fourteenth-x86_64.md bench/results/2026-11-24-regex-places-fifteenth-x86_64.md bench/results/2026-11-24-regex-places-sixteenth-x86_64.md bench/results/2026-11-24-regex-places-seventeenth-x86_64.md bench/results/2026-11-24-regex-places-eighteenth-x86_64.md
-regex-rebar aarch64 bench/results/2026-11-24-regex-places-aarch64.md bench/results/2026-11-24-regex-places-second-aarch64.md bench/results/2026-11-24-regex-places-third-aarch64.md bench/results/2026-11-24-regex-places-fourth-aarch64.md bench/results/2026-11-24-regex-places-fifth-aarch64.md bench/results/2026-11-24-regex-places-sixth-aarch64.md bench/results/2026-11-24-regex-places-seventh-aarch64.md bench/results/2026-11-24-regex-places-eighth-aarch64.md bench/results/2026-11-24-regex-places-ninth-aarch64.md bench/results/2026-11-24-regex-places-tenth-aarch64.md bench/results/2026-11-24-regex-places-eleventh-aarch64.md bench/results/2026-11-24-regex-places-twelfth-aarch64.md bench/results/2026-11-24-regex-places-thirteenth-aarch64.md bench/results/2026-11-24-regex-places-fourteenth-aarch64.md bench/results/2026-11-24-regex-places-fifteenth-aarch64.md bench/results/2026-11-24-regex-places-sixteenth-aarch64.md bench/results/2026-11-24-regex-places-seventeenth-aarch64.md bench/results/2026-11-24-regex-places-eighteenth-aarch64.md
-regex-rebar x86_64 bench/results/2026-11-24-regex-places-x86_64.md bench/results/2026-11-24-regex-places-second-x86_64.md bench/results/2026-11-24-regex-places-third-x86_64.md bench/results/2026-11-24-regex-places-fourth-x86_64.md bench/results/2026-11-24-regex-places-fifth-x86_64.md bench/results/2026-11-24-regex-places-sixth-x86_64.md bench/results/2026-11-24-regex-places-seventh-x86_64.md bench/results/2026-11-24-regex-places-eighth-x86_64.md bench/results/2026-11-24-regex-places-ninth-x86_64.md bench/results/2026-11-24-regex-places-tenth-x86_64.md bench/results/2026-11-24-regex-places-eleventh-x86_64.md bench/results/2026-11-24-regex-places-twelfth-x86_64.md bench/results/2026-11-24-regex-places-thirteenth-x86_64.md bench/results/2026-11-24-regex-places-fourteenth-x86_64.md bench/results/2026-11-24-regex-places-fifteenth-x86_64.md bench/results/2026-11-24-regex-places-sixteenth-x86_64.md bench/results/2026-11-24-regex-places-seventeenth-x86_64.md bench/results/2026-11-24-regex-places-eighteenth-x86_64.md
-regex-rebar-others aarch64 bench/results/2026-11-24-regex-places-aarch64.md bench/results/2026-11-24-regex-places-second-aarch64.md bench/results/2026-11-24-regex-places-third-aarch64.md bench/results/2026-11-24-regex-places-fourth-aarch64.md bench/results/2026-11-24-regex-places-fifth-aarch64.md bench/results/2026-11-24-regex-places-sixth-aarch64.md bench/results/2026-11-24-regex-places-seventh-aarch64.md bench/results/2026-11-24-regex-places-eighth-aarch64.md bench/results/2026-11-24-regex-places-ninth-aarch64.md bench/results/2026-11-24-regex-places-tenth-aarch64.md bench/results/2026-11-24-regex-places-eleventh-aarch64.md bench/results/2026-11-24-regex-places-twelfth-aarch64.md bench/results/2026-11-24-regex-places-thirteenth-aarch64.md bench/results/2026-11-24-regex-places-fourteenth-aarch64.md bench/results/2026-11-24-regex-places-fifteenth-aarch64.md bench/results/2026-11-24-regex-places-sixteenth-aarch64.md bench/results/2026-11-24-regex-places-seventeenth-aarch64.md bench/results/2026-11-24-regex-places-eighteenth-aarch64.md
-regex-rebar-others x86_64 bench/results/2026-11-24-regex-places-x86_64.md bench/results/2026-11-24-regex-places-second-x86_64.md bench/results/2026-11-24-regex-places-third-x86_64.md bench/results/2026-11-24-regex-places-fourth-x86_64.md bench/results/2026-11-24-regex-places-fifth-x86_64.md bench/results/2026-11-24-regex-places-sixth-x86_64.md bench/results/2026-11-24-regex-places-seventh-x86_64.md bench/results/2026-11-24-regex-places-eighth-x86_64.md bench/results/2026-11-24-regex-places-ninth-x86_64.md bench/results/2026-11-24-regex-places-tenth-x86_64.md bench/results/2026-11-24-regex-places-eleventh-x86_64.md bench/results/2026-11-24-regex-places-twelfth-x86_64.md bench/results/2026-11-24-regex-places-thirteenth-x86_64.md bench/results/2026-11-24-regex-places-fourteenth-x86_64.md bench/results/2026-11-24-regex-places-fifteenth-x86_64.md bench/results/2026-11-24-regex-places-sixteenth-x86_64.md bench/results/2026-11-24-regex-places-seventeenth-x86_64.md bench/results/2026-11-24-regex-places-eighteenth-x86_64.md
+# The charts that each release draws (decision 85 as amended on 2026-11-26): one line each, a
+# chart, an architecture, the benchmark whose reports the chart draws, and the jobs of that
+# benchmark that the architecture's runner runs. On each release tag the bench workflow runs, on
+# each runner, the most jobs that a chart of a benchmark names (tools/bench_release.py).
+# tools/charts_release.py then draws each chart into the branch `charts` and compares it with the
+# previous release's reports, and tools/charts_wide.py draws the regex charts from the CPU model
+# that most jobs drew.
+deflate aarch64 deflate 1
+deflate x86_64 deflate 1
+zstd aarch64 zstd 1
+zstd x86_64 zstd 1
+brotli aarch64 brotli 1
+brotli x86_64 brotli 1
+json aarch64 json 1
+json x86_64 json 1
+checksum aarch64 checksum 1
+checksum x86_64 checksum 1
+base64 aarch64 base64 1
+base64 x86_64 base64 1
+regex aarch64 regex 18
+regex x86_64 regex 18
+regex-rebar aarch64 regex 18
+regex-rebar x86_64 regex 18
+regex-rebar-others aarch64 regex 18
+regex-rebar-others x86_64 regex 18
