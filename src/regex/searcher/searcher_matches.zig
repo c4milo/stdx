@@ -78,12 +78,24 @@ pub const Matches = struct {
     }
 
     /// `count` for a pattern that is its literal (claim R2): its places, none inside another.
+    /// The count's one pass keeps the registers of a block that holds candidates, and pays for
+    /// it in each block that holds none. So the first `literal_count_searches` places take a
+    /// search each, and a text of few places costs no more than the search's loop.
     fn count_exact(matches: *Matches, literal: *const Literal) u64 {
+        assert(matches.position <= matches.haystack.len);
+        defer matches.position = matches.haystack.len + 1;
+        var total: u64 = 0;
+        var from = matches.position;
+        for (0..constants.literal_count_searches) |_| {
+            const place = literal.find(matches.haystack, from) orelse return total;
+            total += 1;
+            from = place + literal.len;
+            matches.last_end = from;
+        }
         var last_end: usize = 0;
-        const total = if (matches.position > matches.haystack.len) 0 else literal.count_places(matches.haystack, matches.position, &last_end);
-        if (total != 0) matches.last_end = last_end;
-        matches.position = matches.haystack.len + 1;
-        return total;
+        const rest = literal.count_places(matches.haystack, from, &last_end);
+        if (rest != 0) matches.last_end = last_end;
+        return total + rest;
     }
 
     /// The end of the match `next` gives, for a searcher that finds each match whole.
@@ -270,4 +282,19 @@ test "a count after the walk of next has passed the end gives none" {
     try testing.expect(matches.next() != null);
     try testing.expectEqual(@as(?Span, null), matches.next());
     try testing.expectEqual(@as(u64, 0), matches.count());
+}
+
+test "a count of a literal counts no place inside another, by its searches and by its pass" {
+    // `aa` stands at every offset of a run of `a`, and its places none inside another are every
+    // second one. A text of few places takes searches alone, and a longer one the pass too.
+    var fixture: searcher_test.Fixture = .{};
+    try fixture.init("aa", searcher_test.cache_words_max);
+    try testing.expect(fixture.searcher.exact != null);
+    var few: Matches = .{ .searcher = &fixture.searcher, .haystack = "aaaaa" };
+    try testing.expectEqual(@as(u64, 2), few.count());
+    try testing.expectEqual(@as(?usize, 4), few.last_end);
+    const searches = constants.literal_count_searches;
+    var many: Matches = .{ .searcher = &fixture.searcher, .haystack = "a" ** (4 * searches + 1) };
+    try testing.expectEqual(@as(u64, 2 * searches), many.count());
+    try testing.expectEqual(@as(?usize, 4 * searches), many.last_end);
 }

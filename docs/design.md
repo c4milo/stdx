@@ -11673,6 +11673,39 @@ to 12 are reordered and nothing else changes.
     that waits refused by length. The first and the fourth passed every test before the two tests
     above.
 
+  The count's first places by search (the owner's ruling of 2026-11-26):
+  - `folly/literal-never-match-rare` and `opt/prefilter/literal-english` hold one place or none,
+    and ran at 0.92 to 0.95 of main's head. The count's pass keeps the registers of a block that
+    holds candidates. So in each block that holds none it reads the haystack's pointer and
+    `last_at` from the stack and takes two jumps, where the search's loop takes one.
+  - `Matches.count` now finds the first `literal_count_searches` places, 4, by a search each, and
+    counts the rest in one pass. A text of fewer places costs what the search costs.
+  **Check:** a count of `aa` in a run of `a` by its searches alone and by its pass, with the end
+  of its last place; the count tests, as before; the filter under callgrind; mutations.
+  **Check passed, 2026-11-26.** Zig 0.16.0 on x86-64 Linux 6.18, in a cloud container.
+  - `zig build test` exits 0.
+  - The filter, built ReleaseSafe for the baseline CPU, counted these instructions a pass of
+    `Matches.count`, with AVX2 and with no features, the path the N2 takes.
+
+    | Pattern and text | `fdfbb70` | `14d9352` | Now | None: `fdfbb70`, now |
+    | --- | ---: | ---: | ---: | --- |
+    | `ZQZQZQZQZQ`, rust-src-tools.txt | 2,135,103 | 2,192,627 | 2,135,081 | 4,211,858; 4,211,837 |
+    | `aeaeaeaeae`, rust-src-tools.txt | 3,077,448 | 2,731,637 | 2,774,454 | 5,230,726; 5,502,536 |
+    | `fooYbarZquux`, tricksy | 653,127 | 82,719 | 91,298 | 684,237; 179,002 |
+    | `Sherlock Holmes`, en-sampled.txt | 427,296 | 299,960 | 300,862 | 648,788; 560,545 |
+    | `the`, sherlock.txt | 2,670,994 | 669,272 | 670,634 | 2,479,399; 909,229 |
+    | `The` in 51 octets | 457 | 338 | 433 | 453; 424 |
+    | `y` in 51 octets | 545 | 325 | 313 | 557; 313 |
+
+  - With no features `aeaeaeaeae` takes 5% more instructions than `fdfbb70`, whose candidates
+    stand in most blocks. In the runs 45900256353 and 45900259993 it ran 1.06 times as fast on
+    the N2.
+  - Mutations: 6, against `zig build test-regex`. CAUGHT: the next search one octet on; no end of
+    the last place from a search; the pass's count not added; the searched places dropped at the
+    text's end; the pass from the count's start. The first two passed every test before the test
+    of `aa`. NOT CAUGHT: no search first, whose counts are the same, and which costs
+    `ZQZQZQZQZQ` 57,546 instructions a pass.
+
   **Part 22g, built: RE2's forms that RFC 9485 §3 refuses (decision 86, the owner's ruling of
   2026-11-21).** A class named as `[[:alpha:]]` or `[[:^alpha:]]`, a `]` that comes first in a
   class, a `-` in a class that starts no range, and an octal escape, each as RE2 reads it. A

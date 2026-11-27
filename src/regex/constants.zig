@@ -239,9 +239,8 @@ pub const claim_text_per_instruction = 64;
 
 /// The plain rows, one after another, that a run of matches takes before it gives the octets back
 /// to the scan's loops (dfa_run.zig): the continuation octets of one UTF-8 sequence. A longer run
-/// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for
-/// one read of the cache. Where the run took them all, rebar's `14-quadratic` ran at 0.7 of its
-/// speed.
+/// of plain rows, such as `.*` after a match, then goes to claim R7, which takes two octets for one
+/// read of the cache. Where the run took them all, rebar's `14-quadratic` ran at 0.7 of its speed.
 pub const dfa_run_plain_rows_max = utf8_len_max - 1;
 
 /// How a `Searcher` divides its cache once each DFA has its least: the forward DFA takes this many
@@ -292,8 +291,7 @@ pub const avx2_lanes = 32;
 /// literal keeps its first octets, which every match still starts with.
 pub const literal_len_max = 32;
 
-/// The steps of `skip_lanes` octets that claim R2's search tests before it looks for a candidate
-/// in one: 64 octets, whose mask fits one word, so one branch for each 64 octets, not each 16.
+/// Claim R2's steps of `skip_lanes` octets a block tests at once: 64 octets, one mask, one branch.
 pub const literal_steps = 4;
 
 /// The steps of a block of claim R2's search where the text has room: 128 octets, whose bounds
@@ -309,6 +307,8 @@ pub const literal_third_misses = 4;
 
 /// The places of claim R2's literal that `Matches` takes from one search: one call, not eight.
 pub const literal_places_max = 8;
+/// The places `Matches.count` finds by a search each before it counts the rest in one pass.
+pub const literal_count_searches = 4;
 
 /// The literals claim R5 searches for at most, one of which every match starts with: 64, as many
 /// as Rust's regex crate gives Teddy. The owner ruled it on 2026-11-22 (decision 86 as amended):
