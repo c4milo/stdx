@@ -50,6 +50,7 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
       tag: ${{ steps.plan.outputs.tag }}
       previous: ${{ steps.plan.outputs.previous }}
+      previous_commit: ${{ steps.plan.outputs.previous_commit }}
       reports: ${{ steps.plan.outputs.reports }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,12 +73,14 @@ jobs:
           esac
           echo "reports=$REPORTS" >> "$GITHUB_OUTPUT"
           if [ -n "$TAG" ]; then
+            previous="$(python3 tools/bench_release.py previous "$TAG")"
             {
               echo "jobs=$(python3 tools/bench_release.py matrix)"
               echo "ref=$TAG"
               echo "base="
               echo "tag=$TAG"
-              echo "previous=$(python3 tools/bench_release.py previous "$TAG")"
+              echo "previous=$previous"
+              echo "previous_commit=$(if [ -n "$previous" ]; then git rev-parse "$previous^{commit}"; fi)"
             } >> "$GITHUB_OUTPUT"
           else
             {
@@ -86,6 +89,7 @@ jobs:
               echo "base=$BASE"
               echo "tag="
               echo "previous="
+              echo "previous_commit="
             } >> "$GITHUB_OUTPUT"
           fi
       - name: Open the release
@@ -220,6 +224,9 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.plan.outputs.tag }}
       PREVIOUS: ${{ needs.plan.outputs.previous }}
+      # The previous release's commit, which a job's base report must name to stand in for that
+      # release's archive when it holds none, as a run before 2026-11-27 measured it.
+      PREVIOUS_COMMIT: ${{ needs.plan.outputs.previous_commit }}
       # The run whose jobs measured the reports, which the page links: empty for this run.
       BENCH_REPORTS_RUN: ${{ needs.plan.outputs.reports }}
     steps:
@@ -230,6 +237,6 @@ jobs:
         if: env.PREVIOUS != ''
         run: tools/charts_release.sh previous "$PREVIOUS" previous-reports
       - name: Draw the charts
-        run: python3 -I tools/charts_release.py bench-artifacts charts-out "$TAG" "$PREVIOUS" previous-reports
+        run: python3 -I tools/charts_release.py bench-artifacts charts-out "$TAG" "$PREVIOUS" previous-reports "$PREVIOUS_COMMIT"
       - name: Publish the charts
         run: tools/charts_release.sh publish charts-out "$TAG"

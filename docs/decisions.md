@@ -5851,6 +5851,10 @@ last part lists what still waits on a ruling.
         earlier run for that tag. No job measures, and the charts are drawn again from that run's
         reports with the tools of the workflow's commit: a failure of the drawing costs minutes,
         and not the 48 jobs again.
+      - A previous release with no archive, as `v0.3.0` is, may still compare. A run made before
+        2026-11-27 measured the previous release first in each job, on the same machine, as
+        `base-report.md`. A base report stands in for the archive when it names the previous
+        release's commit, and the notes and the page say that the same jobs measured it.
       - Each chart compares with the same chart drawn from the previous release's archive of
         reports, as connect-zig compares its charts. Two runs on different CPU models do not
         compare: such a chart marks nothing and says so. The arm64 runner gives a Neoverse N2 to

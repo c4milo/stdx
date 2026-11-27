@@ -534,11 +534,12 @@ Change this section when a step adds or renames a command.
   the reports to the release, writes them to the branch `charts`, and adds the counts to the
   release's notes. The release opens with the notes of `docs/releases/<tag>.md`. With `release`,
   the `reports` input names an earlier run for that tag: no job measures, and `charts` draws that
-  run's reports again, as when its charts job failed. Each page on main shows each chart from that
-  branch and gives no count of it: `python3 tools/chart_docs.py` writes each image and `--check`
-  fails where a page differs (decision 88). `python3 tools/charts.py <chart> <out.svg>
-  <report>...` draws one chart from a run's reports. `tools/ci.sh` runs `--check` and the tests of
-  each of these tools.
+  run's reports again, as when its charts job failed. Where the previous release holds no archive,
+  a job's `base-report.md` that names that release's commit stands in for it. Each page on main
+  shows each chart from that branch and gives no count of it: `python3 tools/chart_docs.py` writes
+  each image and `--check` fails where a page differs (decision 88). `python3 tools/charts.py
+  <chart> <out.svg> <report>...` draws one chart from a run's reports. `tools/ci.sh` runs
+  `--check` and the tests of each of these tools.
 - README examples: `zig build readme-check` builds `tools/consumer/`, a project of its own that
   depends on this tree the way the README says, with a nested `zig build`, and runs its program.
   It then requires every Zig block of README.md, and of each module's README, to be an excerpt
