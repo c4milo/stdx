@@ -1,0 +1,941 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1336" width="900" height="1336" role="img" aria-labelledby="t d">
+<title id="t">stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor</title>
+<desc id="d">rebar's curated searches, in multiples of Rust regex's speed: against Rust regex: ahead on 27 (1 inside 5%), level on 1, behind on 3 of 31 rows, 31 patterns; geometric mean over these rows 1.53; from 0.65 to 12.34; against Go regexp: ahead on 31 (1 inside 5%), level on 0, behind on 0 of 31. rebar's curated compiles, in multiples of Rust regex's speed: against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 4.68; from 2.89 to 8.88; against Go regexp: ahead on 9, level on 0, behind on 1 of 10.</desc>
+<style>
+svg { --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#8a8984; --grid:#e4e3df; --stdx:#2a78d6; --lose:#d4552b; --tie:#a3a29c; --m0:#1c9e77; --m1:#9467bd; --m2:#b8860b; --m3:#8a8984; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#8f8e86; --grid:#33332f; --stdx:#3987e5; --lose:#e0663b; --tie:#6b6a64; --m0:#2bb38b; --m1:#a982cf; --m2:#d4a62a; --m3:#8f8e86; }
+}
+text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
+.title { font-size: 17px; font-weight: 600; } .sub { font-size: 12.5px; fill: var(--ink2); }
+.panel { font-size: 13.5px; font-weight: 600; } .row { font-size: 11.5px; fill: var(--ink2); }
+.val { font-size: 10.5px; font-weight: 600; } .tick { font-size: 10.5px; fill: var(--muted); }
+.legend { font-size: 12px; fill: var(--ink2); }
+.better { fill: #1a7f37; } .worse { fill: #cf222e; }
+@media (prefers-color-scheme: dark) { .better { fill: #3fb950; } .worse { fill: #f85149; } }
+.was { stroke: var(--ink2); stroke-width: 1.5; stroke-dasharray: 2 2; }
+</style>
+<rect width="900" height="1336" fill="var(--surface)"/>
+<text class="title" x="16" y="26">stdx's regular expressions on rebar's curated set against Rust's regex and Go's regexp, on AMD EPYC 9V74 80-Core Processor</text>
+<text class="sub" x="16" y="46">The median of 8 jobs on AMD EPYC 9V74 80-Core Processor, the CPU model of 8 of 18 jobs, the most of any: runs</text>
+<text class="sub" x="16" y="62">45895089065, 45895089065, 45895089065, 45895089065, 45895089065, 45895089065, 45895089065, 45895089065, at commit</text>
+<text class="sub" x="16" y="78">fdfbb70.</text>
+<text class="sub" x="16" y="94">The bars share one logarithmic axis of stdx over Rust regex. The other libraries stand in the columns at the right.</text>
+<text class="legend" x="16" y="122">A bar is the median of stdx over Rust regex:</text>
+<rect x="300" y="113" width="12" height="10" rx="2" fill="var(--stdx)"/><text class="legend" x="317" y="122">ahead</text>
+<rect x="374" y="113" width="12" height="10" rx="2" fill="var(--tie)"/><text class="legend" x="391" y="122">level</text>
+<rect x="448" y="113" width="12" height="10" rx="2" fill="var(--surface)" stroke="var(--tie)" stroke-width="1.2"/><text class="legend" x="465" y="122">unclear</text>
+<rect x="522" y="113" width="12" height="10" rx="2" fill="var(--lose)"/><text class="legend" x="539" y="122">behind</text>
+<rect x="596" y="113" width="6" height="10" fill="var(--stdx)" fill-opacity="0.45"/><rect x="602" y="113" width="6" height="10" fill="var(--lose)" fill-opacity="0.45"/><text class="legend" x="613" y="122">inside 5%</text><rect x="686" y="112" width="14" height="12" fill="var(--grid)"/><text class="legend" x="705" y="122">5% of 1</text>
+<circle cx="20" cy="136" r="1.6" fill="var(--ink)" fill-opacity="0.45"/><text class="legend" x="28" y="140">a job</text><text class="legend" x="76" y="140">|—| the interval of the median: the jobs' lowest to highest ratio, 99% confidence</text>
+<path d="M20,150.6 L23.4,154 L20,157.4 L16.6,154 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<text class="legend" x="28" y="158">the median of another CPU model's jobs: INTEL(R) XEON(R) PLATINUM 8573C (2), AMD EPYC 7763 64-Core Processor (4), AMD</text>
+<text class="legend" x="28" y="175">EPYC 9V45 96-Core Processor (4)</text>
+<text class="panel" x="16" y="215">rebar's curated searches, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="232">against Rust regex: ahead on 27 (1 inside 5%), level on 1, behind on 3 of 31 rows, 31 patterns; geometric mean over these rows 1.53; from</text>
+<text class="sub" x="16" y="248">0.65 to 12.34</text>
+<text class="sub" x="16" y="264">against Go regexp: ahead on 31 (1 inside 5%), level on 0, behind on 0 of 31</text>
+<text class="sub" x="16" y="280">Each row is a benchmark of rebar's curated set whose engines name Go's regexp or RE2, under rebar's own model, pattern and haystack.</text>
+<text class="sub" x="16" y="296">rebar's author chose them, and design §8 part 22n tuned stdx on them since, so they no longer show how stdx runs on patterns its tuning</text>
+<text class="sub" x="16" y="312">did not see. rebar's author also wrote Rust's crate, and rebar's BIAS.md says the set may favor that crate.</text>
+<text class="tick" x="590" y="333">stdx ÷ Rust, interval</text>
+<text class="tick" x="884" y="333" text-anchor="end">÷ Go</text>
+<rect x="307.3" y="339" width="9.7" height="527" fill="var(--grid)"/>
+<line x1="312.1" y1="339" x2="312.1" y2="866" stroke="var(--grid)"/>
+<text class="tick" x="312.1" y="879" text-anchor="middle">1</text>
+<line x1="380.7" y1="339" x2="380.7" y2="866" stroke="var(--grid)"/>
+<text class="tick" x="380.7" y="879" text-anchor="middle">2</text>
+<line x1="449.3" y1="339" x2="449.3" y2="866" stroke="var(--grid)"/>
+<text class="tick" x="449.3" y="879" text-anchor="middle">4</text>
+<line x1="517.8" y1="339" x2="517.8" y2="866" stroke="var(--grid)"/>
+<text class="tick" x="517.8" y="879" text-anchor="middle">8</text>
+<text class="row" x="242" y="351.5" text-anchor="end">01-literal/sherlock-en <tspan class="worse">▼9%</tspan></text>
+<rect x="312.1" y="342.0" width="1.9" height="11.1" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
+<line class="was" x1="322.8" y1="340.0" x2="322.8" y2="355.0"/>
+<line x1="312.7" y1="347.5" x2="314.6" y2="347.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="312.7" y1="344.5" x2="312.7" y2="350.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="314.6" y1="344.5" x2="314.6" y2="350.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="313.6" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="312.7" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="314.4" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="313.0" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="313.8" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="314.5" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="314.6" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="314.2" cy="347.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M308.5,344.1 L311.9,347.5 L308.5,350.9 L305.1,347.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M302.5,344.1 L305.9,347.5 L302.5,350.9 L299.1,347.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M307.0,344.1 L310.4,347.5 L307.0,350.9 L303.6,347.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="343.5" width="8" height="8" rx="2" fill="var(--stdx)" fill-opacity="0.45"/>
+<text class="val" x="603" y="351.5">1.019</text>
+<text class="tick" x="646" y="351.5">1.005–1.025</text>
+<text class="tick" x="884" y="351.5" text-anchor="end">12.28</text>
+<text class="row" x="242" y="368.5" text-anchor="end">01-literal/sherlock-casei-en <tspan class="worse">▼7%</tspan></text>
+<rect x="312.1" y="359.0" width="111.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="430.3" y1="357.0" x2="430.3" y2="372.0"/>
+<line x1="422.3" y1="364.5" x2="425.0" y2="364.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="422.3" y1="361.5" x2="422.3" y2="367.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="425.0" y1="361.5" x2="425.0" y2="367.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="423.0" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="422.3" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="423.1" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="424.3" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="423.2" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="425.0" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="423.3" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="423.1" cy="364.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M408.5,361.1 L411.9,364.5 L408.5,367.9 L405.1,364.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M417.3,361.1 L420.7,364.5 L417.3,367.9 L413.9,364.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M431.3,361.1 L434.7,364.5 L431.3,367.9 L427.9,364.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="360.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="368.5">3.07</text>
+<text class="tick" x="646" y="368.5">3.05–3.13</text>
+<text class="tick" x="884" y="368.5" text-anchor="end">822</text>
+<text class="row" x="242" y="385.5" text-anchor="end">01-literal/sherlock-ru <tspan class="worse">▼8%</tspan></text>
+<rect x="312.1" y="376.0" width="4.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="325.0" y1="374.0" x2="325.0" y2="389.0"/>
+<line x1="315.4" y1="381.5" x2="318.0" y2="381.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="315.4" y1="378.5" x2="315.4" y2="384.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="318.0" y1="378.5" x2="318.0" y2="384.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="316.9" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="316.0" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="316.8" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="315.7" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="315.8" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="315.4" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.1" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="381.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M309.9,378.1 L313.3,381.5 L309.9,384.9 L306.5,381.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M303.7,378.1 L307.1,381.5 L303.7,384.9 L300.3,381.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M308.4,378.1 L311.8,381.5 L308.4,384.9 L305.0,381.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="377.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="385.5">1.044</text>
+<text class="tick" x="646" y="385.5">1.03–1.06</text>
+<text class="tick" x="884" y="385.5" text-anchor="end">27.75</text>
+<text class="row" x="242" y="402.5" text-anchor="end">01-literal/sherlock-casei-ru</text>
+<rect x="312.1" y="393.0" width="45.9" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="358.3" y1="391.0" x2="358.3" y2="406.0"/>
+<line x1="357.5" y1="398.5" x2="359.3" y2="398.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="357.5" y1="395.5" x2="357.5" y2="401.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="359.3" y1="395.5" x2="359.3" y2="401.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="357.9" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="358.4" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="359.3" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.5" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="358.2" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.5" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.8" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="358.1" cy="398.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M365.0,395.1 L368.4,398.5 L365.0,401.9 L361.6,398.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M365.6,395.1 L369.0,398.5 L365.6,401.9 L362.2,398.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M358.4,395.1 L361.8,398.5 L358.4,401.9 L355.0,398.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="394.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="402.5">1.59</text>
+<text class="tick" x="646" y="402.5">1.58–1.61</text>
+<text class="tick" x="884" y="402.5" text-anchor="end">332</text>
+<text class="row" x="242" y="419.5" text-anchor="end">01-literal/sherlock-zh</text>
+<rect x="312.1" y="410.0" width="33.4" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="346.2" y1="408.0" x2="346.2" y2="423.0"/>
+<line x1="343.5" y1="415.5" x2="346.7" y2="415.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="343.5" y1="412.5" x2="343.5" y2="418.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="346.7" y1="412.5" x2="346.7" y2="418.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="343.7" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="345.8" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="345.5" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="346.7" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="346.4" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="343.5" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="345.7" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="345.4" cy="415.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M322.6,412.1 L326.0,415.5 L322.6,418.9 L319.2,415.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M334.5,412.1 L337.9,415.5 L334.5,418.9 L331.1,415.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M341.3,412.1 L344.7,415.5 L341.3,418.9 L337.9,415.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="411.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="419.5">1.40</text>
+<text class="tick" x="646" y="419.5">1.37–1.42</text>
+<text class="tick" x="884" y="419.5" text-anchor="end">36.81</text>
+<text class="row" x="242" y="436.5" text-anchor="end">02-literal-alternate/sherlock-en</text>
+<rect x="312.1" y="427.0" width="25.5" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="334.7" y1="425.0" x2="334.7" y2="440.0"/>
+<line x1="337.1" y1="432.5" x2="338.8" y2="432.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="337.1" y1="429.5" x2="337.1" y2="435.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="338.8" y1="429.5" x2="338.8" y2="435.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="337.6" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.5" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.8" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.3" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.4" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.6" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.6" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.1" cy="432.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M341.4,429.1 L344.8,432.5 L341.4,435.9 L338.0,432.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M327.6,429.1 L331.0,432.5 L327.6,435.9 L324.2,432.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M336.1,429.1 L339.5,432.5 L336.1,435.9 L332.7,432.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="428.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="436.5">1.29</text>
+<text class="tick" x="646" y="436.5">1.29–1.31</text>
+<text class="tick" x="884" y="436.5" text-anchor="end">780</text>
+<text class="row" x="242" y="453.5" text-anchor="end">02-literal-alternate/sherlock-casei-en</text>
+<rect x="312.1" y="444.0" width="80.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="391.3" y1="442.0" x2="391.3" y2="457.0"/>
+<line x1="391.9" y1="449.5" x2="393.5" y2="449.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="391.9" y1="446.5" x2="391.9" y2="452.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="393.5" y1="446.5" x2="393.5" y2="452.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="392.9" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.5" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.3" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.7" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="393.5" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="393.0" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="393.3" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="391.9" cy="449.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M306.4,446.1 L309.8,449.5 L306.4,452.9 L303.0,449.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M326.9,446.1 L330.3,449.5 L326.9,452.9 L323.5,449.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M315.6,446.1 L319.0,449.5 L315.6,452.9 L312.2,449.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="445.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="453.5">2.26</text>
+<text class="tick" x="646" y="453.5">2.24–2.28</text>
+<text class="tick" x="884" y="453.5" text-anchor="end">433</text>
+<text class="row" x="242" y="470.5" text-anchor="end">02-literal-alternate/sherlock-ru</text>
+<rect x="312.1" y="461.0" width="10.2" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="322.4" y1="459.0" x2="322.4" y2="474.0"/>
+<line x1="321.8" y1="466.5" x2="322.8" y2="466.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="321.8" y1="463.5" x2="321.8" y2="469.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="322.8" y1="463.5" x2="322.8" y2="469.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="322.5" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.3" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.8" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="321.8" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.0" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.0" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.3" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="322.3" cy="466.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M376.8,463.1 L380.2,466.5 L376.8,469.9 L373.4,466.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M374.5,463.1 L377.9,466.5 L374.5,469.9 L371.1,466.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M365.3,463.1 L368.7,466.5 L365.3,469.9 L361.9,466.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="462.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="470.5">1.11</text>
+<text class="tick" x="646" y="470.5">1.10–1.11</text>
+<text class="tick" x="884" y="470.5" text-anchor="end">428</text>
+<text class="row" x="242" y="487.5" text-anchor="end">02-literal-alternate/sherlock-casei-ru</text>
+<rect x="312.1" y="478.0" width="74.4" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="385.6" y1="476.0" x2="385.6" y2="491.0"/>
+<line x1="385.7" y1="483.5" x2="387.1" y2="483.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="385.7" y1="480.5" x2="385.7" y2="486.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="387.1" y1="480.5" x2="387.1" y2="486.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="386.4" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="386.8" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="385.7" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="387.1" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="386.1" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="386.4" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="386.6" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="386.6" cy="483.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M376.5,480.1 L379.9,483.5 L376.5,486.9 L373.1,483.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M380.4,480.1 L383.8,483.5 L380.4,486.9 L377.0,483.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M376.1,480.1 L379.5,483.5 L376.1,486.9 L372.7,483.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="479.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="487.5">2.12</text>
+<text class="tick" x="646" y="487.5">2.10–2.13</text>
+<text class="tick" x="884" y="487.5" text-anchor="end">239</text>
+<text class="row" x="242" y="504.5" text-anchor="end">02-literal-alternate/sherlock-zh</text>
+<rect x="312.1" y="495.0" width="45.2" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="355.2" y1="493.0" x2="355.2" y2="508.0"/>
+<line x1="356.4" y1="500.5" x2="358.8" y2="500.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="356.4" y1="497.5" x2="356.4" y2="503.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="358.8" y1="497.5" x2="358.8" y2="503.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="356.4" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.0" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="358.8" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.7" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.5" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.7" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="357.8" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.6" cy="500.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M357.8,497.1 L361.2,500.5 L357.8,503.9 L354.4,500.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M346.1,497.1 L349.5,500.5 L346.1,503.9 L342.7,500.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M354.5,497.1 L357.9,500.5 L354.5,503.9 L351.1,500.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="496.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="504.5">1.58</text>
+<text class="tick" x="646" y="504.5">1.56–1.60</text>
+<text class="tick" x="884" y="504.5" text-anchor="end">567</text>
+<text class="row" x="242" y="521.5" text-anchor="end">03-date/ascii <tspan class="better">▲14%</tspan></text>
+<rect x="312.1" y="512.0" width="36.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="335.4" y1="510.0" x2="335.4" y2="525.0"/>
+<line x1="348.4" y1="517.5" x2="350.5" y2="517.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="348.4" y1="514.5" x2="348.4" y2="520.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="350.5" y1="514.5" x2="350.5" y2="520.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="348.4" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="349.0" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="348.6" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="350.3" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="350.5" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="349.1" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="348.4" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="348.7" cy="517.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M342.1,514.1 L345.5,517.5 L342.1,520.9 L338.7,517.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M341.5,514.1 L344.9,517.5 L341.5,520.9 L338.1,517.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M351.3,514.1 L354.7,517.5 L351.3,520.9 L347.9,517.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="513.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="521.5">1.45</text>
+<text class="tick" x="646" y="521.5">1.44–1.47</text>
+<text class="tick" x="884" y="521.5" text-anchor="end">633</text>
+<text class="row" x="242" y="538.5" text-anchor="end">04-ruff-noqa/real</text>
+<rect x="311.6" y="529.0" width="1.5" height="11.1" rx="2" fill="var(--tie)"/>
+<line class="was" x1="308.2" y1="527.0" x2="308.2" y2="542.0"/>
+<line x1="310.7" y1="534.5" x2="312.2" y2="534.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="310.7" y1="531.5" x2="310.7" y2="537.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="312.2" y1="531.5" x2="312.2" y2="537.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="311.6" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="310.7" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="312.2" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.6" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="312.1" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.6" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.5" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="311.5" cy="534.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M320.4,531.1 L323.8,534.5 L320.4,537.9 L317.0,534.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M310.6,531.1 L314.0,534.5 L310.6,537.9 L307.2,534.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M309.9,531.1 L313.3,534.5 L309.9,537.9 L306.5,534.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="530.5" width="8" height="8" rx="2" fill="var(--tie)"/>
+<text class="val" x="603" y="538.5">0.994</text>
+<text class="tick" x="646" y="538.5">0.986–1.001</text>
+<text class="tick" x="884" y="538.5" text-anchor="end">24.32</text>
+<text class="row" x="242" y="555.5" text-anchor="end">04-ruff-noqa/tweaked <tspan class="better">▲44%</tspan></text>
+<rect x="312.1" y="546.0" width="54.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="330.8" y1="544.0" x2="330.8" y2="559.0"/>
+<line x1="365.7" y1="551.5" x2="368.8" y2="551.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="365.7" y1="548.5" x2="365.7" y2="554.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="368.8" y1="548.5" x2="368.8" y2="554.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="367.6" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="366.6" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="368.3" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="366.2" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="368.8" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="366.7" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="367.0" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="365.7" cy="551.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M367.1,548.1 L370.5,551.5 L367.1,554.9 L363.7,551.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M362.9,548.1 L366.3,551.5 L362.9,554.9 L359.5,551.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M367.9,548.1 L371.3,551.5 L367.9,554.9 L364.5,551.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="547.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="555.5">1.74</text>
+<text class="tick" x="646" y="555.5">1.72–1.77</text>
+<text class="tick" x="884" y="555.5" text-anchor="end">2.41</text>
+<text class="row" x="242" y="572.5" text-anchor="end">05-lexer-veryl/single</text>
+<rect x="302.3" y="563.0" width="9.8" height="11.1" rx="2" fill="var(--lose)"/>
+<line class="was" x1="306.2" y1="561.0" x2="306.2" y2="576.0"/>
+<line x1="295.6" y1="568.5" x2="306.2" y2="568.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="295.6" y1="565.5" x2="295.6" y2="571.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="306.2" y1="565.5" x2="306.2" y2="571.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="295.6" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="304.0" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="296.4" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.2" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="306.2" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="301.8" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="302.9" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="296.7" cy="568.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M301.3,565.1 L304.7,568.5 L301.3,571.9 L297.9,568.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M297.6,565.1 L301.0,568.5 L297.6,571.9 L294.2,568.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M305.1,565.1 L308.5,568.5 L305.1,571.9 L301.7,568.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="564.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<text class="val" x="603" y="572.5">0.91</text>
+<text class="tick" x="646" y="572.5">0.85–0.94</text>
+<text class="tick" x="884" y="572.5" text-anchor="end">18.52</text>
+<text class="row" x="242" y="589.5" text-anchor="end">06-cloud-flare-redos/original <tspan class="better">▲11%</tspan></text>
+<rect x="312.1" y="580.0" width="67.4" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="369.7" y1="578.0" x2="369.7" y2="593.0"/>
+<line x1="378.2" y1="585.5" x2="380.4" y2="585.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="378.2" y1="582.5" x2="378.2" y2="588.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="380.4" y1="582.5" x2="380.4" y2="588.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="378.2" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="379.8" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="380.0" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="379.5" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="378.4" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="379.7" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="379.2" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="380.4" cy="585.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M382.3,582.1 L385.7,585.5 L382.3,588.9 L378.9,585.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M378.7,582.1 L382.1,585.5 L378.7,588.9 L375.3,585.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M380.7,582.1 L384.1,585.5 L380.7,588.9 L377.3,585.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="581.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="589.5">1.98</text>
+<text class="tick" x="646" y="589.5">1.95–1.99</text>
+<text class="tick" x="884" y="589.5" text-anchor="end">17.60</text>
+<text class="row" x="242" y="606.5" text-anchor="end">06-cloud-flare-redos/simplified-short <tspan class="better">▲14%</tspan></text>
+<rect x="312.1" y="597.0" width="63.7" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="363.2" y1="595.0" x2="363.2" y2="610.0"/>
+<line x1="375.6" y1="602.5" x2="377.3" y2="602.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="375.6" y1="599.5" x2="375.6" y2="605.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="377.3" y1="599.5" x2="377.3" y2="605.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="375.8" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="377.3" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="375.8" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="376.1" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="375.6" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="375.8" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="375.8" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="376.0" cy="602.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M390.7,599.1 L394.1,602.5 L390.7,605.9 L387.3,602.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M373.7,599.1 L377.1,602.5 L373.7,605.9 L370.3,602.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M375.0,599.1 L378.4,602.5 L375.0,605.9 L371.6,602.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="598.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="606.5">1.90</text>
+<text class="tick" x="646" y="606.5">1.90–1.93</text>
+<text class="tick" x="884" y="606.5" text-anchor="end">16.37</text>
+<text class="row" x="242" y="623.5" text-anchor="end">06-cloud-flare-redos/simplified-long <tspan class="better">▲16%</tspan></text>
+<rect x="312.1" y="614.0" width="80.3" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="377.6" y1="612.0" x2="377.6" y2="627.0"/>
+<line x1="392.2" y1="619.5" x2="392.8" y2="619.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="392.2" y1="616.5" x2="392.2" y2="622.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="392.8" y1="616.5" x2="392.8" y2="622.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="392.6" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.5" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.8" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.3" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.3" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.2" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.5" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="392.6" cy="619.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M393.6,616.1 L397.0,619.5 L393.6,622.9 L390.2,619.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M399.4,616.1 L402.8,619.5 L399.4,622.9 L396.0,619.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M387.7,616.1 L391.1,619.5 L387.7,622.9 L384.3,619.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="615.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="623.5">2.25</text>
+<text class="tick" x="646" y="623.5">2.25–2.26</text>
+<text class="tick" x="884" y="623.5" text-anchor="end">19.62</text>
+<text class="row" x="242" y="640.5" text-anchor="end">07-unicode-character-data/parse-line</text>
+<rect x="312.1" y="631.0" width="22.2" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="334.2" y1="629.0" x2="334.2" y2="644.0"/>
+<line x1="326.9" y1="636.5" x2="363.8" y2="636.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="326.9" y1="633.5" x2="326.9" y2="639.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="363.8" y1="633.5" x2="363.8" y2="639.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="333.9" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="326.9" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="335.2" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="333.9" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="334.8" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="335.2" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="330.2" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="363.8" cy="636.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M341.7,633.1 L345.1,636.5 L341.7,639.9 L338.3,636.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M330.7,633.1 L334.1,636.5 L330.7,639.9 L327.3,636.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M343.3,633.1 L346.7,636.5 L343.3,639.9 L339.9,636.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="632.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="640.5">1.25</text>
+<text class="tick" x="646" y="640.5">1.16–1.69</text>
+<text class="tick" x="884" y="640.5" text-anchor="end">5.18</text>
+<text class="row" x="242" y="657.5" text-anchor="end">08-words/all-english <tspan class="better">▲18%</tspan></text>
+<rect x="312.1" y="648.0" width="44.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="339.9" y1="646.0" x2="339.9" y2="661.0"/>
+<line x1="355.1" y1="653.5" x2="358.7" y2="653.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="355.1" y1="650.5" x2="355.1" y2="656.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="358.7" y1="650.5" x2="358.7" y2="656.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="358.3" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.6" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.0" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="355.1" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.1" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="358.7" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="356.1" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="355.6" cy="653.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M353.3,650.1 L356.7,653.5 L353.3,656.9 L349.9,653.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M351.3,650.1 L354.7,653.5 L351.3,656.9 L347.9,653.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M359.8,650.1 L363.2,653.5 L359.8,656.9 L356.4,653.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="649.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="657.5">1.56</text>
+<text class="tick" x="646" y="657.5">1.54–1.60</text>
+<text class="tick" x="884" y="657.5" text-anchor="end">9.66</text>
+<text class="row" x="242" y="674.5" text-anchor="end">08-words/long-english</text>
+<rect x="312.1" y="665.0" width="5.8" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="317.0" y1="663.0" x2="317.0" y2="678.0"/>
+<line x1="317.9" y1="670.5" x2="318.0" y2="670.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="317.9" y1="667.5" x2="317.9" y2="673.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="318.0" y1="667.5" x2="318.0" y2="673.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="317.9" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.9" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.9" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.9" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.9" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="670.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M317.0,667.1 L320.4,670.5 L317.0,673.9 L313.6,670.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M316.6,667.1 L320.0,670.5 L316.6,673.9 L313.2,670.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M317.2,667.1 L320.6,670.5 L317.2,673.9 L313.8,670.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="666.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="674.5">1.06</text>
+<text class="tick" x="646" y="674.5">1.060–1.061</text>
+<text class="tick" x="884" y="674.5" text-anchor="end">17.68</text>
+<text class="row" x="242" y="691.5" text-anchor="end">09-aws-keys/full</text>
+<rect x="307.7" y="682.0" width="4.4" height="11.1" rx="2" fill="var(--lose)"/>
+<line class="was" x1="303.5" y1="680.0" x2="303.5" y2="695.0"/>
+<line x1="305.9" y1="687.5" x2="311.6" y2="687.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="305.9" y1="684.5" x2="305.9" y2="690.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="311.6" y1="684.5" x2="311.6" y2="690.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="311.6" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.4" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="308.6" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="308.0" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.9" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="305.9" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.5" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="307.0" cy="687.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M322.5,684.1 L325.9,687.5 L322.5,690.9 L319.1,687.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M312.1,684.1 L315.5,687.5 L312.1,690.9 L308.7,687.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M306.2,684.1 L309.6,687.5 L306.2,690.9 L302.8,687.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="683.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<text class="val" x="603" y="691.5">0.956</text>
+<text class="tick" x="646" y="691.5">0.94–0.99</text>
+<text class="tick" x="884" y="691.5" text-anchor="end">7.73</text>
+<text class="row" x="242" y="708.5" text-anchor="end">09-aws-keys/quick</text>
+<rect x="312.1" y="699.0" width="17.4" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="329.8" y1="697.0" x2="329.8" y2="712.0"/>
+<line x1="329.2" y1="704.5" x2="330.1" y2="704.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="329.2" y1="701.5" x2="329.2" y2="707.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="330.1" y1="701.5" x2="330.1" y2="707.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="329.4" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="330.0" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="330.1" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.2" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.3" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.5" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.9" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="329.5" cy="704.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M336.8,701.1 L340.2,704.5 L336.8,707.9 L333.4,704.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M326.9,701.1 L330.3,704.5 L326.9,707.9 L323.5,704.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M327.9,701.1 L331.3,704.5 L327.9,707.9 L324.5,704.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="700.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="708.5">1.19</text>
+<text class="tick" x="646" y="708.5">1.19–1.20</text>
+<text class="tick" x="884" y="708.5" text-anchor="end">2.75</text>
+<text class="row" x="242" y="725.5" text-anchor="end">10-bounded-repeat/letters-en</text>
+<rect x="312.1" y="716.0" width="20.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="332.0" y1="714.0" x2="332.0" y2="729.0"/>
+<line x1="331.9" y1="721.5" x2="332.4" y2="721.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="331.9" y1="718.5" x2="331.9" y2="724.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="332.4" y1="718.5" x2="332.4" y2="724.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="332.0" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.2" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="331.9" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.2" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.2" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.4" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.2" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="332.0" cy="721.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M326.3,718.1 L329.7,721.5 L326.3,724.9 L322.9,721.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M323.1,718.1 L326.5,721.5 L323.1,724.9 L319.7,721.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M323.7,718.1 L327.1,721.5 L323.7,724.9 L320.3,721.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="717.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="725.5">1.22</text>
+<text class="tick" x="646" y="725.5">1.22–1.23</text>
+<text class="tick" x="884" y="725.5" text-anchor="end">29.93</text>
+<text class="row" x="242" y="742.5" text-anchor="end">10-bounded-repeat/letters-ru</text>
+<rect x="312.1" y="733.0" width="8.1" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="320.6" y1="731.0" x2="320.6" y2="746.0"/>
+<line x1="319.6" y1="738.5" x2="320.7" y2="738.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="319.6" y1="735.5" x2="319.6" y2="741.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="320.7" y1="735.5" x2="320.7" y2="741.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="320.2" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.2" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.7" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="319.6" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.2" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="319.9" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.6" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="320.5" cy="738.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M319.6,735.1 L323.0,738.5 L319.6,741.9 L316.2,738.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M317.2,735.1 L320.6,738.5 L317.2,741.9 L313.8,738.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M321.1,735.1 L324.5,738.5 L321.1,741.9 L317.7,738.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="734.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="742.5">1.09</text>
+<text class="tick" x="646" y="742.5">1.08–1.09</text>
+<text class="tick" x="884" y="742.5" text-anchor="end">21.58</text>
+<text class="row" x="242" y="759.5" text-anchor="end">10-bounded-repeat/context</text>
+<rect x="312.1" y="750.0" width="25.6" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="336.7" y1="748.0" x2="336.7" y2="763.0"/>
+<line x1="334.8" y1="755.5" x2="338.6" y2="755.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="334.8" y1="752.5" x2="334.8" y2="758.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="338.6" y1="752.5" x2="338.6" y2="758.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="336.7" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.6" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.9" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.1" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="334.8" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.7" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="337.8" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="338.0" cy="755.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M335.3,752.1 L338.7,755.5 L335.3,758.9 L331.9,755.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M334.7,752.1 L338.1,755.5 L334.7,758.9 L331.3,755.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M337.1,752.1 L340.5,755.5 L337.1,758.9 L333.7,755.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="751.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="759.5">1.30</text>
+<text class="tick" x="646" y="759.5">1.26–1.31</text>
+<text class="tick" x="884" y="759.5" text-anchor="end">4.04</text>
+<text class="row" x="242" y="776.5" text-anchor="end">10-bounded-repeat/capitals</text>
+<rect x="312.1" y="767.0" width="6.0" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="317.6" y1="765.0" x2="317.6" y2="780.0"/>
+<line x1="317.8" y1="772.5" x2="318.4" y2="772.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="317.8" y1="769.5" x2="317.8" y2="775.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="318.4" y1="769.5" x2="318.4" y2="775.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="318.1" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.8" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.2" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.8" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.4" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.2" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.1" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.3" cy="772.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M316.7,769.1 L320.1,772.5 L316.7,775.9 L313.3,772.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M316.7,769.1 L320.1,772.5 L316.7,775.9 L313.3,772.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M317.4,769.1 L320.8,772.5 L317.4,775.9 L314.0,772.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="768.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="776.5">1.06</text>
+<text class="tick" x="646" y="776.5">1.06–1.07</text>
+<text class="tick" x="884" y="776.5" text-anchor="end">15.94</text>
+<text class="row" x="242" y="793.5" text-anchor="end">11-unstructured-to-json/extract</text>
+<rect x="269.2" y="784.0" width="42.9" height="11.1" rx="2" fill="var(--lose)"/>
+<line class="was" x1="262.4" y1="782.0" x2="262.4" y2="797.0"/>
+<line x1="268.0" y1="789.5" x2="280.7" y2="789.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="268.0" y1="786.5" x2="268.0" y2="792.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="280.7" y1="786.5" x2="280.7" y2="792.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="270.6" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="268.4" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="268.6" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="280.7" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="272.5" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="268.0" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="268.2" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="269.9" cy="789.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M272.3,786.1 L275.7,789.5 L272.3,792.9 L268.9,789.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M262.6,786.1 L266.0,789.5 L262.6,792.9 L259.2,789.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M278.0,786.1 L281.4,789.5 L278.0,792.9 L274.6,789.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="785.5" width="8" height="8" rx="2" fill="var(--lose)"/>
+<text class="val" x="603" y="793.5">0.65</text>
+<text class="tick" x="646" y="793.5">0.64–0.73</text>
+<text class="tick" x="884" y="793.5" text-anchor="end">1.027</text>
+<text class="row" x="242" y="810.5" text-anchor="end">12-dictionary/single</text>
+<rect x="312.1" y="801.0" width="5.8" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="318.5" y1="799.0" x2="318.5" y2="814.0"/>
+<line x1="317.7" y1="806.5" x2="318.5" y2="806.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="317.7" y1="803.5" x2="317.7" y2="809.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="318.5" y1="803.5" x2="318.5" y2="809.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="317.7" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.0" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.5" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.4" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.8" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="318.4" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.8" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="317.8" cy="806.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M316.2,803.1 L319.6,806.5 L316.2,809.9 L312.8,806.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M316.2,803.1 L319.6,806.5 L316.2,809.9 L312.8,806.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M316.0,803.1 L319.4,806.5 L316.0,809.9 L312.6,806.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="802.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="810.5">1.06</text>
+<text class="tick" x="646" y="810.5">1.06–1.07</text>
+<text class="tick" x="884" y="810.5" text-anchor="end">1315</text>
+<text class="row" x="242" y="827.5" text-anchor="end">14-quadratic/1x <tspan class="better">▲9%</tspan></text>
+<rect x="312.1" y="818.0" width="84.2" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="387.6" y1="816.0" x2="387.6" y2="831.0"/>
+<line x1="393.8" y1="823.5" x2="396.7" y2="823.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="393.8" y1="820.5" x2="393.8" y2="826.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="396.7" y1="820.5" x2="396.7" y2="826.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="396.5" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.4" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="393.8" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.5" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.0" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.2" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.7" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="396.0" cy="823.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M385.9,820.1 L389.3,823.5 L385.9,826.9 L382.5,823.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M398.9,820.1 L402.3,823.5 L398.9,826.9 L395.5,823.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M401.0,820.1 L404.4,823.5 L401.0,826.9 L397.6,823.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="819.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="827.5">2.34</text>
+<text class="tick" x="646" y="827.5">2.28–2.35</text>
+<text class="tick" x="884" y="827.5" text-anchor="end">28.35</text>
+<text class="row" x="242" y="844.5" text-anchor="end">14-quadratic/2x <tspan class="better">▲29%</tspan></text>
+<rect x="312.1" y="835.0" width="141.5" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="428.4" y1="833.0" x2="428.4" y2="848.0"/>
+<line x1="452.2" y1="840.5" x2="454.5" y2="840.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="452.2" y1="837.5" x2="452.2" y2="843.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="454.5" y1="837.5" x2="454.5" y2="843.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="453.8" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.5" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="452.3" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.8" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="452.2" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.9" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.4" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="454.5" cy="840.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M449.6,837.1 L453.0,840.5 L449.6,843.9 L446.2,840.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M450.3,837.1 L453.7,840.5 L450.3,843.9 L446.9,840.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M466.7,837.1 L470.1,840.5 L466.7,843.9 L463.3,840.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="836.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="844.5">4.18</text>
+<text class="tick" x="646" y="844.5">4.12–4.22</text>
+<text class="tick" x="884" y="844.5" text-anchor="end">46.60</text>
+<text class="row" x="242" y="861.5" text-anchor="end">14-quadratic/10x <tspan class="better">▲2.2×</tspan></text>
+<rect x="312.1" y="852.0" width="248.5" height="11.1" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="483.0" y1="850.0" x2="483.0" y2="865.0"/>
+<line x1="559.9" y1="857.5" x2="562.0" y2="857.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="559.9" y1="854.5" x2="559.9" y2="860.5" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="562.0" y1="854.5" x2="562.0" y2="860.5" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="561.0" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.7" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="562.0" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.5" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="559.9" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="561.2" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.7" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="560.6" cy="857.5" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M549.7,854.1 L553.1,857.5 L549.7,860.9 L546.3,857.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M549.1,854.1 L552.5,857.5 L549.1,860.9 L545.7,857.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M580.0,854.1 L583.4,857.5 L580.0,860.9 L576.6,857.5 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="853.5" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="861.5">12.34</text>
+<text class="tick" x="646" y="861.5">12.25–12.50</text>
+<text class="tick" x="884" y="861.5" text-anchor="end">125</text>
+<line x1="312.1" y1="335" x2="312.1" y2="866" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="panel" x="16" y="916">rebar's curated compiles, in multiples of Rust regex's speed</text>
+<text class="sub" x="16" y="933">against Rust regex: ahead on 10, level on 0, behind on 0 of 10 rows, 10 patterns; geometric mean over these rows 4.68; from 2.89 to 8.88</text>
+<text class="sub" x="16" y="949">against Go regexp: ahead on 9, level on 0, behind on 1 of 10</text>
+<text class="tick" x="590" y="970">stdx ÷ Rust, interval</text>
+<text class="tick" x="884" y="970" text-anchor="end">÷ Go</text>
+<rect x="307.3" y="976" width="9.7" height="120" fill="var(--grid)"/>
+<line x1="312.1" y1="976" x2="312.1" y2="1096" stroke="var(--grid)"/>
+<text class="tick" x="312.1" y="1109" text-anchor="middle">1</text>
+<line x1="380.7" y1="976" x2="380.7" y2="1096" stroke="var(--grid)"/>
+<text class="tick" x="380.7" y="1109" text-anchor="middle">2</text>
+<line x1="449.3" y1="976" x2="449.3" y2="1096" stroke="var(--grid)"/>
+<text class="tick" x="449.3" y="1109" text-anchor="middle">4</text>
+<line x1="517.8" y1="976" x2="517.8" y2="1096" stroke="var(--grid)"/>
+<text class="tick" x="517.8" y="1109" text-anchor="middle">8</text>
+<text class="row" x="242" y="986.0" text-anchor="end">03-date/compile-ascii</text>
+<rect x="312.1" y="978.1" width="105.1" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="416.1" y1="976.1" x2="416.1" y2="987.9"/>
+<line x1="415.9" y1="982.0" x2="420.1" y2="982.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="415.9" y1="979.0" x2="415.9" y2="985.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="420.1" y1="979.0" x2="420.1" y2="985.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="415.9" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="418.0" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="416.2" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="419.4" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="415.9" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="417.3" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="420.1" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="417.2" cy="982.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M437.5,978.6 L440.9,982.0 L437.5,985.4 L434.1,982.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M412.7,978.6 L416.1,982.0 L412.7,985.4 L409.3,982.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M439.0,978.6 L442.4,982.0 L439.0,985.4 L435.6,982.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="978.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="986.0">2.89</text>
+<text class="tick" x="646" y="986.0">2.85–2.98</text>
+<text class="tick" x="884" y="986.0" text-anchor="end">2.17</text>
+<text class="row" x="242" y="998.0" text-anchor="end">04-ruff-noqa/compile-real</text>
+<rect x="312.1" y="990.1" width="193.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="506.3" y1="988.1" x2="506.3" y2="999.9"/>
+<line x1="504.2" y1="994.0" x2="507.8" y2="994.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="504.2" y1="991.0" x2="504.2" y2="997.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="507.8" y1="991.0" x2="507.8" y2="997.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="504.2" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="505.2" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="505.0" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="506.6" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="504.3" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="504.3" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="506.0" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="507.8" cy="994.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M541.1,990.6 L544.5,994.0 L541.1,997.4 L537.7,994.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M510.2,990.6 L513.6,994.0 L510.2,997.4 L506.8,994.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M526.0,990.6 L529.4,994.0 L526.0,997.4 L522.6,994.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="990.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="998.0">7.03</text>
+<text class="tick" x="646" y="998.0">6.97–7.23</text>
+<text class="tick" x="884" y="998.0" text-anchor="end">0.73</text>
+<text class="row" x="242" y="1010.0" text-anchor="end">05-lexer-veryl/compile-single</text>
+<rect x="312.1" y="1002.1" width="169.3" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="480.2" y1="1000.1" x2="480.2" y2="1011.9"/>
+<line x1="479.0" y1="1006.0" x2="483.1" y2="1006.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="479.0" y1="1003.0" x2="479.0" y2="1009.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="483.1" y1="1003.0" x2="483.1" y2="1009.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="479.0" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.3" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="481.3" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="483.1" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="481.0" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="481.5" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="481.7" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="480.1" cy="1006.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M497.2,1002.6 L500.6,1006.0 L497.2,1009.4 L493.8,1006.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M474.3,1002.6 L477.7,1006.0 L474.3,1009.4 L470.9,1006.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M486.6,1002.6 L490.0,1006.0 L486.6,1009.4 L483.2,1006.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1002.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1010.0">5.54</text>
+<text class="tick" x="646" y="1010.0">5.40–5.63</text>
+<text class="tick" x="884" y="1010.0" text-anchor="end">2.11</text>
+<text class="row" x="242" y="1022.0" text-anchor="end">07-unicode-character-data/compile</text>
+<rect x="312.1" y="1014.1" width="139.5" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="450.0" y1="1012.1" x2="450.0" y2="1023.9"/>
+<line x1="450.1" y1="1018.0" x2="454.7" y2="1018.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="450.1" y1="1015.0" x2="450.1" y2="1021.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="454.7" y1="1015.0" x2="454.7" y2="1021.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="450.1" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.0" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.6" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="454.7" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.6" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.0" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.4" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.4" cy="1018.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M470.4,1014.6 L473.8,1018.0 L470.4,1021.4 L467.0,1018.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M451.0,1014.6 L454.4,1018.0 L451.0,1021.4 L447.6,1018.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M458.0,1014.6 L461.4,1018.0 L458.0,1021.4 L454.6,1018.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1014.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1022.0">4.10</text>
+<text class="tick" x="646" y="1022.0">4.03–4.23</text>
+<text class="tick" x="884" y="1022.0" text-anchor="end">2.82</text>
+<text class="row" x="242" y="1034.0" text-anchor="end">09-aws-keys/compile-full</text>
+<rect x="312.1" y="1026.1" width="170.1" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="480.9" y1="1024.1" x2="480.9" y2="1035.9"/>
+<line x1="480.6" y1="1030.0" x2="483.2" y2="1030.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="480.6" y1="1027.0" x2="480.6" y2="1033.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="483.2" y1="1027.0" x2="483.2" y2="1033.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="480.8" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.7" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.3" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.9" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="482.2" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="480.6" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="483.2" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="480.6" cy="1030.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M506.7,1026.6 L510.1,1030.0 L506.7,1033.4 L503.3,1030.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M486.5,1026.6 L489.9,1030.0 L486.5,1033.4 L483.1,1030.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M490.5,1026.6 L493.9,1030.0 L490.5,1033.4 L487.1,1030.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1026.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1034.0">5.58</text>
+<text class="tick" x="646" y="1034.0">5.49–5.64</text>
+<text class="tick" x="884" y="1034.0" text-anchor="end">2.00</text>
+<text class="row" x="242" y="1046.0" text-anchor="end">09-aws-keys/compile-quick</text>
+<rect x="312.1" y="1038.1" width="118.4" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="429.6" y1="1036.1" x2="429.6" y2="1047.9"/>
+<line x1="428.6" y1="1042.0" x2="433.2" y2="1042.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="428.6" y1="1039.0" x2="428.6" y2="1045.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="433.2" y1="1039.0" x2="433.2" y2="1045.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="428.6" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="432.3" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="431.0" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="433.2" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="429.9" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="432.3" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="430.0" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="429.2" cy="1042.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M449.0,1038.6 L452.4,1042.0 L449.0,1045.4 L445.6,1042.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M432.6,1038.6 L436.0,1042.0 L432.6,1045.4 L429.2,1042.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M441.6,1038.6 L445.0,1042.0 L441.6,1045.4 L438.2,1042.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1038.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1046.0">3.31</text>
+<text class="tick" x="646" y="1046.0">3.25–3.40</text>
+<text class="tick" x="884" y="1046.0" text-anchor="end">1.23</text>
+<text class="row" x="242" y="1058.0" text-anchor="end">10-bounded-repeat/compile-context</text>
+<rect x="312.1" y="1050.1" width="140.5" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="452.8" y1="1048.1" x2="452.8" y2="1059.9"/>
+<line x1="450.1" y1="1054.0" x2="454.6" y2="1054.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="450.1" y1="1051.0" x2="450.1" y2="1057.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="454.6" y1="1051.0" x2="454.6" y2="1057.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="452.1" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.5" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.0" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.9" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="454.6" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.3" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="453.2" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="450.1" cy="1054.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M466.1,1050.6 L469.5,1054.0 L466.1,1057.4 L462.7,1054.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M455.7,1050.6 L459.1,1054.0 L455.7,1057.4 L452.3,1054.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M469.9,1050.6 L473.3,1054.0 L469.9,1057.4 L466.5,1054.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1050.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1058.0">4.14</text>
+<text class="tick" x="646" y="1058.0">4.04–4.22</text>
+<text class="tick" x="884" y="1058.0" text-anchor="end">2.99</text>
+<text class="row" x="242" y="1070.0" text-anchor="end">10-bounded-repeat/compile-capitals</text>
+<rect x="312.1" y="1062.1" width="216.0" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="526.1" y1="1060.1" x2="526.1" y2="1071.9"/>
+<line x1="525.8" y1="1066.0" x2="529.3" y2="1066.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="525.8" y1="1063.0" x2="525.8" y2="1069.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="529.3" y1="1063.0" x2="529.3" y2="1069.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="528.5" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="528.3" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="527.1" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="528.6" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="529.3" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="528.1" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="527.6" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="525.8" cy="1066.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M528.4,1062.6 L531.8,1066.0 L528.4,1069.4 L525.0,1066.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M521.1,1062.6 L524.5,1066.0 L521.1,1069.4 L517.7,1066.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M543.1,1062.6 L546.5,1066.0 L543.1,1069.4 L539.7,1066.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1062.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1070.0">8.88</text>
+<text class="tick" x="646" y="1070.0">8.67–8.99</text>
+<text class="tick" x="884" y="1070.0" text-anchor="end">3.25</text>
+<text class="row" x="242" y="1082.0" text-anchor="end">11-unstructured-to-json/compile</text>
+<rect x="312.1" y="1074.1" width="137.7" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="448.1" y1="1072.1" x2="448.1" y2="1083.9"/>
+<line x1="445.0" y1="1078.0" x2="451.3" y2="1078.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="445.0" y1="1075.0" x2="445.0" y2="1081.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="451.3" y1="1075.0" x2="451.3" y2="1081.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="448.0" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="450.3" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="445.0" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.3" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="451.2" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="447.2" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="450.9" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="449.3" cy="1078.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M467.7,1074.6 L471.1,1078.0 L467.7,1081.4 L464.3,1078.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M450.4,1074.6 L453.8,1078.0 L450.4,1081.4 L447.0,1078.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M457.8,1074.6 L461.2,1078.0 L457.8,1081.4 L454.4,1078.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1074.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1082.0">4.02</text>
+<text class="tick" x="646" y="1082.0">3.83–4.08</text>
+<text class="tick" x="884" y="1082.0" text-anchor="end">2.38</text>
+<text class="row" x="242" y="1094.0" text-anchor="end">12-dictionary/compile-single</text>
+<rect x="312.1" y="1086.1" width="137.5" height="7.8" rx="2" fill="var(--stdx)"/>
+<line class="was" x1="449.6" y1="1084.1" x2="449.6" y2="1095.9"/>
+<line x1="441.9" y1="1090.0" x2="455.3" y2="1090.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="441.9" y1="1087.0" x2="441.9" y2="1093.0" stroke="var(--ink)" stroke-width="1.2"/>
+<line x1="455.3" y1="1087.0" x2="455.3" y2="1093.0" stroke="var(--ink)" stroke-width="1.2"/>
+<circle cx="455.3" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="443.6" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="441.9" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.3" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="443.6" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.3" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="443.6" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<circle cx="455.3" cy="1090.0" r="1.6" fill="var(--ink)" fill-opacity="0.45"/>
+<path d="M468.2,1086.6 L471.6,1090.0 L468.2,1093.4 L464.8,1090.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M447.5,1086.6 L450.9,1090.0 L447.5,1093.4 L444.1,1090.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<path d="M466.3,1086.6 L469.7,1090.0 L466.3,1093.4 L462.9,1090.0 Z" fill="none" stroke="var(--muted)" stroke-width="1"/>
+<rect x="590" y="1086.0" width="8" height="8" rx="2" fill="var(--stdx)"/>
+<text class="val" x="603" y="1094.0">4.01</text>
+<text class="tick" x="646" y="1094.0">3.71–4.25</text>
+<text class="tick" x="884" y="1094.0" text-anchor="end">3.09</text>
+<line x1="312.1" y1="972" x2="312.1" y2="1096" stroke="var(--ink)" stroke-width="1.5"/>
+<text class="legend" x="16" y="1133">A row is ahead or behind where its interval lies above or below 1, and level where it holds 1 inside 5% of 1. A row whose interval holds 1</text>
+<text class="legend" x="16" y="1150">and reaches past 5% is unclear: its jobs do not settle it. A difference inside 5% is one this chart calls too small to matter, and the</text>
+<text class="legend" x="16" y="1167">counts still name its direction. A bar ahead or behind inside 5% is drawn lighter, and the shaded band on each panel is 5% of 1.</text>
+<text class="legend" x="16" y="1184">The columns at the right are stdx's speed over another library's, the median of the jobs. A library has no speed (—) on a pattern that it</text>
+<text class="legend" x="16" y="1201">refuses, where its answer is not Go regexp's, and where it has no such call.</text>
+<text class="legend" x="16" y="1218">stdx timed again, last in each round, differed from stdx by at most 7.3% in any job of any row.</text>
+<text class="legend" x="16" y="1235">On another CPU model, these rows fall on the other side of 1: 01-literal/sherlock-en (INTEL(R) XEON(R) PLATINUM 8573C, 0.964);</text>
+<text class="legend" x="16" y="1252">01-literal/sherlock-en (AMD EPYC 7763 64-Core Processor, 0.91); 01-literal/sherlock-en (AMD EPYC 9V45 96-Core Processor, 0.95);</text>
+<text class="legend" x="16" y="1269">01-literal/sherlock-ru (INTEL(R) XEON(R) PLATINUM 8573C, 0.978); 01-literal/sherlock-ru (AMD EPYC 7763 64-Core Processor, 0.92);</text>
+<text class="legend" x="16" y="1286">01-literal/sherlock-ru (AMD EPYC 9V45 96-Core Processor, 0.963); 02-literal-alternate/sherlock-casei-en (INTEL(R) XEON(R) PLATINUM 8573C,</text>
+<text class="legend" x="16" y="1303">0.94); 04-ruff-noqa/real (INTEL(R) XEON(R) PLATINUM 8573C, 1.09); 09-aws-keys/full (INTEL(R) XEON(R) PLATINUM 8573C, 1.11).</text>
+<text class="legend" x="16" y="1320">▲ marks a row 5% or more faster than at v0.3.0, past the noise of both, ▼ one that much slower, and a dashed line its value at v0.3.0.</text>
+</svg>
