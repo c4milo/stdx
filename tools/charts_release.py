@@ -68,26 +68,38 @@ def kept_in(folder):
     return {key: [path for _, path in sorted(jobs)] for key, jobs in out.items()}
 
 
+class MissingJobs(Exception):
+    """A chart's benchmark left no report of a job. Any other error is a fault of the drawing, and
+    keeps its traceback."""
+
+
 def chart_jobs(found, arch, benchmark, count):
     """The jobs a chart draws, and fails unless every job of its benchmark ran."""
     jobs = found.get((benchmark, arch), [])
     ran = {job for job, _ in jobs}
     missing = [n for n in range(1, count + 1) if n not in ran]
     if missing:
-        raise ValueError(f"{benchmark} on {arch}: no report of jobs {missing}")
+        raise MissingJobs(f"{benchmark} on {arch}: no report of jobs {missing}")
     return [j for j in jobs if j[0] <= count]
 
 
-def moved_rows(chart):
-    """The rows of a chart that changed by the threshold or more, as Markdown table rows."""
+def moved_rows(chart, name=None):
+    """The rows of a chart that changed by the threshold or more, as Markdown table rows, each
+    after the chart's name when `name` is given."""
     out = []
     for panel, row, change in chart.changes:
         if change is None or change.kind is None:
             continue
         arrow = "▲" if change.kind == "faster" else "▼"
-        cells = [cell.replace("|", "\\|") for cell in (panel, row)]
-        out.append(f"| {cells[0]} | {cells[1]} | {arrow} {abs(change.share):.0%} {change.kind} |")
+        cells = [cell.replace("|", "\\|") for cell in ((name,) if name else ()) + (panel, row)]
+        out.append("| " + " | ".join(cells) + f" | {arrow} {abs(change.share):.0%} {change.kind} |")
     return out
+
+
+def compared_none(drawn):
+    """Whether the previous release left no report of any chart, as a release before decision 85's
+    amendment of 2026-11-26 did."""
+    return all(chart.comparison == chart_change.NO_REPORTS for _, chart in drawn)
 
 
 def summary_line(chart, previous_tag):
@@ -112,14 +124,18 @@ def section(name, chart, previous_tag):
 
 def page(drawn, tag, previous_tag, run):
     """The page of the branch `charts`."""
-    against = (f" Each chart marks the rows that changed since {previous_tag}, where both ran on one CPU model."
-               if previous_tag else " No release came before it, so no chart marks a change.")
+    if not previous_tag:
+        against = " No release came before it, so no chart marks a change."
+    elif compared_none(drawn):
+        against = f" {previous_tag} left no reports of its benchmarks, so no chart marks a change."
+    else:
+        against = f" Each chart marks the rows that changed since {previous_tag}, where both ran on one CPU model."
     lines = [f"# stdx's benchmarks at {tag}", "",
              f"The bench workflow drew these charts from the jobs of [its run]({run}) for {tag}.{against} "
              "[docs/benchmarks.md](https://github.com/c4milo/stdx/blob/main/docs/benchmarks.md) says how to "
              "read them and how to run each benchmark again.", ""]
     for name, chart in drawn:
-        lines += section(name, chart, previous_tag)
+        lines += section(name, chart, previous_tag if not compared_none(drawn) else None)
     return "\n".join(lines)
 
 
@@ -129,6 +145,9 @@ def notes(drawn, tag, previous_tag):
     lines = [HEADING, ""]
     if not previous_tag:
         return "\n".join(lines + [f"No release came before {tag}, so no chart marks a change. [The charts]({PAGE}).", ""])
+    if compared_none(drawn):
+        return "\n".join(lines + [f"{previous_tag} left no reports of its benchmarks, so no chart marks a change. "
+                                   f"[The charts]({PAGE}).", ""])
     lines += [f"Each chart compares {tag}'s jobs with {previous_tag}'s, where both ran on one CPU model. A row is "
               f"faster or slower where its ratio to its baseline moved by {chart_change.THRESHOLD:.0%} or more past "
               f"the noise. [The charts and their verdicts]({PAGE}).", "",
@@ -143,10 +162,10 @@ def notes(drawn, tag, previous_tag):
     if others:
         lines += ["", f"These charts mark nothing, since {previous_tag} ran them on another CPU model or left no "
                   "report of them: " + "; ".join(others) + "."]
-    moved = [row for _, chart in drawn for row in moved_rows(chart)]
+    moved = [row for name, chart in drawn for row in moved_rows(chart, name)]
     if moved:
         lines += ["", "<details>", "<summary>Rows that changed</summary>", "",
-                  "| Panel | Row | Change |", "| --- | --- | --- |", *moved, "", "</details>"]
+                  "| Chart | Panel | Row | Change |", "| --- | --- | --- | --- |", *moved, "", "</details>"]
     return "\n".join(lines + [""])
 
 
@@ -168,6 +187,12 @@ def draw_all(found, kept, previous_tag, manifest):
     return drawn
 
 
+def run_id():
+    """The run whose jobs measured the reports: BENCH_REPORTS_RUN when the workflow drew them again
+    from an earlier run, and this run otherwise."""
+    return os.environ.get("BENCH_REPORTS_RUN") or os.environ.get("GITHUB_RUN_ID", "")
+
+
 def main(arguments):
     if len(arguments) not in (3, 5):
         sys.exit("usage: tools/charts_release.py <reports> <out> <tag> [<previous tag> <previous reports>]")
@@ -177,13 +202,13 @@ def main(arguments):
     kept = kept_in(arguments[4]) if previous_tag else {}
     try:
         drawn = draw_all(found, kept, previous_tag, bench_release.manifest())
-    except ValueError as error:
+    except MissingJobs as error:
         sys.exit(f"charts_release.py: {error}")
     os.makedirs(out, exist_ok=True)
     for name, chart in drawn:
         with open(os.path.join(out, f"{name}.svg"), "w", encoding="utf-8") as svg:
             svg.write(chart.svg)
-    run = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ.get('GITHUB_REPOSITORY', 'c4milo/stdx')}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}"
+    run = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ.get('GITHUB_REPOSITORY', 'c4milo/stdx')}/actions/runs/{run_id()}"
     with open(os.path.join(out, "benchmarks.md"), "w", encoding="utf-8") as text:
         text.write(page(drawn, tag, previous_tag, run))
     with open(os.path.join(out, "notes.md"), "w", encoding="utf-8") as text:
