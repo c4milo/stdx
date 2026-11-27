@@ -5847,7 +5847,10 @@ last part lists what still waits on a ruling.
       - Once every job passed, `tools/charts_release.py` draws each chart. Then
         `tools/charts_release.sh` attaches the charts, a page and an archive of the reports to the
         release. It writes the same files as the one commit of the branch `charts`, and adds a
-        section of counts to the release's notes.
+        section of counts to the release's notes. With `release`, the `reports` input names an
+        earlier run for that tag. No job measures, and the charts are drawn again from that run's
+        reports with the tools of the workflow's commit: a failure of the drawing costs minutes,
+        and not the 48 jobs again.
       - Each chart compares with the same chart drawn from the previous release's archive of
         reports, as connect-zig compares its charts. Two runs on different CPU models do not
         compare: such a chart marks nothing and says so. The arm64 runner gives a Neoverse N2 to

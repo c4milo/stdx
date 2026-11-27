@@ -106,7 +106,7 @@ def test_jobs_in():
         assert job == 1 and report.endswith("bench-report.md")
         try:
             charts_release.chart_jobs(found, "x86_64", "regex", 2)
-        except ValueError as error:
+        except charts_release.MissingJobs as error:
             assert "[1]" in str(error), error
         else:
             raise AssertionError("no error for a missing job")
@@ -160,7 +160,7 @@ def test_release():
         assert 'a word <tspan class="better">▲25%</tspan>' in regex, "the regex chart marks its row"
         notes = open(os.path.join(out, "notes.md")).read()
         assert notes.startswith(charts_release.HEADING + "\n")
-        assert "| stdx level 6 | ▲ 30% faster |" in notes
+        assert "| deflate-aarch64 | gzip encoding: " in notes and "| stdx level 6 | ▲ 30% faster |" in notes, notes
         assert "| search for a literal: every match in 1 MiB | a word | ▲ 25% faster |" in notes, notes
         assert "| canterbury/alice29.txt | ▲ 20% faster |" in notes and "| canterbury/kennedy.xls | ▼ 17% slower |" in notes
         assert "| stdx's DEFLATE against its baselines, on Neoverse-N2 | 2 | 1 | 42 |" in notes, notes
@@ -168,6 +168,29 @@ def test_release():
         page = open(os.path.join(out, "benchmarks.md")).read()
         assert page.startswith("# stdx's benchmarks at v0.4.0") and "![stdx's DEFLATE" in page
         assert "Since v0.3.0: 2 rows faster and 1 slower by 5% or more, of 42." in page, page
+        # A chart's own section names no chart in its table of rows.
+        assert "| Panel | Row | Change |" in page and "| deflate-aarch64 |" not in page
+        assert "\n| gzip encoding: speed in multiples of libdeflate's level 6, against compression ratio | stdx level 6 |" in page
+
+
+def test_run_link():
+    """The page links the run that measured the reports, which BENCH_REPORTS_RUN names when the
+    workflow draws them again from an earlier run."""
+    saved = {key: os.environ.get(key) for key in ("BENCH_REPORTS_RUN", "GITHUB_RUN_ID")}
+    try:
+        os.environ["GITHUB_RUN_ID"] = "222"
+        os.environ.pop("BENCH_REPORTS_RUN", None)
+        assert charts_release.run_id() == "222"
+        os.environ["BENCH_REPORTS_RUN"] = "111"
+        assert charts_release.run_id() == "111"
+        os.environ["BENCH_REPORTS_RUN"] = ""
+        assert charts_release.run_id() == "222", "an empty input names this run"
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def other_model(reports):
@@ -219,6 +242,42 @@ def test_noise():
         assert "plrabn12" not in open(os.path.join(out, "notes.md")).read()
 
 
+def wide_spread(inputs):
+    """The release: the x86-64 JSON job timed stdx's decoding of one row at 773.1 MB/s ± 148.7%,
+    as the job of v0.4.0 did, so that the low end of its spread is below zero."""
+    set_cell(os.path.join(inputs, "bench-json-ubuntu-26.04-1", "bench-report.md"), "Decoding against the baselines",
+             "messages: a tree of 341 objects", "stdx, MB/s", "773.1 ± 148.7%")
+
+
+def test_wide_spread():
+    with tempfile.TemporaryDirectory() as folder:
+        artifacts(os.path.join(folder, "in"))
+        wide_spread(os.path.join(folder, "in"))
+        out = os.path.join(folder, "out")
+        charts_release.main([os.path.join(folder, "in"), out, "v0.4.0"])
+        chart = open(os.path.join(out, "json-x86_64.svg")).read()
+        assert "a tree of 341 objects" in chart, "the row with the wide spread is drawn"
+
+
+def test_drawing_fault():
+    """An error of the drawing keeps its traceback: only a missing job ends with a message."""
+    with tempfile.TemporaryDirectory() as folder:
+        artifacts(os.path.join(folder, "in"))
+        draw = charts_release.charts.draw
+
+        def fault(*arguments):
+            raise ValueError("a fault of the drawing")
+        charts_release.charts.draw = fault
+        try:
+            charts_release.main([os.path.join(folder, "in"), os.path.join(folder, "out"), "v0.4.0"])
+        except ValueError as error:
+            assert str(error) == "a fault of the drawing", error
+        else:
+            raise AssertionError("the fault ended as a missing job's message")
+        finally:
+            charts_release.charts.draw = draw
+
+
 def test_other_model():
     with tempfile.TemporaryDirectory() as folder:
         out = release(folder, other_model)
@@ -238,6 +297,13 @@ def test_no_reports():
         out = os.path.join(folder, "out")
         charts_release.main([os.path.join(folder, "in"), out, "v0.4.0", "v0.3.0", os.path.join(folder, "absent")])
         assert "left no reports of this chart" in open(os.path.join(out, "deflate-aarch64.svg")).read()
+        # One line in the notes and on the page, and no table and no list of the 18 charts.
+        notes = open(os.path.join(out, "notes.md")).read()
+        assert "v0.3.0 left no reports of its benchmarks, so no chart marks a change." in notes, notes
+        assert "| Chart |" not in notes and "mark nothing" not in notes, notes
+        page = open(os.path.join(out, "benchmarks.md")).read()
+        assert "v0.3.0 left no reports of its benchmarks" in page and "Since v0.3.0" not in page, page
+        assert "Each chart marks" not in page and "left no reports of this chart" not in page
 
 
 def test_first_release():

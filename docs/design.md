@@ -12015,6 +12015,18 @@ Steps 3 to 8 are stdx issue 1, the decoder colibri waits on. Steps 9 to 14 compl
     match; no notes file read; an open release created again; the archive not extracted; images
     of `docs/images/` let through; an old image left as it was; a module's README asked for every
     chart.
+  - The first run, for `v0.4.0` (run 45895089065), passed its 48 jobs, and its `charts` job
+    failed: one x86-64 JSON row measured 773.1 MB/s ± 148.7%. The low end of that spread is below
+    zero, which a log axis cannot place, and a catch of every `ValueError` reported the error as
+    a missing job. Now a value at or below zero sits at the axis's left edge, and only a missing
+    job ends with a message. The `reports` input draws an earlier run's reports again with no new
+    job. A previous release with no archive, as `v0.3.0` is, gives one line in the notes and on
+    the page, and the notes name each changed row's chart. `tools/charts_release.py` drew all 18
+    charts from that run's 48 reports. Mutations, 10, each `CAUGHT`: the old axis; every
+    `ValueError` caught; a missing job raised as `ValueError`; a release with no archive taken
+    as one with reports; the notes' rows without their chart; a chart's own rows with an empty
+    first cell, which a test added; each chart's line repeated on the page; the page's opening
+    claim of marks; the page's link to the drawing run; an empty `reports` taken as a run.
 
 ## 9. Performance
 

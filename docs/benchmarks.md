@@ -183,7 +183,9 @@ the owner's ruling of 2026-11-23 (decisions 85 and 88).
    `bench-regex` need cargo and go on the path too.
 2. Or start the `bench` workflow on GitHub, which runs on both hosted runners. Its `base` input
    names a commit to time first in the same job, for an A/B on one CPU. Its `release` input names
-   a release tag, and runs every job of that release, as the tag's push does.
+   a release tag, and runs every job of that release, as the tag's push does. With `release`,
+   its `reports` input names an earlier run for that tag, and the workflow draws that run's
+   reports again without a new job.
 3. `python3 tools/charts.py <chart> <out.svg> <report>...` draws one chart from a run's reports.
 
 [`CLAUDE.md`](../CLAUDE.md) says what each benchmark times, and

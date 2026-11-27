@@ -411,7 +411,9 @@ def bar_panel(spec, rows, y, low, high, figure, names):
     out = [f'<text class="panel" x="16" y="{y + 16}">{esc(spec.title)}</text>',
            f'<text class="sub" x="16" y="{y + 33}">{esc(bars_claim(rows, spec.unit))}</text>']
     top, plot = y + 46, WIDTH - LEFT - RIGHT
-    sx = lambda v: LEFT + plot * (min(max(math.log(v), low), high) - low) / (high - low)
+    # A value at or below zero sits at the axis's left edge, as a value below the axis does: the low
+    # end of a spread of more than 100% is one.
+    sx = lambda v: LEFT + plot * (min(max(math.log(v) if v > 0 else low, low), high) - low) / (high - low)
     height = ROW * len(rows)
     for t in TICKS:
         if low <= math.log(t) <= high:

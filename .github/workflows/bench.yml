@@ -5,7 +5,9 @@
 # names a tag in `release`, the workflow runs every job that bench/charts.txt asks for. `charts`
 # then draws each chart, compares it with the previous release's reports, attaches the charts and
 # the reports to the release, writes them to the branch `charts`, and adds the counts to the
-# release's notes (decision 85 as amended on 2026-11-26).
+# release's notes (decision 85 as amended on 2026-11-26). With `release`, the `reports` input names
+# an earlier run of this workflow for that tag: no job measures, and `charts` draws that run's
+# reports again with this commit's tools, as when an earlier run's charts job failed.
 name: bench
 
 on:
@@ -26,6 +28,10 @@ on:
         description: "A release tag to benchmark as its push does, in place of the two inputs above; empty for none"
         type: string
         default: ""
+      reports:
+        description: "With release: the ID of an earlier run for that tag whose reports to draw again, in place of new jobs; empty for none"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -44,6 +50,7 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
       tag: ${{ steps.plan.outputs.tag }}
       previous: ${{ steps.plan.outputs.previous }}
+      reports: ${{ steps.plan.outputs.reports }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,7 +61,16 @@ jobs:
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
           BENCHMARK: ${{ inputs.benchmark }}
           BASE: ${{ inputs.base }}
+          REPORTS: ${{ inputs.reports }}
         run: |
+          if [ -n "$REPORTS" ] && [ -z "$TAG" ]; then
+            echo "::error::the reports input needs a release tag"
+            exit 1
+          fi
+          case "$REPORTS" in
+            *[!0-9]*) echo "::error::the reports input is a run's ID, digits alone"; exit 1 ;;
+          esac
+          echo "reports=$REPORTS" >> "$GITHUB_OUTPUT"
           if [ -n "$TAG" ]; then
             {
               echo "jobs=$(python3 tools/bench_release.py matrix)"
@@ -80,6 +96,7 @@ jobs:
         run: tools/charts_release.sh open "${{ steps.plan.outputs.tag }}"
   bench:
     needs: plan
+    if: needs.plan.outputs.reports == ''
     name: ${{ matrix.benchmark }} ${{ matrix.job }} (${{ matrix.runner }})
     strategy:
       fail-fast: false
@@ -188,10 +205,12 @@ jobs:
   # chart and compares it with the previous release's archive of reports, and
   # tools/charts_release.sh attaches the charts and the reports to the release, writes them to the
   # branch `charts` and adds the counts to the release's notes. The tools come from this workflow's
-  # commit, and the reports from the release's tree.
+  # commit, and the reports from the release's tree: this run's jobs, or the run `reports` names.
   charts:
     needs: [plan, bench]
-    if: needs.plan.outputs.tag != ''
+    if: >-
+      always() && needs.plan.result == 'success' && needs.plan.outputs.tag != '' &&
+      (needs.bench.result == 'success' || (needs.bench.result == 'skipped' && needs.plan.outputs.reports != ''))
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -201,10 +220,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.plan.outputs.tag }}
       PREVIOUS: ${{ needs.plan.outputs.previous }}
+      # The run whose jobs measured the reports, which the page links: empty for this run.
+      BENCH_REPORTS_RUN: ${{ needs.plan.outputs.reports }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Take the run's reports
-        run: gh run download "$GITHUB_RUN_ID" --pattern 'bench-*' --dir bench-artifacts
+        run: gh run download "${BENCH_REPORTS_RUN:-$GITHUB_RUN_ID}" --pattern 'bench-*' --dir bench-artifacts
       - name: Take the previous release's reports
         if: env.PREVIOUS != ''
         run: tools/charts_release.sh previous "$PREVIOUS" previous-reports
