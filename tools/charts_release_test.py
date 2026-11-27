@@ -259,6 +259,18 @@ def test_wide_spread():
         assert "a tree of 341 objects" in chart, "the row with the wide spread is drawn"
 
 
+def test_moved_rows():
+    """A change of two times or more states a multiple in the notes, as on the chart."""
+    import chart_change
+    chart = charts_release.charts.Chart("", "a chart", [], [
+        ("a panel", "a row", chart_change.Change(3.0, 1.0)),
+        ("a panel", "a row | with a pipe", chart_change.Change(1.0, 4.0)),
+        ("a panel", "a row inside the threshold", chart_change.Change(1.01, 1.0))])
+    assert charts_release.moved_rows(chart, "deflate-x86_64") == [
+        "| deflate-x86_64 | a panel | a row | ▲ 3.0× faster |",
+        "| deflate-x86_64 | a panel | a row \\| with a pipe | ▼ 4.0× slower |"], charts_release.moved_rows(chart, "deflate-x86_64")
+
+
 def test_drawing_fault():
     """An error of the drawing keeps its traceback: only a missing job ends with a message."""
     with tempfile.TemporaryDirectory() as folder:

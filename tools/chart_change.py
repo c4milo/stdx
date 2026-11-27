@@ -12,7 +12,8 @@ connect-zig compares its charts:
 - Two runs on different CPU models do not compare. A chart whose CPU model differs from the
   previous release's marks nothing, and says so.
 - A faster row's label ends with ▲ and the change, a slower row's with ▼, and a dashed line marks
-  the row's value at the previous release.
+  the row's value at the previous release. A change of MULTIPLE times or more, either way, is a
+  multiple, as ▲27,000×, and a smaller one a percentage, as ▲20%.
 
 `python3 tools/chart_change_test.py` runs the tests of these rules.
 """
@@ -24,6 +25,12 @@ THRESHOLD = 0.05
 # How a chart compares with the previous release: the two drew one CPU model, they drew two, or
 # the previous release left no report of the chart.
 COMPARED, OTHER_MODEL, NO_REPORTS = "compared", "other model", "no reports"
+# The least factor, faster or slower, that a change states as a multiple and not as a percentage.
+# A search that reads only a text's end can run thousands of times as fast as one that reads all of
+# it, and 2,638,874% says that worse than 26,390×.
+MULTIPLE = 2.0
+# The least multiple stated with no decimal.
+WHOLE_MULTIPLE = 10.0
 # The marks' colors, which each chart adds to its style sheet.
 STYLE = """.better { fill: #1a7f37; } .worse { fill: #cf222e; }
 @media (prefers-color-scheme: dark) { .better { fill: #3fb950; } .worse { fill: #f85149; } }
@@ -49,12 +56,20 @@ class Change:
             return None
         return "faster" if self.share > 0 else "slower"
 
+    def amount(self):
+        """The change as text: a multiple, faster or slower, from MULTIPLE times, and a
+        percentage below it."""
+        factor = max(self.now / self.was, self.was / self.now)
+        if factor < MULTIPLE:
+            return f"{abs(self.share) * 100:.0f}%"
+        return f"{factor:,.0f}×" if factor >= WHOLE_MULTIPLE else f"{factor:.1f}×"
+
     def mark(self):
         """The text after a row's label: ▲ or ▼ and the change, or nothing."""
         if self.kind is None:
             return ""
         css, arrow = ("better", "▲") if self.kind == "faster" else ("worse", "▼")
-        return f' <tspan class="{css}">{arrow}{abs(self.share) * 100:.0f}%</tspan>'
+        return f' <tspan class="{css}">{arrow}{self.amount()}</tspan>'
 
     def line(self, x_of, cy, half):
         """A dashed line across a row at its value at the previous release, where `x_of` places a

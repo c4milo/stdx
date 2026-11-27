@@ -92,7 +92,7 @@ def moved_rows(chart, name=None):
             continue
         arrow = "▲" if change.kind == "faster" else "▼"
         cells = [cell.replace("|", "\\|") for cell in ((name,) if name else ()) + (panel, row)]
-        out.append("| " + " | ".join(cells) + f" | {arrow} {abs(change.share):.0%} {change.kind} |")
+        out.append("| " + " | ".join(cells) + f" | {arrow} {change.amount()} {change.kind} |")
     return out
 
 
